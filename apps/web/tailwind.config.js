@@ -39,5 +39,6 @@ module.exports = {
       },
     },
   },
+  safelist: ["max-w-md", "max-w-4xl", "py-20"],
   plugins: [],
 };

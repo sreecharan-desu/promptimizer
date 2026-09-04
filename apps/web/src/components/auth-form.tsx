@@ -6,7 +6,7 @@ import { useState } from "react";
 
 const ERRORS: Record<string, string> = {
   google: "Google sign-in did not complete. Try again.",
-  google_not_configured: "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart the app.",
+  google_not_configured: "Google sign-in is not available right now.",
 };
 
 const fieldClass =
@@ -16,13 +16,11 @@ export function AuthForm({
   mode,
   next,
   configured,
-  google,
   errorCode,
 }: {
   mode: "login" | "signup";
   next?: string;
   configured: boolean;
-  google: boolean;
   errorCode?: string;
 }) {
   const router = useRouter();
@@ -130,11 +128,6 @@ export function AuthForm({
               {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
             </button>
           </form>
-          {!google ? (
-            <p className="text-xs text-secondary">
-              Google is ready in the UI. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable it.
-            </p>
-          ) : null}
         </div>
       )}
       <p className="mt-6 text-sm text-secondary">

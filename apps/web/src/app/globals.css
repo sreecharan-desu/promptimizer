@@ -84,3 +84,35 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* Kept in source so a Tailwind rebuild cannot drop late screens. */
+.max-w-md {
+  max-width: 28rem;
+}
+.max-w-4xl {
+  max-width: 56rem;
+}
+.py-20 {
+  padding-top: 5rem;
+  padding-bottom: 5rem;
+}
+.h-px {
+  height: 1px;
+}
+.min-w-48 {
+  min-width: 12rem;
+}
+.border-warning\/30 {
+  border-color: hsl(var(--warning) / 0.3);
+}
+.bg-warning\/\[0\.06\] {
+  background-color: hsl(var(--warning) / 0.06);
+}
+.disabled\:opacity-60:disabled {
+  opacity: 0.6;
+}
+@media (min-width: 640px) {
+  .sm\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
