@@ -115,7 +115,6 @@ Or from the SDK:
 import { Promptimizer } from "promptimizer";
 
 const client = new Promptimizer({
-  gatewayURL: "https://your-host/api",
   apiKey: process.env.PROMPTIMIZER_API_KEY,
 });
 ```

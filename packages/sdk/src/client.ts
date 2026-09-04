@@ -18,6 +18,10 @@ export class PromptimizerError extends Error {
   }
 }
 
+export const DEFAULT_GATEWAY = (
+  process.env.PROMPTIMIZER_URL || "https://hackathon-omega-liart.vercel.app/api"
+).replace(/\/$/, "");
+
 export class Promptimizer {
   readonly gatewayURL: string;
   sessionId?: string;
@@ -25,7 +29,7 @@ export class Promptimizer {
   private readonly fetcher: typeof fetch;
 
   constructor(options: PromptimizerOptions = {}) {
-    this.gatewayURL = (options.gatewayURL ?? options.baseURL ?? "http://localhost:3000/api").replace(/\/$/, "");
+    this.gatewayURL = (options.gatewayURL ?? options.baseURL ?? DEFAULT_GATEWAY).replace(/\/$/, "");
     this.sessionId = options.sessionId;
     this.apiKey = options.apiKey;
     this.fetcher = options.fetch ?? fetch;
@@ -35,7 +39,10 @@ export class Promptimizer {
     client: Promptimizer;
     session: Session;
   }> {
-    const client = new Promptimizer({ gatewayURL: options.gatewayURL });
+    const client = new Promptimizer({
+      gatewayURL: options.gatewayURL,
+      apiKey: options.accountKey,
+    });
     const session = await client.connect(options);
     return { client, session };
   }

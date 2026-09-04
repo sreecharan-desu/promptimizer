@@ -23,11 +23,39 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
-    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/classify.test.ts src/providers.test.ts",
     "publish:npm": "npm publish --access public"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "require": "./dist/index.cjs"
+      },
+      "./providers": {
+        "types": "./dist/providers.d.ts",
+        "import": "./dist/providers.js",
+        "require": "./dist/providers.cjs"
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sreecharan-desu/promptimizer.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://hackathon-omega-liart.vercel.app",
+  "bugs": {
+    "url": "https://github.com/sreecharan-desu/promptimizer/issues"
   },
   "keywords": [
     "llm",
@@ -40,8 +68,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "tsup": "^8.5.0",
-    "tsx": "^4.20.0",
+    "esbuild": "^0.25.9",
     "typescript": "^5.8.0"
   }
 }

@@ -1,4 +1,4 @@
-export { Promptimizer, PromptimizerError } from "./client";
+export { DEFAULT_GATEWAY, Promptimizer, PromptimizerError } from "./client";
 export { classifyMessages, classifyText, difficultyTier } from "./classify";
 export { PROVIDERS, findProvider, publicCatalog, resolveBaseURL } from "./providers";
 export type { ProviderPreset } from "./providers";

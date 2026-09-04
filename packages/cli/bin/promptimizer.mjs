@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_URL = process.env.PROMPTIMIZER_URL || "http://localhost:3000/api";
+const DEFAULT_URL = process.env.PROMPTIMIZER_URL || "https://hackathon-omega-liart.vercel.app/api";
 const CONFIG_PATH = join(homedir(), ".promptimizer", "config.json");
 
 const COMMANDS = [

@@ -7,10 +7,29 @@
     "promptimizer": "./bin/promptimizer.mjs"
   },
   "files": [
-    "bin"
+    "bin",
+    "README.md"
   ],
   "engines": {
     "node": ">=20"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sreecharan-desu/promptimizer.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://hackathon-omega-liart.vercel.app",
+  "bugs": {
+    "url": "https://github.com/sreecharan-desu/promptimizer/issues"
+  },
+  "keywords": [
+    "promptimizer",
+    "llm",
+    "cli",
+    "byok"
+  ],
   "license": "MIT"
 }

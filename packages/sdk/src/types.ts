@@ -36,6 +36,7 @@ export type ConnectOptions = {
   provider?: string;
   baseURL?: string;
   apiKey?: string;
+  accountKey?: string;
   gatewayURL?: string;
 };
 

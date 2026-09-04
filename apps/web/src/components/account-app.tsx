@@ -98,7 +98,6 @@ export function AccountApp({ user, keys }: { user: { email: string; name: string
       <pre className="mt-10 overflow-x-auto rounded-xl border border-primary/[0.08] bg-card p-4 font-mono text-[13px] text-primary/80">{`import { Promptimizer } from "promptimizer";
 
 const client = new Promptimizer({
-  gatewayURL: "https://your-app.example/api",
   apiKey: process.env.PROMPTIMIZER_API_KEY,
 });
 
