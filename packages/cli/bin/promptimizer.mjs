@@ -151,7 +151,7 @@ function banner(session, version) {
   out(`  ${color(ANSI.green, "●")} ${label}${models ? ` · ${models} models` : ""}`);
   out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
   out();
-  out(`  ${color(ANSI.dim, "Type a prompt, or /help  /models  /savings  /clear  /quit")}`);
+  out(`  ${color(ANSI.dim, "Type a prompt, or /help  /models  /savings  /clear  /logout  /quit")}`);
   out(`  ${color(ANSI.dim, "Cache keys on full history — /clear then repeat a prompt to see cache hit")}`);
   out();
 }
@@ -417,6 +417,7 @@ async function interactive(flags) {
     out(`  ${color(ANSI.bold, "/savings")}   account ledger`);
     out(`  ${color(ANSI.bold, "/session")}   provider status`);
     out(`  ${color(ANSI.bold, "/clear")}     clear chat history`);
+    out(`  ${color(ANSI.bold, "/logout")}    remove saved API key`);
     out(`  ${color(ANSI.bold, "/quit")}      exit`);
     out();
   };
@@ -444,6 +445,11 @@ async function interactive(flags) {
         out(color(ANSI.dim, "  History cleared."));
         out();
         continue;
+      }
+
+      if (trimmed === "/logout") {
+        cmdLogout();
+        break;
       }
 
       if (trimmed === "/session") {
