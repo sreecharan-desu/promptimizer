@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
+import { BenchSpot, EmptyFleetSpot, KeySpot, SimulatorSpot } from "./console-spots";
 
 const HOSTS = [
   ...PROVIDERS.map((p) => ({
@@ -26,6 +27,9 @@ const TABS = [
   ["play", "Playground"],
   ["bench", "Benchmark"],
 ] as const;
+
+const FIELD =
+  "mt-2 h-11 w-full rounded-xl border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent";
 
 type Tab = (typeof TABS)[number][0];
 type Bench = Awaited<ReturnType<typeof api.benchmark>>;
@@ -146,27 +150,30 @@ export function ConsoleApp() {
   }, [completion]);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
-      <p className="mt-2 text-secondary">
-        {session
-          ? `${session.label} · ${session.models.length} models · baseline ${session.baseline_model ?? "—"}`
-          : "Start the simulator, or paste a vendor key."}
-      </p>
-
-      <div className="mt-8 inline-flex rounded-full border border-primary/[0.08] bg-card/60 p-0.5">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
-              tab === id ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
+          <p className="mt-2 text-secondary">
+            {session
+              ? `${session.label} · ${session.models.length} models · baseline ${session.baseline_model ?? "—"}`
+              : "Start the simulator, or connect a vendor key."}
+          </p>
+        </div>
+        <div className="inline-flex rounded-full border border-primary/[0.08] bg-card/60 p-0.5">
+          {TABS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
+                tab === id ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error ? <p className="mt-6 text-sm text-error">{error}</p> : null}
@@ -254,44 +261,41 @@ function ConnectPane({
   onFetch: () => void;
 }) {
   return (
-    <div className="mt-10 grid gap-4 md:grid-cols-2">
-      <div className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
-        <h2 className="font-display text-2xl font-medium tracking-tight text-primary">Simulator</h2>
+    <div className="mt-10 grid gap-4 lg:grid-cols-2">
+      <section className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
+        <SimulatorSpot />
+        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Simulator</h2>
         <p className="mt-2 text-sm text-secondary">Three mocked models. No vendor key.</p>
-        <ul className="mt-6 space-y-2 font-mono text-[13px]">
-          <li className="flex items-center justify-between rounded-xl bg-codeblock px-4 py-3">
-            <span className="text-primary">promptimizer-nano</span>
-            <span className="text-secondary">economy</span>
-          </li>
-          <li className="flex items-center justify-between rounded-xl bg-codeblock px-4 py-3">
-            <span className="text-primary">promptimizer-flash</span>
-            <span className="text-secondary">standard</span>
-          </li>
-          <li className="flex items-center justify-between rounded-xl bg-codeblock px-4 py-3">
-            <span className="text-primary">promptimizer-frontier</span>
-            <span className="text-secondary">frontier</span>
-          </li>
-        </ul>
+        <dl className="mt-5 space-y-3">
+          {[
+            ["promptimizer-nano", "economy"],
+            ["promptimizer-flash", "standard"],
+            ["promptimizer-frontier", "frontier"],
+          ].map(([model, tier]) => (
+            <div key={model} className="flex items-center justify-between gap-4 border-b border-primary/5 pb-3">
+              <dt className="font-mono text-[13px] text-primary">{model}</dt>
+              <dd className="text-sm text-secondary">{tier}</dd>
+            </div>
+          ))}
+        </dl>
         <button
           type="button"
           onClick={onSimulator}
           disabled={busy}
-          className="mt-auto pt-6 inline-flex h-11 items-center justify-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+          className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
         >
           {busy ? "Starting…" : "Start simulator"}
         </button>
-      </div>
+      </section>
 
-      <div className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
-        <h2 className="font-display text-2xl font-medium tracking-tight text-primary">Your key</h2>
-        <p className="mt-2 text-sm text-secondary">We already have the host. Custom is the only row that asks for a URL.</p>
-        <input
-          value={query}
-          onChange={(e) => onQuery(e.target.value)}
-          placeholder="Filter hosts"
-          className="mt-6 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <div className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+      <section className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
+        <KeySpot />
+        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Your key</h2>
+        <p className="mt-2 text-sm text-secondary">Pick a host, paste the key. Custom is the only one that asks for a URL.</p>
+
+        <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Filter hosts" className={FIELD} />
+
+        <div className="mt-3 flex flex-wrap gap-2">
           {hosts.map((item) => {
             const active = item.id === host.id;
             return (
@@ -299,50 +303,52 @@ function ConnectPane({
                 key={item.id}
                 type="button"
                 onClick={() => onPick(item)}
-                className={`w-full rounded-xl px-4 py-3 text-left transition-colors duration-150 ${
-                  active ? "bg-primary/[0.06] text-primary" : "bg-codeblock text-primary/80 hover:text-primary"
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+                  active
+                    ? "bg-primary text-background"
+                    : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:text-primary"
                 }`}
               >
-                <span className="block text-sm font-medium">{item.label}</span>
-                <span className="mt-1 block truncate font-mono text-[13px] text-secondary">
-                  {item.id === "custom" ? "Paste any OpenAI-compatible /v1" : item.base_url}
-                </span>
+                {item.label}
               </button>
             );
           })}
         </div>
+
         {host.id === "custom" ? (
-          <label className="mt-4 block text-sm font-medium text-primary">
+          <label className="mt-5 block text-sm text-secondary">
             Base URL
             <input
               value={baseUrl}
               onChange={(e) => onBaseUrl(e.target.value)}
               placeholder="https://api.example.com/v1"
-              className="mt-2 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
+              className={FIELD}
             />
           </label>
         ) : (
-          <p className="mt-4 font-mono text-[13px] text-secondary">{host.base_url}</p>
+          <p className="mt-5 truncate font-mono text-[13px] text-secondary">{host.base_url}</p>
         )}
-        <label className="mt-3 block text-sm font-medium text-primary">
+
+        <label className="mt-4 block text-sm text-secondary">
           API key
           <input
             type="password"
             value={apiKey}
             onChange={(e) => onKey(e.target.value)}
             placeholder={host.hint || "sk-..."}
-            className="mt-2 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
+            className={FIELD}
           />
         </label>
+
         <button
           type="button"
           onClick={onFetch}
           disabled={busy || !apiKey.trim() || (host.id === "custom" && !baseUrl.trim())}
-          className="mt-6 inline-flex h-11 items-center justify-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+          className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
         >
           {busy ? "Fetching…" : "Fetch models"}
         </button>
-      </div>
+      </section>
     </div>
   );
 }
@@ -361,9 +367,7 @@ function FleetPane({
   return (
     <div className="mt-10">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <p className="text-sm text-secondary">
-          {session.models.length} chat models. Change a tier if the auto-map is wrong.
-        </p>
+        <p className="text-sm text-secondary">{session.models.length} chat models. Change a tier if the auto-map is wrong.</p>
         <button
           type="button"
           onClick={onBench}
@@ -504,19 +508,26 @@ function PlayPane({
 function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean; onRun: () => void }) {
   if (!bench) {
     return (
-      <div className="mt-10 rounded-2xl border border-primary/[0.06] bg-card p-10">
-        <h2 className="font-display text-2xl font-medium tracking-tight text-primary">15 gold tasks</h2>
-        <p className="mt-3 max-w-xl text-secondary">
-          Same prompts, four policies. Cost and quality versus always using the frontier model.
-        </p>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={busy}
-          className="mt-6 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {busy ? "Scoring…" : "Run benchmark"}
-        </button>
+      <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
+        <div className="grid gap-0 lg:grid-cols-2">
+          <div className="p-8">
+            <h2 className="font-display text-2xl font-medium tracking-tight text-primary">15 gold tasks</h2>
+            <p className="mt-3 max-w-md text-secondary">
+              Same prompts, four policies. Cost and quality versus always using the frontier model.
+            </p>
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={busy}
+              className="mt-6 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+            >
+              {busy ? "Scoring…" : "Run benchmark"}
+            </button>
+          </div>
+          <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">
+            <BenchSpot />
+          </div>
+        </div>
       </div>
     );
   }
@@ -527,7 +538,10 @@ function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean;
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
         <Stat label="Saved vs always-frontier" value={`${Number(bench.summary.saved_pct).toFixed(1)}%`} accent />
         <Stat label="Routed quality" value={Number(bench.summary.avg_quality_routed).toFixed(2)} />
-        <Stat label="Worst-case quality" value={Number(bench.summary.worst_quality_routed ?? bench.summary.avg_quality_routed).toFixed(2)} />
+        <Stat
+          label="Worst-case quality"
+          value={Number(bench.summary.worst_quality_routed ?? bench.summary.avg_quality_routed).toFixed(2)}
+        />
         <Stat label="Quality vs frontier" value={Number(bench.summary.quality_delta).toFixed(2)} />
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -557,7 +571,9 @@ function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean;
               <tr key={row.id} className="border-t border-primary/5">
                 <td className="px-4 py-3 font-mono text-xs">{row.id}</td>
                 <td className="px-4 py-3">{row.difficulty}</td>
-                <td className="px-4 py-3 tabular">{row.p_small_quality != null ? Number(row.p_small_quality).toFixed(2) : "—"}</td>
+                <td className="px-4 py-3 tabular">
+                  {row.p_small_quality != null ? Number(row.p_small_quality).toFixed(2) : "—"}
+                </td>
                 <td className="px-4 py-3 font-mono text-xs">{row.model}</td>
                 <td className="px-4 py-3 text-accent tabular">{Number(row.cost.saved_pct).toFixed(0)}%</td>
                 <td className="px-4 py-3 tabular">{Number(row.quality_routed.score).toFixed(2)}</td>
@@ -581,25 +597,32 @@ function NeedSession({
   busy: boolean;
 }) {
   return (
-    <div className="mt-10 rounded-2xl border border-primary/[0.06] bg-card p-10">
-      <h2 className="font-display text-2xl font-medium tracking-tight text-primary">No fleet yet</h2>
-      <p className="mt-3 max-w-xl text-secondary">Start the simulator, or connect a vendor key.</p>
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={onSimulator}
-          disabled={busy}
-          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {busy ? "Starting…" : "Start simulator"}
-        </button>
-        <button
-          type="button"
-          onClick={onConnect}
-          className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)]"
-        >
-          Your key
-        </button>
+    <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
+      <div className="grid gap-0 lg:grid-cols-2">
+        <div className="p-8">
+          <h2 className="font-display text-2xl font-medium tracking-tight text-primary">No fleet yet</h2>
+          <p className="mt-3 max-w-md text-secondary">Start the simulator, or connect a vendor key.</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={onSimulator}
+              disabled={busy}
+              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+            >
+              {busy ? "Starting…" : "Start simulator"}
+            </button>
+            <button
+              type="button"
+              onClick={onConnect}
+              className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)]"
+            >
+              Your key
+            </button>
+          </div>
+        </div>
+        <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">
+          <EmptyFleetSpot />
+        </div>
       </div>
     </div>
   );

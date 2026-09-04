@@ -14,3 +14,10 @@
 .lg\:flex-row{flex-direction:row}
 }
 .h-36{height:9rem}
+.bg-white{background-color:#fff}
+.duration-500{transition-duration:.5s}
+.ease-out{transition-timing-function:cubic-bezier(0,0,.2,1)}
+.transition-transform{transition-property:transform}
+.group\/card:hover .group-hover\/card\:scale-\[1\.02\]{--tw-scale-x:1.02;--tw-scale-y:1.02;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}
+.border-primary\/5{border-color:hsl(var(--primary)/.05)}
+@media (min-width:1024px){.lg\:border-l{border-left-width:1px}.lg\:border-t-0{border-top-width:0}}
