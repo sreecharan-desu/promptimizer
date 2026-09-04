@@ -64,3 +64,24 @@
 .whitespace-pre{white-space:pre}.border-collapse{border-collapse:collapse}.align-top{vertical-align:top}.select-none{-webkit-user-select:none;user-select:none}
 .pr-4{padding-right:1rem}.pr-5{padding-right:1.25rem}
 @media (min-width:640px){.sm\:text-\[13px\]{font-size:13px}}
+.max-w-6xl{max-width:72rem}
+.size-2{width:.5rem;height:.5rem}
+.h-1\.5{height:.375rem}
+.h-12{height:3rem}
+.min-w-\[4px\]{min-width:4px}
+.min-w-\[720px\]{min-width:720px}
+.w-24{width:6rem}
+.bg-accent{background-color:hsl(var(--accent))}
+.bg-primary\/45{background-color:hsl(var(--primary)/.45)}
+.bg-primary\/20{background-color:hsl(var(--primary)/.2)}
+.bg-primary\/15{background-color:hsl(var(--primary)/.15)}
+.bg-primary\/10{background-color:hsl(var(--primary)/.1)}
+.bg-success\/\[0\.12\]{background-color:hsl(var(--success)/.12)}
+.bg-warning\/\[0\.14\]{background-color:hsl(var(--warning)/.14)}
+.bg-error\/\[0\.12\]{background-color:hsl(var(--error)/.12)}
+.bg-accent\/\[0\.14\]{background-color:hsl(var(--accent)/.14)}
+.bg-accent\/\[0\.06\]{background-color:hsl(var(--accent)/.06)}
+.whitespace-pre-wrap{white-space:pre-wrap}
+.capitalize{text-transform:capitalize}
+@media (min-width:1280px){.xl\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:1024px){.lg\:col-span-2{grid-column:span 2/span 2}.lg\:grid-cols-\[1fr_0\.95fr\]{grid-template-columns:1fr .95fr}.lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}

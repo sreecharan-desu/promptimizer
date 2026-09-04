@@ -1,9 +1,6 @@
 import Link from "next/link";
-import type { SavingsSummary } from "@/server/account";
-
-function usd(value: number) {
-  return Math.abs(value) >= 1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`;
-}
+import type { SavingsSummary, UsageEvent } from "@/server/account";
+import { Donut, Meter, MetricCard, MiniBars, Pill, Sparkline, pct, usd } from "./metrics";
 
 function when(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
@@ -14,53 +11,224 @@ function when(iso: string) {
   });
 }
 
-export function PortalApp({ user, savings }: { user: { email: string; name: string }; savings: SavingsSummary }) {
-  return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Savings</h1>
-      <p className="mt-2 text-secondary">
-        Routed spend versus always using the frontier model
-        {user.name || user.email ? ` for ${user.name || user.email}` : ""}.
-      </p>
+function chrono(events: UsageEvent[]) {
+  return [...events].reverse();
+}
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-3">
-        <Stat label="Saved" value={usd(savings.saved_usd)} accent />
-        <Stat label="Routed" value={usd(savings.actual_usd)} />
-        <Stat label="Baseline" value={usd(savings.baseline_usd)} />
-        <Stat label="From routing" value={usd(savings.routing_saved_usd)} />
-        <Stat label="From cache" value={usd(savings.cache_saved_usd)} />
-        <Stat label="Requests" value={String(savings.requests)} />
+export function PortalApp({ user, savings }: { user: { email: string; name: string }; savings: SavingsSummary }) {
+  const series = chrono(savings.recent);
+  const qualitySeries = series.map((e) => (e.quality == null ? 0 : e.quality * 100));
+  const savedSeries = series.map((e) => e.saved_usd);
+  const costSeries = series.map((e) => e.actual_usd);
+
+  const tierCounts = { economy: 0, standard: 0, frontier: 0 };
+  for (const e of savings.recent) {
+    if (e.tier in tierCounts) tierCounts[e.tier as keyof typeof tierCounts] += 1;
+  }
+  const tierTotal = Object.values(tierCounts).reduce((a, b) => a + b, 0) || 1;
+
+  const cacheMiss = Math.max(0, savings.requests - savings.cache_hits);
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Savings</h1>
+          <p className="mt-2 max-w-xl text-secondary">
+            Routed spend versus always-frontier
+            {user.name || user.email ? ` · ${user.name || user.email}` : ""}.
+          </p>
+        </div>
+        <Pill tone={savings.requests ? "good" : "neutral"}>
+          {savings.requests ? `${savings.requests} requests recorded` : "No traffic yet"}
+        </Pill>
+      </div>
+
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Saved"
+          value={usd(savings.saved_usd)}
+          hint={`${pct(savings.saved_pct)} vs always-frontier`}
+        >
+          <Sparkline values={savedSeries.length > 1 ? savedSeries : [0, savings.saved_usd || 0]} />
+        </MetricCard>
+
+        <MetricCard label="Routed spend" value={usd(savings.actual_usd)} hint={`Baseline ${usd(savings.baseline_usd)}`}>
+          <MiniBars values={costSeries.length ? costSeries.slice(-16) : [0.01, 0.02, 0.015]} />
+        </MetricCard>
+
+        <MetricCard
+          label="Quality"
+          value={savings.avg_quality == null ? "—" : pct(savings.avg_quality * 100, 0)}
+          hint="Average gate score on routed answers"
+        >
+          <Sparkline
+            values={qualitySeries.length > 1 ? qualitySeries : [70, 73, 76]}
+            stroke="hsl(var(--primary) / 0.55)"
+            fill="hsl(var(--primary) / 0.08)"
+          />
+        </MetricCard>
+
+        <MetricCard label="Fleet mix" value={String(savings.requests)} hint="Requests by tier">
+          <div className="flex items-center gap-4">
+            <Donut
+              size={76}
+              thickness={12}
+              slices={[
+                { label: "economy", value: tierCounts.economy, color: "hsl(var(--accent))" },
+                { label: "standard", value: tierCounts.standard, color: "hsl(var(--primary) / 0.45)" },
+                { label: "frontier", value: tierCounts.frontier, color: "hsl(var(--primary) / 0.2)" },
+              ]}
+              center={<span className="font-display text-sm font-medium text-primary">{tierTotal}</span>}
+            />
+            <ul className="space-y-1.5 text-xs text-secondary">
+              <li className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-accent" /> economy {tierCounts.economy}
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-primary/45" /> standard {tierCounts.standard}
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-primary/20" /> frontier {tierCounts.frontier}
+              </li>
+            </ul>
+          </div>
+        </MetricCard>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Split</p>
+              <p className="mt-1 font-display text-xl font-medium text-primary">Where the savings come from</p>
+            </div>
+          </div>
+          <div className="mt-6 space-y-5">
+            <SplitRow
+              label="Routing"
+              value={usd(savings.routing_saved_usd)}
+              share={savings.saved_usd ? (savings.routing_saved_usd / savings.saved_usd) * 100 : 0}
+            />
+            <SplitRow
+              label="Cache"
+              value={usd(savings.cache_saved_usd)}
+              share={savings.saved_usd ? (savings.cache_saved_usd / savings.saved_usd) * 100 : 0}
+            />
+            <SplitRow
+              label="Cache hit rate"
+              value={`${savings.requests ? Math.round((savings.cache_hits / savings.requests) * 100) : 0}%`}
+              share={savings.requests ? (savings.cache_hits / savings.requests) * 100 : 0}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Cache</p>
+          <p className="mt-1 font-display text-xl font-medium text-primary">Hits vs misses</p>
+          <div className="mt-5 flex items-center gap-4">
+            <Donut
+              size={96}
+              thickness={14}
+              slices={[
+                { label: "hits", value: savings.cache_hits, color: "hsl(var(--accent))" },
+                { label: "misses", value: cacheMiss, color: "hsl(var(--primary) / 0.12)" },
+              ]}
+              center={
+                <span className="font-display text-lg font-medium text-primary">
+                  {savings.requests ? Math.round((savings.cache_hits / savings.requests) * 100) : 0}%
+                </span>
+              }
+            />
+            <ul className="space-y-2 text-sm text-secondary">
+              <li>
+                Hits <span className="text-primary">{savings.cache_hits}</span>
+              </li>
+              <li>
+                Misses <span className="text-primary">{cacheMiss}</span>
+              </li>
+              <li>
+                Escalations <span className="text-primary">{savings.escalations}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       {savings.recent.length === 0 ? (
         <p className="mt-12 text-sm text-secondary">
-          No traffic yet. Send a request from the <Link href="/console" className="text-primary">console</Link> or CLI.
+          No traffic yet. Send a request from the{" "}
+          <Link href="/console" className="text-primary">
+            console
+          </Link>{" "}
+          or CLI.
         </p>
       ) : (
-        <ul className="mt-12 overflow-hidden rounded-xl border border-primary/[0.06]">
-          {savings.recent.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 px-4 py-3 first:border-t-0">
-              <div>
-                <p className="font-mono text-[13px] text-primary">{row.model}</p>
-                <p className="text-sm text-secondary">
-                  {when(row.created_at)} · {row.tier}
-                  {row.cache_hit ? " · cache" : row.escalated ? " · escalated" : ""}
-                </p>
-              </div>
-              <p className="text-sm text-accent">{usd(row.saved_usd)}</p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06]">
+          <div className="border-b border-primary/[0.06] bg-card px-4 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Recent requests</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="text-secondary">
+                <tr>
+                  <th className="px-4 py-3 font-medium">When</th>
+                  <th className="px-4 py-3 font-medium">Model</th>
+                  <th className="px-4 py-3 font-medium">Tier</th>
+                  <th className="px-4 py-3 font-medium">Quality</th>
+                  <th className="px-4 py-3 font-medium">Routed</th>
+                  <th className="px-4 py-3 font-medium">Saved</th>
+                  <th className="px-4 py-3 font-medium">Flags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {savings.recent.map((row) => (
+                  <tr key={row.id} className="border-t border-primary/5">
+                    <td className="px-4 py-3 text-secondary">{when(row.created_at)}</td>
+                    <td className="px-4 py-3 font-mono text-[12px] text-primary">{row.model}</td>
+                    <td className="px-4 py-3">
+                      <Pill tone={row.tier === "economy" ? "accent" : row.tier === "frontier" ? "warn" : "neutral"}>
+                        {row.tier}
+                      </Pill>
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.quality == null ? (
+                        "—"
+                      ) : (
+                        <div className="w-24">
+                          <p className="tabular text-primary">{pct(row.quality * 100, 0)}</p>
+                          <Meter value={row.quality * 100} className="mt-1" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 tabular text-secondary">{usd(row.actual_usd)}</td>
+                    <td className="px-4 py-3 tabular text-accent">{usd(row.saved_usd)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {row.cache_hit ? <Pill tone="good">cache</Pill> : null}
+                        {row.escalated ? <Pill tone="warn">escalated</Pill> : null}
+                        {!row.cache_hit && !row.escalated ? <span className="text-secondary">—</span> : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function SplitRow({ label, value, share }: { label: string; value: string; share: number }) {
   return (
-    <div className="rounded-xl border border-primary/[0.06] bg-card px-5 py-4">
-      <p className="text-sm text-secondary">{label}</p>
-      <p className={`mt-1 font-display text-2xl font-medium ${accent ? "text-accent" : "text-primary"}`}>{value}</p>
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm text-secondary">{label}</p>
+        <p className="font-display text-lg font-medium text-primary tabular">{value}</p>
+      </div>
+      <Meter value={share} className="mt-2" />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
 import { BenchSpot, EmptyFleetSpot, KeySpot, SimulatorSpot } from "./console-spots";
+import { Donut, Meter, Pill, usd } from "./metrics";
 
 const HOSTS = [
   ...PROVIDERS.map((p) => ({
@@ -150,7 +151,7 @@ export function ConsoleApp() {
   }, [completion]);
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
@@ -209,6 +210,7 @@ export function ConsoleApp() {
       {tab === "play" ? (
         session ? (
           <PlayPane
+            session={session}
             prompt={prompt}
             answer={answer}
             meta={meta}
@@ -364,25 +366,64 @@ function FleetPane({
   onTier: (id: string, tier: string) => void;
   onBench: () => void;
 }) {
+  const tiers = useMemo(() => {
+    const counts = { economy: 0, standard: 0, frontier: 0 };
+    for (const m of session.models) {
+      if (!m.selected) continue;
+      if (m.tier in counts) counts[m.tier as keyof typeof counts] += 1;
+    }
+    return counts;
+  }, [session.models]);
+  const selected = session.models.filter((m) => m.selected).length;
+
   return (
     <div className="mt-10">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <p className="text-sm text-secondary">{session.models.length} chat models. Change a tier if the auto-map is wrong.</p>
-        <button
-          type="button"
-          onClick={onBench}
-          disabled={busy}
-          className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {busy ? "Running 15 tasks…" : "Run benchmark"}
-        </button>
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:col-span-2">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-sm text-secondary">
+                {session.models.length} chat models · baseline{" "}
+                <span className="font-mono text-primary">{session.baseline_model ?? "—"}</span>
+              </p>
+              <p className="mt-1 text-sm text-secondary">Change a tier if the auto-map is wrong.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onBench}
+              disabled={busy}
+              className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+            >
+              {busy ? "Running 15 tasks…" : "Run benchmark"}
+            </button>
+          </div>
+          {busy ? (
+            <p className="mt-4 text-sm text-secondary">
+              Scoring hits each tier model live on your provider — usually 1–3 minutes on Baseten.
+            </p>
+          ) : null}
+        </div>
+        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Selected mix</p>
+          <div className="mt-3 flex items-center gap-4">
+            <Donut
+              size={72}
+              thickness={11}
+              slices={[
+                { label: "economy", value: tiers.economy, color: "hsl(var(--accent))" },
+                { label: "standard", value: tiers.standard, color: "hsl(var(--primary) / 0.45)" },
+                { label: "frontier", value: tiers.frontier, color: "hsl(var(--primary) / 0.2)" },
+              ]}
+              center={<span className="font-display text-sm font-medium text-primary">{selected}</span>}
+            />
+            <ul className="space-y-1 text-xs text-secondary">
+              <li>economy {tiers.economy}</li>
+              <li>standard {tiers.standard}</li>
+              <li>frontier {tiers.frontier}</li>
+            </ul>
+          </div>
+        </div>
       </div>
-      {busy ? (
-        <p className="mb-4 text-sm text-secondary">
-          Scoring hits each tier model live on your provider — usually 1–3 minutes on Baseten. The empty price columns
-          are separate (unknown catalog rates), not part of this run.
-        </p>
-      ) : null}
       <div className="overflow-hidden rounded-2xl border border-primary/[0.06]">
         <table className="w-full text-left text-sm">
           <thead className="bg-card text-secondary">
@@ -424,7 +465,18 @@ function FleetPane({
   );
 }
 
+function cheapestSelected(session: Session, tier: "economy" | "standard" | "frontier") {
+  const pool = session.models.filter((m) => m.selected && m.tier === tier);
+  if (!pool.length) return null;
+  return [...pool].sort((a, b) => {
+    const ba = (a.input_per_1m ?? 2) * 0.4 + (a.output_per_1m ?? 6) * 0.6;
+    const bb = (b.input_per_1m ?? 2) * 0.4 + (b.output_per_1m ?? 6) * 0.6;
+    return ba - bb;
+  })[0];
+}
+
 function PlayPane({
+  session,
   prompt,
   answer,
   meta,
@@ -433,6 +485,7 @@ function PlayPane({
   onPrompt,
   onSend,
 }: {
+  session: Session;
   prompt: string;
   answer: string;
   meta?: Record<string, unknown>;
@@ -441,72 +494,201 @@ function PlayPane({
   onPrompt: (v: string) => void;
   onSend: () => void;
 }) {
+  const quality =
+    meta && typeof meta.quality === "object" && meta.quality && "score" in (meta.quality as object)
+      ? Number((meta.quality as { score: number }).score)
+      : null;
+
+  const rows = useMemo(() => {
+    const chosenTier = String(meta?.tier ?? "");
+    const chosenModel = String(meta?.model ?? "");
+    return (["economy", "standard", "frontier"] as const).map((tier) => {
+      const model =
+        chosenTier === tier
+          ? session.models.find((m) => m.id === chosenModel) ?? cheapestSelected(session, tier)
+          : cheapestSelected(session, tier);
+      const selected = Boolean(meta) && chosenTier === tier;
+      let decision: "Selected" | "Alternate" | "Skipped" | "Unavailable" = "Unavailable";
+      if (!model) decision = "Unavailable";
+      else if (!meta) decision = "Skipped";
+      else if (selected) decision = "Selected";
+      else if (tier === "standard" && chosenTier === "economy") decision = "Alternate";
+      else if (tier === "frontier" && chosenTier !== "frontier") decision = "Alternate";
+      else decision = "Skipped";
+      return { tier, model: selected && chosenModel ? session.models.find((m) => m.id === chosenModel) ?? model : model, decision, selected };
+    });
+  }, [meta, session.models]);
+
   return (
-    <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <div>
-        <div className="flex flex-wrap gap-2">
-          {EXAMPLES.map((item) => (
+    <div className="mt-10 space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
+        <div>
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLES.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => onPrompt(item.prompt)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+                  prompt === item.prompt
+                    ? "bg-primary text-background"
+                    : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)] hover:text-primary"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={prompt}
+            onChange={(e) => onPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+            rows={8}
+            className="mt-4 w-full rounded-xl border border-primary/15 bg-card px-4 py-3 text-sm leading-relaxed text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          />
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-xs text-secondary">⌘ Enter</p>
             <button
-              key={item.label}
               type="button"
-              onClick={() => onPrompt(item.prompt)}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                prompt === item.prompt
-                  ? "bg-primary text-background"
-                  : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)] hover:text-primary"
-              }`}
+              onClick={onSend}
+              disabled={busy || !prompt.trim()}
+              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
             >
-              {item.label}
+              {busy ? "Routing…" : "Send"}
             </button>
-          ))}
+          </div>
+          {answer ? (
+            <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
+              <p className="mt-3 text-sm leading-relaxed text-primary whitespace-pre-wrap">{answer}</p>
+            </div>
+          ) : null}
         </div>
-        <textarea
-          value={prompt}
-          onChange={(e) => onPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              onSend();
-            }
-          }}
-          rows={8}
-          className="mt-4 w-full rounded-xl border border-primary/15 bg-card px-4 py-3 text-sm leading-relaxed text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <div className="mt-4 flex items-center justify-between">
-          <p className="text-xs text-secondary">⌘ Enter</p>
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={busy || !prompt.trim()}
-            className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-          >
-            {busy ? "Routing…" : "Send"}
-          </button>
+
+        <aside className="rounded-2xl border border-primary/[0.06] bg-card p-5 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Incoming request</p>
+            {busy ? <Pill tone="warn">Live</Pill> : meta ? <Pill tone="good">Routed</Pill> : <Pill>Idle</Pill>}
+          </div>
+          {meta ? (
+            <dl className="mt-4 space-y-3">
+              <Row k="Category" v={String(meta.category ?? "—")} />
+              <Row k="Complexity" v={`L${meta.complexity}`} />
+              <Row
+                k="Difficulty"
+                v={
+                  Number(meta.complexity) >= 4 ? "Hard" : Number(meta.complexity) >= 3 ? "Medium" : "Easy"
+                }
+              />
+              <Row k="Cache" v={meta.cache_hit ? "hit" : "miss"} />
+              <Row k="P(quality|small)" v={meta.p_small_quality != null ? Number(meta.p_small_quality).toFixed(2) : "—"} />
+              <Row k="Quality gate" v={String(meta.quality_gate)} />
+              {quality != null ? (
+                <div>
+                  <div className="flex justify-between text-secondary">
+                    <dt>Quality</dt>
+                    <dd className="text-primary tabular">{Math.round(quality * 100)}%</dd>
+                  </div>
+                  <Meter value={quality * 100} className="mt-2" />
+                </div>
+              ) : null}
+            </dl>
+          ) : (
+            <p className="mt-4 text-secondary">Send a prompt. Classification and cost land here.</p>
+          )}
+        </aside>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-primary/[0.06]">
+        <div className="border-b border-primary/[0.06] bg-card px-4 py-3">
+          <p className="font-display text-lg font-medium text-primary">
+            {busy ? "Evaluating across model tiers…" : meta ? "Routing decision" : "Tier evaluation"}
+          </p>
+          <p className="mt-1 text-sm text-secondary">
+            Cheapest selected model per tier. The router picks the adequate tier, then escalates only if quality fails.
+          </p>
         </div>
-        {answer ? (
-          <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
-            <p className="mt-3 text-sm leading-relaxed text-primary">{answer}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="text-secondary">
+              <tr>
+                <th className="px-4 py-3 font-medium">Tier</th>
+                <th className="px-4 py-3 font-medium">Model</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Est. cost / 1M</th>
+                <th className="px-4 py-3 font-medium">Decision</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.tier} className={`border-t border-primary/5 ${row.selected ? "bg-accent/[0.06]" : ""}`}>
+                  <td className="px-4 py-3 capitalize text-primary">{row.tier}</td>
+                  <td className="px-4 py-3 font-mono text-[12px] text-primary">{row.model?.id ?? "—"}</td>
+                  <td className="px-4 py-3 text-secondary">
+                    {row.tier === "economy"
+                      ? "Cheap adequate"
+                      : row.tier === "standard"
+                        ? "Balanced"
+                        : "Baseline / frontier"}
+                  </td>
+                  <td className="px-4 py-3 tabular text-secondary">
+                    {row.model
+                      ? `$${(row.model.input_per_1m ?? "—")}/${(row.model.output_per_1m ?? "—")}`
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Pill
+                      tone={
+                        row.decision === "Selected"
+                          ? "good"
+                          : row.decision === "Alternate"
+                            ? "warn"
+                            : row.decision === "Unavailable"
+                              ? "bad"
+                              : "neutral"
+                      }
+                    >
+                      {row.decision}
+                    </Pill>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {meta ? (
+          <div className="grid gap-4 border-t border-primary/[0.06] bg-card px-4 py-4 sm:grid-cols-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-secondary">Decision</p>
+              <p className="mt-1 text-sm font-medium text-primary">
+                {String(meta.model)} · {String(meta.tier)}
+                {meta.escalated ? " · escalated" : ""}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-secondary">Routed</p>
+              <p className="mt-1 text-sm font-medium text-primary tabular">{usd(Number(usage?.cost?.actual_usd ?? 0))}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-secondary">Saved</p>
+              <p className="mt-1 text-sm font-medium text-accent tabular">
+                {Number(usage?.cost?.saved_pct ?? 0).toFixed(1)}% · {usd(Number(usage?.cost?.saved_usd ?? 0))}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-secondary">Latency</p>
+              <p className="mt-1 text-sm font-medium text-primary tabular">
+                {meta.latency_ms != null ? `${Math.round(Number(meta.latency_ms))} ms` : "—"}
+              </p>
+            </div>
           </div>
         ) : null}
       </div>
-      <aside className="rounded-2xl border border-primary/[0.06] bg-card p-5 text-sm">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">This request</p>
-        {meta ? (
-          <dl className="mt-4 space-y-3">
-            <Row k="Model" v={String(meta.model)} />
-            <Row k="Tier" v={String(meta.tier)} />
-            <Row k="Complexity" v={`L${meta.complexity} · ${meta.category}`} />
-            <Row k="P(quality|small)" v={meta.p_small_quality != null ? Number(meta.p_small_quality).toFixed(2) : "—"} />
-            <Row k="Cache" v={meta.cache_hit ? "hit" : "miss"} />
-            <Row k="Quality gate" v={String(meta.quality_gate)} />
-            <Row k="Escalated" v={meta.escalated ? "yes" : "no"} />
-            <Row k="Saved" v={`${Number(usage?.cost?.saved_pct ?? 0).toFixed(1)}%`} accent />
-          </dl>
-        ) : (
-          <p className="mt-4 text-secondary">Send a prompt. Classification, cache, and cost land here.</p>
-        )}
-      </aside>
     </div>
   );
 }
