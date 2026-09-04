@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 export function UserAvatar({
   name,
   email,
@@ -9,6 +13,7 @@ export function UserAvatar({
   src?: string | null;
   size?: number;
 }) {
+  const [broken, setBroken] = useState(false);
   const initials =
     (name || email || "?")
       .trim()
@@ -18,15 +23,20 @@ export function UserAvatar({
       .join("") || "?";
   const className = size > 36 ? "size-10 text-sm" : "size-8 text-[11px]";
 
-  if (src) {
+  if (src && !broken) {
     return (
+      // Google profile photos need a plain img + no-referrer.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt=""
         referrerPolicy="no-referrer"
-        className={`${className} shrink-0 rounded-full object-cover`}
+        loading="eager"
+        decoding="async"
+        className={`${className} shrink-0 rounded-full bg-primary/10 object-cover`}
         width={size}
         height={size}
+        onError={() => setBroken(true)}
       />
     );
   }

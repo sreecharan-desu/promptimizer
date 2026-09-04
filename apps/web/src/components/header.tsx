@@ -45,6 +45,7 @@ export function Header() {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch
                 className={`flex items-center px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
                   active ? "text-primary" : "text-primary/50 hover:text-primary"
                 }`}

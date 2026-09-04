@@ -1,29 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getCachedMe, invalidateMe, loadMe, subscribeMe, type AuthMe } from "@/lib/auth-me";
 import { UserMenu } from "./user-menu";
 
-type Me = {
-  user: { name: string; email: string; avatarUrl?: string | null } | null;
-  configured: boolean;
-};
-
 export function AuthNav() {
-  const pathname = usePathname();
   const router = useRouter();
-  const [me, setMe] = useState<Me | null>(null);
+  const [me, setMe] = useState<AuthMe | null>(() => getCachedMe());
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then(setMe)
-      .catch(() => setMe({ user: null, configured: false }));
-  }, [pathname]);
+    const unsub = subscribeMe(setMe);
+    void loadMe();
+    return unsub;
+  }, []);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    invalidateMe();
     setMe({ user: null, configured: true });
     router.push("/");
     router.refresh();

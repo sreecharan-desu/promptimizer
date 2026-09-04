@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { invalidateMe, loadMe } from "@/lib/auth-me";
 import { AUTH_FIELD, AuthPanel } from "./auth-panel";
 
 const ERRORS: Record<string, string> = {
@@ -52,6 +53,8 @@ export function AuthForm({
         router.push(`/verify?sent=1&email=${encodeURIComponent(email.trim().toLowerCase())}`);
         return;
       }
+      invalidateMe();
+      await loadMe(true);
       router.push(dest);
       router.refresh();
     } catch (err) {

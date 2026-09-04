@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { invalidateMe, loadMe } from "@/lib/auth-me";
 import { AUTH_FIELD, AuthPanel } from "./auth-panel";
 
 export function ResetPasswordForm({ token }: { token: string }) {
@@ -23,6 +24,8 @@ export function ResetPasswordForm({ token }: { token: string }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail ?? "Could not reset password.");
+      invalidateMe();
+      await loadMe(true);
       router.push("/console");
       router.refresh();
     } catch (err) {

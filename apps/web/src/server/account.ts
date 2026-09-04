@@ -101,19 +101,21 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
   `;
   if (existing[0]) {
     const row = asRecord(existing[0]);
+    const nextName = String(row.name || "") || name;
+    const nextAvatar = picture ?? (row.avatar_url ? String(row.avatar_url) : null);
     await sql`
       UPDATE users
       SET google_sub = ${input.sub},
           name = CASE WHEN name = '' THEN ${name} ELSE name END,
-          avatar_url = COALESCE(${picture}, avatar_url),
+          avatar_url = ${nextAvatar},
           email_verified_at = COALESCE(email_verified_at, now())
       WHERE id = ${String(row.id)}
     `;
     return publicUser({
       ...row,
-      name: String(row.name) || name,
+      name: nextName,
       email: String(row.email),
-      avatar_url: picture ?? row.avatar_url,
+      avatar_url: nextAvatar,
       email_verified_at: row.email_verified_at ?? new Date(),
     });
   }

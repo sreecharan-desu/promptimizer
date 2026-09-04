@@ -3,6 +3,8 @@ import postgres from "postgres";
 let sql: postgres.Sql | null = null;
 let ready: Promise<void> | null = null;
 
+const SCHEMA_VERSION = "schema_v3_email_auth";
+
 export function authConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.ENCRYPTION_KEY);
 }
@@ -15,7 +17,10 @@ export function getSql() {
     const url = process.env.DATABASE_URL;
     sql = postgres(url, {
       ssl: url.includes("localhost") || url.includes("127.0.0.1") ? false : "require",
-      max: 4,
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
     });
   }
   return sql;
@@ -101,16 +106,30 @@ export function googleAuthConfigured() {
 export async function ensureSchema() {
   if (!ready) {
     ready = (async () => {
-      await getSql().unsafe(SCHEMA);
-      const inserted = await getSql()`
+      const db = getSql();
+      try {
+        const rows = await db`SELECT 1 FROM schema_flags WHERE key = ${SCHEMA_VERSION} LIMIT 1`;
+        if (rows.length) return;
+      } catch {
+        /* schema_flags may not exist yet */
+      }
+      await db.unsafe(SCHEMA);
+      const inserted = await db`
         INSERT INTO schema_flags (key) VALUES ('email_verified_backfill_v1')
         ON CONFLICT (key) DO NOTHING
         RETURNING key
       `;
       if (inserted.length) {
-        await getSql()`UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL`;
+        await db`UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL`;
       }
-    })();
+      await db`
+        INSERT INTO schema_flags (key) VALUES (${SCHEMA_VERSION})
+        ON CONFLICT (key) DO NOTHING
+      `;
+    })().catch((error) => {
+      ready = null;
+      throw error;
+    });
   }
   await ready;
 }

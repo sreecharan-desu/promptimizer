@@ -10,6 +10,31 @@ function fail(request: NextRequest, code: string) {
   return response;
 }
 
+function claimsFromIdToken(idToken?: string) {
+  if (!idToken) return {} as Record<string, unknown>;
+  try {
+    const payload = idToken.split(".")[1];
+    if (!payload) return {};
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeAvatar(url?: string | null) {
+  const raw = url?.trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!parsed.hostname.endsWith("googleusercontent.com")) return raw;
+    parsed.search = "";
+    parsed.pathname = parsed.pathname.replace(/=s\d+(-c)?$/i, "");
+    return `${parsed.origin}${parsed.pathname}=s96-c`;
+  } catch {
+    return raw;
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!googleAuthReady()) return fail(request, "google_not_configured");
   const code = request.nextUrl.searchParams.get("code");
@@ -36,7 +61,11 @@ export async function GET(request: NextRequest) {
       grant_type: "authorization_code",
     }),
   });
-  const tokens = (await tokenRes.json()) as { access_token?: string; error?: string };
+  const tokens = (await tokenRes.json()) as {
+    access_token?: string;
+    id_token?: string;
+    error?: string;
+  };
   if (!tokenRes.ok || !tokens.access_token) return fail(request, "google");
 
   const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
@@ -49,13 +78,26 @@ export async function GET(request: NextRequest) {
     name?: string;
     picture?: string;
   };
-  if (!profile.sub || !profile.email || profile.email_verified === false) return fail(request, "google");
+  const claims = claimsFromIdToken(tokens.id_token);
+  const sub = profile.sub || (typeof claims.sub === "string" ? claims.sub : undefined);
+  const email = profile.email || (typeof claims.email === "string" ? claims.email : undefined);
+  const emailVerified =
+    profile.email_verified !== false && claims.email_verified !== false && claims.email_verified !== "false";
+  const name =
+    profile.name ||
+    (typeof claims.name === "string" ? claims.name : "") ||
+    (typeof claims.given_name === "string" ? claims.given_name : "");
+  const picture = normalizeAvatar(
+    profile.picture || (typeof claims.picture === "string" ? claims.picture : null),
+  );
+
+  if (!sub || !email || !emailVerified) return fail(request, "google");
 
   const user = await upsertGoogleUser({
-    email: profile.email,
-    name: profile.name ?? "",
-    sub: profile.sub,
-    picture: profile.picture,
+    email,
+    name,
+    sub,
+    picture: picture ?? undefined,
   });
   await writeSessionCookie(user.id);
   const response = NextResponse.redirect(new URL(safeNext(saved.next), request.url));
