@@ -117,6 +117,15 @@ export type BenchmarkResult = {
     frontier_direct?: number;
     successful_escalations?: number;
   };
+  quality_profiles?: Array<{
+    model_id: string;
+    overall_quality: number;
+    reasoning_quality?: number;
+    coding_quality?: number;
+    extraction_quality?: number;
+    factual_quality?: number;
+  }>;
+  session?: Session;
   rows: Array<{
     id: string;
     difficulty: number;

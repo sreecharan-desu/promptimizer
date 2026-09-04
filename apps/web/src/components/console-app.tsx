@@ -209,10 +209,24 @@ export function ConsoleApp() {
       const result = await api.benchmark();
       setBench(result);
       setBenchCachedAt(Date.now());
-      setTab("bench");
-      if (session) {
-        persist({ session, bench: result, tab: "bench", benchAt: Date.now() });
+      // Pull measured quality onto the fleet (server mutates session; also merge profiles client-side).
+      let next = result.session ?? (await api.session());
+      if (result.quality_profiles?.length) {
+        const byId = new Map(result.quality_profiles.map((p) => [p.model_id, p.overall_quality]));
+        next = {
+          ...next,
+          models: next.models.map((m) => ({
+            ...m,
+            overall_quality: byId.get(m.id) ?? m.overall_quality ?? null,
+          })),
+        };
+      } else {
+        next = await api.session();
       }
+      setSession(next);
+      writeSessionId(next.session_id);
+      setTab("bench");
+      persist({ session: next, bench: result, tab: "bench", benchAt: Date.now() });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Benchmark failed");
     } finally {
@@ -514,7 +528,10 @@ function FleetPane({
                 {session.models.length} chat models · baseline{" "}
                 <span className="break-all font-mono text-primary">{session.baseline_model ?? "—"}</span>
               </p>
-              <p className="mt-1 text-sm text-secondary">Change a tier if the auto-map is wrong.</p>
+              <p className="mt-1 text-sm text-secondary">
+                Change a tier if the auto-map is wrong. Quality shows ~estimates until you run a benchmark; measured
+                scores replace them for models that were scored.
+              </p>
               {hostCounts.length ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {hostCounts.map((h) => (
@@ -610,8 +627,8 @@ function FleetPane({
                 </div>
                 <div className="col-span-2">
                   <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Quality</dt>
-                  <dd className="mt-0.5 tabular text-primary">
-                    {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
+                  <dd className={`mt-0.5 tabular ${fmtQuality(model).measured ? "text-primary" : "text-secondary"}`}>
+                    {fmtQuality(model).label}
                   </dd>
                 </div>
               </dl>
@@ -661,8 +678,13 @@ function FleetPane({
                     {fmtContext(model.context_length)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-secondary">{fmtPriceSource(model)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
-                    {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
+                  <td
+                    className={`whitespace-nowrap px-4 py-3 tabular ${
+                      fmtQuality(model).measured ? "text-primary" : "text-secondary"
+                    }`}
+                    title={fmtQuality(model).measured ? "Measured from benchmark" : "Tier estimate — run benchmark"}
+                  >
+                    {fmtQuality(model).label}
                   </td>
                 </tr>
               );
@@ -720,6 +742,16 @@ function fmtPriceSource(model: Session["models"][number]) {
   if (model.pricing_source === "catalog" || model.pricing_source === "provider") return "known";
   if (model.input_per_1m != null) return "known";
   return "—";
+}
+
+/** Measured quality after benchmark; otherwise a tier heuristic so the column is never blank. */
+function fmtQuality(model: Session["models"][number]): { label: string; measured: boolean } {
+  if (model.overall_quality != null && Number.isFinite(model.overall_quality)) {
+    return { label: `${Math.round(model.overall_quality * 100)}%`, measured: true };
+  }
+  const byTier = { economy: 0.68, standard: 0.82, frontier: 0.94 } as const;
+  const est = byTier[model.tier] ?? 0.75;
+  return { label: `~${Math.round(est * 100)}%`, measured: false };
 }
 
 function cheapestSelected(session: Session, tier: "economy" | "standard" | "frontier") {
