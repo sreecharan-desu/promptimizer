@@ -38,3 +38,29 @@
 @media (prefers-reduced-motion:reduce){.home-rise,.home-float-wrap{animation:none}}
 @media (min-width:640px){.sm\:p-10{padding:2.5rem}.sm\:pt-12{padding-top:3rem}.sm\:py-24{padding-top:6rem;padding-bottom:6rem}}
 @media (min-width:1024px){.lg\:gap-16{gap:4rem}.lg\:py-28{padding-top:7rem;padding-bottom:7rem}.lg\:text-\[3\.35rem\]{font-size:3.35rem;line-height:1.05}}
+.code-window{background:#1e1e1e;border:1px solid rgba(255,255,255,.08);color:#d4d4d4}
+.code-titlebar{background:#2d2d2d}
+.code-file-tab{color:#9d9d9d;border-radius:6px 6px 0 0}
+.code-file-tab.active{background:#1e1e1e;color:#e8e8e8}
+.code-editor-body{background:#1e1e1e;padding:.85rem 0 1rem}
+.code-gutter{width:3.25rem;min-width:3.25rem;padding-left:.75rem;color:#6e7681}
+.code-src{color:#d4d4d4}
+.code-line:hover .code-gutter{color:#8b949e}
+.tok-kw{color:#569cd6}.tok-str{color:#ce9178}.tok-fn{color:#dcdcaa}.tok-prop{color:#9cdcfe}.tok-num{color:#b5cea8}.tok-cm{color:#6a9955}
+.code-term-body{background:#0d1117;color:#e6edf3;min-height:17rem}
+.tok-prompt{color:#3fb950}.tok-path{color:#58a6ff}.tok-cmd{color:#e6edf3}.tok-out{color:#c9d1d9;padding-left:.15rem}.tok-dim{color:#8b949e;padding-left:.15rem}
+.tok-cursor{color:#e6edf3;animation:code-blink 1.1s step-end infinite}
+@keyframes code-blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.tok-cursor{animation:none}}
+.size-2\.5{width:.625rem;height:.625rem}
+.bg-\[\#FF5F57\]{background-color:#ff5f57}.bg-\[\#FEBC2E\]{background-color:#febc2e}.bg-\[\#28C840\]{background-color:#28c840}
+.bg-white\/\[0\.08\]{background-color:rgba(255,255,255,.08)}.bg-white\/\[0\.06\]{background-color:rgba(255,255,255,.06)}
+.border-white\/\[0\.06\]{border-color:rgba(255,255,255,.06)}
+.text-\[\#E8E8E8\]{color:#e8e8e8}.text-\[\#8B8B8B\]{color:#8b8b8b}.text-\[\#D0D0D0\]{color:#d0d0d0}
+.text-\[11px\]{font-size:11px}.text-\[12px\]{font-size:12px}.text-\[12\.5px\]{font-size:12.5px}
+.leading-\[1\.7\]{line-height:1.7}.leading-\[1\.75\]{line-height:1.75}
+.shadow-\[0_24px_60px_-28px_rgba\(0\2c 0\2c 0\2c 0\.55\)\]{box-shadow:0 24px 60px -28px rgba(0,0,0,.55)}
+.hover\:bg-white\/\[0\.06\]:hover{background-color:rgba(255,255,255,.06)}.hover\:text-\[\#D0D0D0\]:hover{color:#d0d0d0}
+.whitespace-pre{white-space:pre}.border-collapse{border-collapse:collapse}.align-top{vertical-align:top}.select-none{-webkit-user-select:none;user-select:none}
+.pr-4{padding-right:1rem}.pr-5{padding-right:1.25rem}
+@media (min-width:640px){.sm\:text-\[13px\]{font-size:13px}}
