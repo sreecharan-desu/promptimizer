@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     await ensureSchema();
     await getSql()`UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = ${userId}`;
     await writeSessionCookie(userId);
-    return NextResponse.redirect(new URL("/account", request.url));
+    return NextResponse.redirect(new URL("/console", request.url));
   } catch {
     return NextResponse.redirect(fail);
   }

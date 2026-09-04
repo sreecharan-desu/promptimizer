@@ -1,11 +1,13 @@
 export type DocLink = { href: string; title: string; description: string };
 
-export type DocGroup = { title: string; tab: "Documentation" | "API reference"; pages: DocLink[] };
+export type DocTab = "Guides" | "SDK" | "API";
+
+export type DocGroup = { title: string; tab: DocTab; pages: DocLink[] };
 
 export const DOC_GROUPS: DocGroup[] = [
   {
     title: "Get started",
-    tab: "Documentation",
+    tab: "Guides",
     pages: [
       { href: "/docs", title: "Introduction", description: "What Promptimizer does." },
       { href: "/docs/quickstart", title: "Quickstart", description: "Account, key, first request." },
@@ -14,7 +16,7 @@ export const DOC_GROUPS: DocGroup[] = [
   },
   {
     title: "How it works",
-    tab: "Documentation",
+    tab: "Guides",
     pages: [
       { href: "/docs/guides/classification", title: "Classification", description: "How a request is scored." },
       { href: "/docs/guides/routing", title: "Routing", description: "How a model is chosen." },
@@ -25,18 +27,8 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
-    title: "SDK",
-    tab: "Documentation",
-    pages: [
-      { href: "/docs/sdk", title: "SDK", description: "npm i promptimizer" },
-      { href: "/docs/sdk/client", title: "Client", description: "TypeScript client methods." },
-      { href: "/docs/sdk/classifier", title: "Classifier", description: "Offline classification." },
-      { href: "/docs/sdk/openai", title: "OpenAI drop-in", description: "Official SDK via baseURL." },
-    ],
-  },
-  {
     title: "Product",
-    tab: "Documentation",
+    tab: "Guides",
     pages: [
       { href: "/docs/console", title: "Console", description: "Connect, fleet, playground." },
       { href: "/docs/cli", title: "CLI", description: "login, connect, chat, savings." },
@@ -44,8 +36,18 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
+    title: "TypeScript",
+    tab: "SDK",
+    pages: [
+      { href: "/docs/sdk", title: "Overview", description: "npm i promptimizer" },
+      { href: "/docs/sdk/client", title: "Client", description: "TypeScript client methods." },
+      { href: "/docs/sdk/classifier", title: "Classifier", description: "Offline classification." },
+      { href: "/docs/sdk/openai", title: "OpenAI drop-in", description: "Official SDK via baseURL." },
+    ],
+  },
+  {
     title: "Overview",
-    tab: "API reference",
+    tab: "API",
     pages: [
       { href: "/docs/api", title: "API overview", description: "Hosts and request flow." },
       { href: "/docs/api/authentication", title: "Authentication", description: "Bearer pmz_live_ keys." },
@@ -54,7 +56,7 @@ export const DOC_GROUPS: DocGroup[] = [
   },
   {
     title: "Endpoints",
-    tab: "API reference",
+    tab: "API",
     pages: [
       { href: "/docs/api/providers", title: "Providers", description: "GET /v1/providers" },
       { href: "/docs/api/connect", title: "Connect", description: "POST /v1/providers/connect" },
@@ -68,6 +70,28 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
 ];
+
+export const DOC_TABS: { label: DocTab; href: string; match: (pathname: string) => boolean }[] = [
+  {
+    label: "Guides",
+    href: "/docs",
+    match: (p) => !p.startsWith("/docs/sdk") && !p.startsWith("/docs/api"),
+  },
+  {
+    label: "SDK",
+    href: "/docs/sdk",
+    match: (p) => p.startsWith("/docs/sdk"),
+  },
+  {
+    label: "API",
+    href: "/docs/api",
+    match: (p) => p.startsWith("/docs/api"),
+  },
+];
+
+export function tabForPath(pathname: string): DocTab {
+  return DOC_TABS.find((t) => t.match(pathname))?.label ?? "Guides";
+}
 
 export function allDocLinks() {
   return DOC_GROUPS.flatMap((g) => g.pages);

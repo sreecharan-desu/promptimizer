@@ -3,22 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { DOC_GROUPS } from "@/lib/docs/nav";
+import { DOC_GROUPS, DOC_TABS, tabForPath, type DocTab } from "@/lib/docs/nav";
 import { DocsSearch } from "./search";
-
-const TABS = [
-  { label: "Documentation", href: "/docs", match: (p: string) => !p.startsWith("/docs/api") },
-  { label: "API reference", href: "/docs/api", match: (p: string) => p.startsWith("/docs/api") },
-] as const;
 
 function TabBar({ pathname }: { pathname: string }) {
   return (
-    <div className="grid grid-cols-2 rounded-lg border border-primary/[0.08] p-0.5">
-      {TABS.map((tab) => (
+    <div className="grid grid-cols-3 rounded-lg border border-primary/[0.08] p-0.5">
+      {DOC_TABS.map((tab) => (
         <Link
           key={tab.label}
           href={tab.href}
-          className={`rounded-md px-2 py-1.5 text-center text-[11px] font-medium transition-colors duration-150 ${
+          className={`rounded-md px-1.5 py-1.5 text-center text-[11px] font-medium transition-colors duration-150 ${
             tab.match(pathname) ? "bg-primary/[0.06] text-primary" : "text-secondary hover:text-primary"
           }`}
         >
@@ -29,8 +24,8 @@ function TabBar({ pathname }: { pathname: string }) {
   );
 }
 
-function GroupNav({ pathname, api }: { pathname: string; api: boolean }) {
-  const groups = DOC_GROUPS.filter((g) => g.tab === (api ? "API reference" : "Documentation"));
+function GroupNav({ pathname, tab }: { pathname: string; tab: DocTab }) {
+  const groups = DOC_GROUPS.filter((g) => g.tab === tab);
   return (
     <nav className="space-y-7">
       {groups.map((group) => (
@@ -61,7 +56,7 @@ function GroupNav({ pathname, api }: { pathname: string; api: boolean }) {
 
 export function DocsSidebar() {
   const pathname = usePathname();
-  const api = pathname.startsWith("/docs/api");
+  const tab = tabForPath(pathname);
 
   return (
     <aside className="hidden w-[248px] shrink-0 lg:block">
@@ -71,7 +66,7 @@ export function DocsSidebar() {
           <TabBar pathname={pathname} />
         </div>
         <div className="mt-7">
-          <GroupNav pathname={pathname} api={api} />
+          <GroupNav pathname={pathname} tab={tab} />
         </div>
       </div>
     </aside>
@@ -80,7 +75,7 @@ export function DocsSidebar() {
 
 export function DocsMobileNav() {
   const pathname = usePathname();
-  const api = pathname.startsWith("/docs/api");
+  const tab = tabForPath(pathname);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -98,7 +93,7 @@ export function DocsMobileNav() {
         <TabBar pathname={pathname} />
       </div>
       <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-primary/[0.06] bg-card px-2 py-3">
-        <GroupNav pathname={pathname} api={api} />
+        <GroupNav pathname={pathname} tab={tab} />
       </div>
     </div>
   );

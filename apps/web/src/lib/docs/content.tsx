@@ -45,14 +45,14 @@ export const DOC_CONTENT: Record<string, DocBody> = {
           <Card title="Quickstart" href="/docs/quickstart">
             Create an account, mint an API key, and route your first prompt.
           </Card>
-          <Card title="BYOK" href="/docs/guides/byok">
-            Paste any OpenAI-compatible base URL. We fetch /v1/models and auto-tier them.
+          <Card title="SDK" href="/docs/sdk">
+            npm i promptimizer — drop-in chat completions plus an offline classifier.
+          </Card>
+          <Card title="API" href="/docs/api">
+            OpenAI-compatible /v1 endpoints, auth, and error map.
           </Card>
           <Card title="Quality gate" href="/docs/guides/quality">
             Hard questions escalate. A cheap-only router fails the benchmark on purpose.
-          </Card>
-          <Card title="npm SDK" href="/docs/sdk">
-            npm i promptimizer — drop-in chat completions plus an offline classifier.
           </Card>
         </Cards>
         <H2 id="what-you-get">What you get</H2>

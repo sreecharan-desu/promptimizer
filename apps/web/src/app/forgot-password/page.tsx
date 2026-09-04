@@ -8,7 +8,7 @@ export const metadata = { title: "Forgot password" };
 export default async function ForgotPasswordPage() {
   if (authConfigured()) {
     const user = await getCurrentUser();
-    if (user) redirect("/account");
+    if (user) redirect("/console");
   }
   return <ForgotPasswordForm />;
 }

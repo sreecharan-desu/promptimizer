@@ -21,7 +21,7 @@ function SpotBoard({
   className?: string;
 }) {
   return (
-    <figure className={`overflow-hidden rounded-2xl bg-white ${className}`}>
+    <figure className={`overflow-hidden rounded-2xl border border-primary/[0.06] bg-white ${className}`}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 720 320"
@@ -60,31 +60,32 @@ function Defs({ prefix }: { prefix: string }) {
 /** Hero: three tiers on a tablet — the product in one glance. */
 export function HeroSpot() {
   return (
-    <SpotBoard titleId="homeHero" title="Three quiet roads on one desk" className="px-5 pb-2 pt-8 sm:px-6 sm:pt-10">
+    <SpotBoard titleId="homeHero" title="Three quiet roads on one desk" className="home-hero-spot px-4 pb-1 pt-6 sm:px-5 sm:pt-8">
       <Defs prefix="hero" />
-      <path d="M64 252 H656" />
-      <g transform="translate(96, 252)">
-        <path d="M0 0 C8 -22, 28 -48, 72 -50 C118 -52, 140 -22, 142 0 Z" fill="url(#heroCool)" />
+      <path d="M48 258 H672" />
+      <g transform="translate(72, 258)">
+        <path d="M0 0 C10 -26, 32 -56, 82 -58 C134 -60, 160 -26, 162 0 Z" fill="url(#heroCool)" />
       </g>
-      <g transform="translate(268, 252)">
-        <path d="M-34 0 L-28 -48 Q-26 -60, -12 -60 H34 Q48 -60, 50 -48 L56 0 Z" fill="url(#heroDuotone)" />
-        <path d="M50 -44 C74 -40, 76 -14, 50 -12" />
-        <path d="M8 -70 C-4 -86, 18 -96, 6 -112 C-6 -128, 16 -140, 10 -156" />
+      <g transform="translate(250, 258)">
+        <path d="M-38 0 L-30 -56 Q-28 -70, -12 -70 H38 Q54 -70, 56 -56 L64 0 Z" fill="url(#heroDuotone)" />
+        <path d="M56 -50 C84 -46, 86 -16, 56 -14" />
+        <path d="M10 -82 C-4 -100, 22 -112, 8 -130 C-6 -148, 20 -162, 12 -180" />
       </g>
-      <g transform="translate(356, 252) rotate(-54)">
-        <polygon points="0,0 11,-6.5 11,6.5" fill="var(--spot-ink)" stroke="none" />
-        <polygon points="10,-7.2 10,7.2 28,7.2 28,-7.2" fill="var(--spot-paper)" />
-        <rect x="27" y="-7.2" width="118" height="14.4" rx="2.2" fill="var(--spot-warm)" />
+      <g transform="translate(348, 258) rotate(-52)">
+        <polygon points="0,0 12,-7 12,7" fill="var(--spot-ink)" stroke="none" />
+        <polygon points="11,-7.8 11,7.8 30,7.8 30,-7.8" fill="var(--spot-paper)" />
+        <rect x="29" y="-7.8" width="132" height="15.6" rx="2.4" fill="var(--spot-warm)" />
       </g>
-      <g transform="translate(528, 252) rotate(16)">
-        <path d="M50 -8 L64 4 L64 -164 L50 -176 Z" fill="url(#heroCool)" />
-        <rect x="-62" y="-176" width="112" height="168" rx="14" fill="var(--spot-paper)" />
-        <circle cx="-20" cy="-92" r="6" fill="var(--spot-warm)" stroke="none" />
-        <circle cx="0" cy="-92" r="6" fill="url(#heroDuotone)" stroke="none" />
-        <circle cx="20" cy="-92" r="6" fill="url(#heroCool)" stroke="none" />
+      <g transform="translate(540, 258) rotate(14)">
+        <path d="M58 -10 L74 4 L74 -188 L58 -202 Z" fill="url(#heroCool)" />
+        <rect x="-72" y="-202" width="130" height="192" rx="16" fill="var(--spot-paper)" />
+        <circle cx="-24" cy="-106" r="8" fill="var(--spot-warm)" stroke="none" />
+        <circle cx="0" cy="-106" r="8" fill="url(#heroDuotone)" stroke="none" />
+        <circle cx="24" cy="-106" r="8" fill="url(#heroCool)" stroke="none" />
+        <path d="M-36 -70 H36 M-36 -52 H20" />
       </g>
-      <path d="M568 76 C592 54, 620 54, 642 76 S686 54, 702 64" />
-      <circle cx="682" cy="46" r="15" fill="var(--spot-warm)" />
+      <path d="M560 70 C586 46, 618 46, 642 70 S690 48, 708 58" />
+      <circle cx="688" cy="40" r="16" fill="var(--spot-warm)" />
     </SpotBoard>
   );
 }

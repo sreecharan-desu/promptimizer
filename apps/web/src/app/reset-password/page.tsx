@@ -13,7 +13,7 @@ export default async function ResetPasswordPage({
   const { token } = await searchParams;
   if (authConfigured()) {
     const user = await getCurrentUser();
-    if (user) redirect("/account");
+    if (user) redirect("/console");
   }
   return <ResetPasswordForm token={token ?? ""} />;
 }

@@ -31,7 +31,7 @@ export function AuthForm({
   const [error, setError] = useState<string | null>(errorCode ? ERRORS[errorCode] ?? "Could not sign in." : null);
   const [unverified, setUnverified] = useState(false);
   const [busy, setBusy] = useState(false);
-  const dest = next && next.startsWith("/") ? next : mode === "signup" ? "/account" : "/console";
+  const dest = next && next.startsWith("/") ? next : "/console";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,7 +84,7 @@ export function AuthForm({
   return (
     <AuthPanel
       title={mode === "signup" ? "Create an account" : "Sign in"}
-      dek={mode === "signup" ? "Then create an API key for the SDK or CLI." : "Access the console, keys, and savings."}
+      dek={mode === "signup" ? "Then open the console and mint an API key." : "Access the console, keys, and savings."}
     >
       {!configured ? (
         <p className="rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-3 text-sm text-secondary">

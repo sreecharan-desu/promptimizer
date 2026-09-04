@@ -6,26 +6,14 @@ import { useState } from "react";
 import { AuthNav } from "./auth-nav";
 import { Mark } from "./mark";
 
-const NAV = [
-  { href: "/docs", label: "Docs" },
-  { href: "/docs/api", label: "API" },
-  { href: "/docs/sdk", label: "SDK" },
-  { href: "/console", label: "Console" },
-];
-
-function navActive(pathname: string, href: string) {
-  if (href === "/docs") {
-    return (
-      pathname === "/docs" ||
-      (pathname.startsWith("/docs/") && !pathname.startsWith("/docs/api") && !pathname.startsWith("/docs/sdk"))
-    );
-  }
-  return pathname === href || pathname.startsWith(`${href}/`);
+function docsActive(pathname: string) {
+  return pathname === "/docs" || pathname.startsWith("/docs/");
 }
 
 export function Header() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const docs = docsActive(pathname);
 
   return (
     <header
@@ -38,25 +26,15 @@ export function Header() {
           <span className="font-display text-[17px] font-medium tracking-tight">Promptimizer</span>
         </Link>
 
-        <nav className="hidden items-center lg:flex">
-          {NAV.map((item) => {
-            const active = navActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                prefetch
-                className={`flex items-center px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                  active ? "text-primary" : "text-primary/50 hover:text-primary"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="hidden items-center gap-3 lg:flex">
+        <div className="hidden items-center gap-2 lg:flex">
+          <Link
+            href="/docs"
+            className={`mr-1 flex items-center px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+              docs ? "text-primary" : "text-primary/50 hover:text-primary"
+            }`}
+          >
+            Docs
+          </Link>
           <AuthNav />
         </div>
 
@@ -73,11 +51,13 @@ export function Header() {
       {open ? (
         <div className="border-t border-primary/[0.06] bg-background px-4 py-4 lg:hidden">
           <div className="flex flex-col gap-2">
-            {NAV.map((item) => (
-              <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="py-2 text-sm font-medium text-primary">
-                {item.label}
-              </Link>
-            ))}
+            <Link
+              href="/docs"
+              onClick={() => setOpen(false)}
+              className={`py-2 text-sm font-medium ${docs ? "text-primary" : "text-primary/70"}`}
+            >
+              Docs
+            </Link>
             <div className="mt-3 flex items-center gap-3">
               <AuthNav />
             </div>

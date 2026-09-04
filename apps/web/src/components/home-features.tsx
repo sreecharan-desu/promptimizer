@@ -6,20 +6,20 @@ const FEATURES = [
     href: "/docs/guides/classification",
     name: "Classify",
     title: "Know the ask before you spend.",
-    dek: "Each request gets a complexity and a quality risk before any model is called.",
+    dek: "Each request gets a complexity score and a quality risk before any model is called.",
     art: <ClassifySpot />,
   },
   {
     href: "/docs/guides/routing",
     name: "Route",
-    title: "Take the shorter road.",
-    dek: "Send it to the cheapest tier that can still answer. Escalate only when quality fails.",
+    title: "Send it where it belongs.",
+    dek: "Economy when the ask is light. Frontier when it isn't. Escalate only when the answer fails the gate.",
     art: <RouteSpot />,
   },
   {
     href: "/docs/guides/caching",
-    name: "Save",
-    title: "Keep the savings honest.",
+    name: "Measure",
+    title: "Keep the ledger honest.",
     dek: "Cache repeated prefixes, record cost versus always-frontier, and keep a quality gate on every answer.",
     art: <SaveSpot />,
   },
@@ -27,7 +27,7 @@ const FEATURES = [
 
 export function HomeFeatures() {
   return (
-    <div className="mt-16">
+    <div className="pt-8 sm:pt-12">
       {FEATURES.map((feature, index) => {
         const reverse = index % 2 === 1;
         return (

@@ -14,7 +14,7 @@ export default async function SignupPage({
   const { next, error } = await searchParams;
   if (authConfigured()) {
     const user = await getCurrentUser();
-    if (user) redirect(next && next.startsWith("/") ? next : "/account");
+    if (user) redirect(next && next.startsWith("/") ? next : "/console");
   }
   return (
     <AuthForm

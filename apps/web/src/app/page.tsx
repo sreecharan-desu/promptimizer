@@ -6,38 +6,45 @@ import { HeroSpot, StartSpot } from "@/components/home-spots";
 export default function HomePage() {
   return (
     <>
-      <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6">
-        <p className="font-display text-sm font-medium tracking-wide text-secondary">Promptimizer</p>
-        <h1 className="mt-4 max-w-3xl font-display text-4xl font-medium leading-[1.05] tracking-tight text-primary text-balance sm:text-5xl lg:text-6xl">
-          Route prompts to the cheapest model that still answers well.
-        </h1>
-        <p className="mt-5 max-w-xl text-lg leading-relaxed text-secondary text-pretty">
-          One OpenAI-compatible API. Classify, route, cache, and measure cost versus always using the frontier
-          model.
-        </p>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <Link
-            href="/signup"
-            className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
-          >
-            Get started
-          </Link>
-          <Link
-            href="/docs"
-            className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
-          >
-            Documentation
-          </Link>
-        </div>
+      <section className="relative overflow-hidden">
+        <div className="home-hero-wash pointer-events-none absolute inset-0" aria-hidden="true" />
+        <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-2 lg:gap-16 lg:py-28">
+          <div className="home-rise">
+            <p className="font-display text-sm font-medium tracking-wide text-secondary">Promptimizer</p>
+            <h1 className="mt-4 max-w-xl font-display text-4xl font-medium leading-[1.05] tracking-tight text-primary text-balance sm:text-5xl lg:text-[3.35rem]">
+              Route each prompt to the best model for the job.
+            </h1>
+            <p className="mt-5 max-w-md text-lg leading-relaxed text-secondary text-pretty">
+              Classify the ask, step up when quality slips, and measure spend against always-frontier — same
+              OpenAI-compatible API.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link
+                href="/signup"
+                className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
+              >
+                Get started
+              </Link>
+              <Link
+                href="/docs"
+                className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
+              >
+                Documentation
+              </Link>
+            </div>
+          </div>
 
-        <div className="mt-16">
-          <HeroSpot />
+          <div className="home-rise home-rise-delay home-float-wrap">
+            <HeroSpot />
+          </div>
         </div>
+      </section>
 
+      <section className="mx-auto max-w-7xl px-4 pb-8 sm:px-6">
         <HomeFeatures />
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
+      <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6">
         <h2 className="font-display text-4xl font-medium tracking-tight text-primary sm:text-5xl">One API.</h2>
         <p className="font-display text-4xl font-medium tracking-tight text-secondary sm:text-5xl">OpenAI-compatible.</p>
         <p className="mt-5 max-w-xl text-lg leading-relaxed text-secondary text-pretty">
@@ -65,7 +72,7 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
         <div className="overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
           <div className="grid items-center gap-0 lg:grid-cols-2">
-            <div className="p-8">
+            <div className="p-8 sm:p-10">
               <h2 className="font-display text-3xl font-medium tracking-tight text-primary sm:text-4xl">
                 Start with a key.
               </h2>

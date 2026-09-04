@@ -15,12 +15,7 @@ const COLUMNS = [
   },
   {
     title: "Developers",
-    links: [
-      { href: "/docs", label: "Docs" },
-      { href: "/docs/api", label: "API" },
-      { href: "/docs/sdk", label: "SDK" },
-      { href: "/docs/cli", label: "CLI" },
-    ],
+    links: [{ href: "/docs", label: "Docs" }],
   },
   {
     title: "Legal",

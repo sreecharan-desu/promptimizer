@@ -13,7 +13,7 @@ export default async function VerifyPage({
   const { email, error } = await searchParams;
   if (authConfigured()) {
     const user = await getCurrentUser();
-    if (user) redirect("/account");
+    if (user) redirect("/console");
   }
   return <VerifyEmail email={email} error={error} />;
 }

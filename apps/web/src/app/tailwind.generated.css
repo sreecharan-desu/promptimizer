@@ -23,3 +23,18 @@
 .border-primary\/5{border-color:hsl(var(--primary)/.05)}
 @media (min-width:640px){.sm\:mt-24{margin-top:6rem}.sm\:pt-10{padding-top:2.5rem}}
 @media (min-width:1024px){.lg\:border-l{border-left-width:1px}.lg\:border-t-0{border-top-width:0}.lg\:order-1{order:1}.lg\:order-2{order:2}.lg\:gap-12{gap:3rem}}
+.pointer-events-none{pointer-events:none}
+.gap-12{gap:3rem}
+.gap-16{gap:4rem}
+.pb-8{padding-bottom:2rem}
+.pt-8{padding-top:2rem}
+.home-hero-wash{background:radial-gradient(ellipse 70% 55% at 92% 12%,hsl(var(--primary)/.055),transparent 58%),radial-gradient(ellipse 55% 45% at 8% 88%,hsl(var(--accent)/.08),transparent 52%)}
+@keyframes home-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes home-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.home-rise{animation:home-rise .75s cubic-bezier(.22,1,.36,1) both}
+.home-rise-delay{animation-delay:.14s}
+.home-float-wrap{animation:home-float 7s ease-in-out .9s infinite}
+.home-hero-spot{box-shadow:0 24px 60px -36px hsl(var(--primary)/.28)}
+@media (prefers-reduced-motion:reduce){.home-rise,.home-float-wrap{animation:none}}
+@media (min-width:640px){.sm\:p-10{padding:2.5rem}.sm\:pt-12{padding-top:3rem}.sm\:py-24{padding-top:6rem;padding-bottom:6rem}}
+@media (min-width:1024px){.lg\:gap-16{gap:4rem}.lg\:py-28{padding-top:7rem;padding-bottom:7rem}.lg\:text-\[3\.35rem\]{font-size:3.35rem;line-height:1.05}}
