@@ -560,6 +560,9 @@ function FleetPane({
   onTier: (id: string, tier: string) => void;
   onBench: () => void;
 }) {
+  const PAGE_SIZE = 12;
+  const [page, setPage] = useState(0);
+
   const tiers = useMemo(() => {
     const counts = { economy: 0, standard: 0, frontier: 0 };
     for (const m of session.models) {
@@ -587,6 +590,34 @@ function FleetPane({
     }
     return [...map.values()];
   }, [session.models, session.connections]);
+
+  const total = session.models.length;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageModels = useMemo(() => {
+    const start = safePage * PAGE_SIZE;
+    return session.models.slice(start, start + PAGE_SIZE);
+  }, [session.models, safePage]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [session.session_id, total]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  const rangeStart = total === 0 ? 0 : safePage * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(total, (safePage + 1) * PAGE_SIZE);
+
+  function hostFor(model: Session["models"][number]) {
+    return (
+      model.provider_label ||
+      session.connections?.find((c) => c.id === model.provider_id)?.label ||
+      model.provider_id ||
+      "—"
+    );
+  }
 
   return (
     <div>
@@ -658,12 +689,8 @@ function FleetPane({
 
       {/* Mobile: stacked cards */}
       <ul className="space-y-3 md:hidden">
-        {session.models.map((model) => {
-          const host =
-            model.provider_label ||
-            session.connections?.find((c) => c.id === model.provider_id)?.label ||
-            model.provider_id ||
-            "—";
+        {pageModels.map((model) => {
+          const host = hostFor(model);
           return (
             <li
               key={`${model.provider_id ?? "x"}:${model.id}`}
@@ -723,12 +750,8 @@ function FleetPane({
             </tr>
           </thead>
           <tbody>
-            {session.models.map((model) => {
-              const host =
-                model.provider_label ||
-                session.connections?.find((c) => c.id === model.provider_id)?.label ||
-                model.provider_id ||
-                "—";
+            {pageModels.map((model) => {
+              const host = hostFor(model);
               return (
                 <tr key={`${model.provider_id ?? "x"}:${model.id}`} className="border-t border-primary/5">
                   <td className="max-w-[240px] px-4 py-3 font-mono text-[13px] text-primary">
@@ -762,6 +785,38 @@ function FleetPane({
           </tbody>
         </table>
       </div>
+
+      {total > PAGE_SIZE ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-secondary">
+            <span className="tabular text-primary">
+              {rangeStart}–{rangeEnd}
+            </span>{" "}
+            of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={safePage <= 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded-full px-3.5 py-1.5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)] disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="min-w-[4.5rem] text-center text-sm tabular text-secondary">
+              {safePage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              className="rounded-full px-3.5 py-1.5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)] disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
