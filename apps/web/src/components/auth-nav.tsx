@@ -25,18 +25,7 @@ export function AuthNav() {
     router.refresh();
   }
 
-  if (!me?.configured) {
-    return (
-      <Link
-        href="/console"
-        className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
-      >
-        Open console
-      </Link>
-    );
-  }
-
-  if (me.user) {
+  if (me?.user) {
     return (
       <>
         <Link href="/portal" className="text-sm font-medium text-primary/50 transition-colors hover:text-primary">

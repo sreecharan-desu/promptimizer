@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: googleRedirectUri(),
+      redirect_uri: googleRedirectUri(request),
       grant_type: "authorization_code",
     }),
   });

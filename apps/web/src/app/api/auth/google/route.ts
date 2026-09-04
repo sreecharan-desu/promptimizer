@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const nonce = crypto.randomUUID();
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID!);
-  url.searchParams.set("redirect_uri", googleRedirectUri());
+  url.searchParams.set("redirect_uri", googleRedirectUri(request));
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", "openid email profile");
   url.searchParams.set("state", nonce);
