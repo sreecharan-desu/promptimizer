@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
-import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
+import { api, clearSessionId, readSessionId, writeSessionId, type Session } from "@/lib/api";
 import {
   clearConsoleCache,
   fleetKey,
   restoreForSession,
   writeConsoleCache,
 } from "@/lib/console-cache";
-import { BenchSpot, EmptyFleetSpot, KeySpot, SimulatorSpot } from "./console-spots";
+import { EmptyFleetSpot, KeySpot } from "./console-spots";
 import { Donut, Meter, Pill, usd } from "./metrics";
 
 const HOSTS = [
@@ -32,7 +32,6 @@ const TABS = [
   ["connect", "Connect"],
   ["fleet", "Fleet"],
   ["play", "Playground"],
-  ["bench", "Benchmark"],
 ] as const;
 
 const FIELD =
@@ -94,7 +93,7 @@ export function ConsoleApp() {
           if (cached.prompt) setPrompt(cached.prompt);
           if (cached.benchAt) setBenchCachedAt(cached.bench ? cached.benchAt : null);
           const restoredTab = TABS.some(([id]) => id === cached.tab) ? (cached.tab as Tab) : "fleet";
-          setTab(cached.bench && restoredTab === "connect" ? "bench" : restoredTab === "connect" ? "fleet" : restoredTab);
+          setTab(restoredTab === "connect" && s.models.length ? "fleet" : restoredTab);
         } else {
           setTab("fleet");
         }
@@ -225,8 +224,8 @@ export function ConsoleApp() {
       }
       setSession(next);
       writeSessionId(next.session_id);
-      setTab("bench");
-      persist({ session: next, bench: result, tab: "bench", benchAt: Date.now() });
+      setTab("fleet");
+      persist({ session: next, bench: result, tab: "fleet", benchAt: Date.now() });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Benchmark failed");
     } finally {
@@ -242,93 +241,99 @@ export function ConsoleApp() {
   }, [completion]);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
-          <p className="mt-2 text-secondary">
-            {session
-              ? `${session.label} · ${session.models.length} models · baseline ${session.baseline_model ?? "—"}`
-              : "Start the simulator, or connect a vendor key."}
-          </p>
+    <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-7xl flex-col lg:flex-row">
+      {/* Side dock */}
+      <aside className="shrink-0 border-b border-primary/[0.06] bg-card lg:w-56 lg:border-b-0 lg:border-r lg:border-primary/[0.06]">
+        <div className="sticky top-16 flex flex-col gap-1 px-3 py-5 lg:min-h-[calc(100vh-5rem)] lg:px-4 lg:py-8">
+          <div className="mb-4 px-2">
+            <p className="font-display text-lg font-medium tracking-tight text-primary">Console</p>
+            <p className="mt-1 line-clamp-3 text-[12px] leading-snug text-secondary">
+              {session
+                ? `${session.label} · ${session.models.length} models`
+                : "Connect a host or start the simulator."}
+            </p>
+          </div>
+          <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+            {TABS.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={`shrink-0 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+                  tab === id
+                    ? "bg-primary text-background"
+                    : "text-primary/55 hover:bg-primary/[0.04] hover:text-primary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {session?.baseline_model ? (
+            <div className="mt-auto hidden pt-8 lg:block">
+              <p className="px-2 text-[10px] font-medium uppercase tracking-wide text-secondary">Baseline</p>
+              <p className="mt-1 break-all px-2 font-mono text-[11px] text-primary/70">{session.baseline_model}</p>
+            </div>
+          ) : null}
         </div>
-        <div className="inline-flex rounded-full border border-primary/[0.08] bg-card/60 p-0.5">
-          {TABS.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                tab === id ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      </aside>
 
-      {error ? <p className="mt-6 text-sm text-error">{error}</p> : null}
+      {/* Main stage */}
+      <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        {error ? <p className="mb-4 text-sm text-error">{error}</p> : null}
 
-      {tab === "connect" ? (
-        <ConnectPane
-          busy={busy}
-          host={host}
-          hosts={hosts}
-          query={query}
-          baseUrl={baseUrl}
-          apiKey={apiKey}
-          connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
-          fleetSummary={
-            session?.mode === "byok"
-              ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
-              : null
-          }
-          onQuery={setQuery}
-          onPick={(item) => {
-            setHostId(item.id);
-            setBaseUrl(item.base_url);
-          }}
-          onBaseUrl={setBaseUrl}
-          onKey={setApiKey}
-          onSimulator={connectSimulator}
-          onFetch={connectKey}
-          onDisconnect={disconnectHost}
-        />
-      ) : null}
-
-      {tab === "fleet" ? (
-        session ? (
-          <FleetPane session={session} busy={busy} onTier={changeTier} onBench={runBench} />
-        ) : (
-          <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
-        )
-      ) : null}
-
-      {tab === "play" ? (
-        session ? (
-          <PlayPane
-            session={session}
-            prompt={prompt}
-            answer={answer}
-            meta={meta}
-            usage={usage}
+        {tab === "connect" ? (
+          <ConnectPane
             busy={busy}
-            onPrompt={setPrompt}
-            onSend={send}
+            host={host}
+            hosts={hosts}
+            query={query}
+            baseUrl={baseUrl}
+            apiKey={apiKey}
+            connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
+            fleetSummary={
+              session?.mode === "byok"
+                ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
+                : null
+            }
+            onQuery={setQuery}
+            onPick={(item) => {
+              setHostId(item.id);
+              setBaseUrl(item.base_url);
+            }}
+            onBaseUrl={setBaseUrl}
+            onKey={setApiKey}
+            onSimulator={connectSimulator}
+            onFetch={connectKey}
+            onDisconnect={disconnectHost}
           />
-        ) : (
-          <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
-        )
-      ) : null}
+        ) : null}
 
-      {tab === "bench" ? (
-        session ? (
-          <BenchPane bench={bench} busy={busy} cachedAt={benchCachedAt} onRun={runBench} />
-        ) : (
-          <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
-        )
-      ) : null}
+        {tab === "fleet" ? (
+          session ? (
+            <FleetPane session={session} busy={busy} onTier={changeTier} onBench={runBench} />
+          ) : (
+            <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+          )
+        ) : null}
+
+        {tab === "play" ? (
+          session ? (
+            <PlayPane
+              session={session}
+              prompt={prompt}
+              answer={answer}
+              meta={meta}
+              usage={usage}
+              busy={busy}
+              onPrompt={setPrompt}
+              onSend={send}
+            />
+          ) : (
+            <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+          )
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -367,41 +372,20 @@ function ConnectPane({
   onDisconnect: (providerId: string) => void;
 }) {
   return (
-    <div className="mt-10 grid gap-4 lg:grid-cols-2">
-      <section className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
-        <SimulatorSpot />
-        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Simulator</h2>
-        <p className="mt-2 text-sm text-secondary">Three mocked models. No vendor key.</p>
-        <dl className="mt-5 space-y-3">
-          {[
-            ["promptimizer-nano", "economy"],
-            ["promptimizer-flash", "standard"],
-            ["promptimizer-frontier", "frontier"],
-          ].map(([model, tier]) => (
-            <div key={model} className="flex items-center justify-between gap-4 border-b border-primary/5 pb-3">
-              <dt className="font-mono text-[13px] text-primary">{model}</dt>
-              <dd className="text-sm text-secondary">{tier}</dd>
-            </div>
-          ))}
-        </dl>
-        <button
-          type="button"
-          onClick={onSimulator}
-          disabled={busy}
-          className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
-        >
-          {busy ? "Starting…" : "Start simulator"}
-        </button>
-      </section>
-
-      <section className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
-        <KeySpot />
-        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Your keys</h2>
-        <p className="mt-2 text-sm text-secondary">
-          Connect one host at a time. Checkmarks stay on connected hosts — fetch another to add its models to the same
-          fleet. Routing picks across all of them.
-        </p>
-        {fleetSummary ? <p className="mt-3 text-sm text-primary">{fleetSummary}</p> : null}
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="font-display text-xl font-medium tracking-tight text-primary">Your keys</h2>
+            <p className="mt-1 max-w-xl text-sm text-secondary">
+              Connect hosts one at a time. Checkmarks stay — fetch another to merge fleets. Routing picks across all.
+            </p>
+            {fleetSummary ? <p className="mt-2 text-sm text-primary">{fleetSummary}</p> : null}
+          </div>
+          <div className="hidden sm:block">
+            <KeySpot />
+          </div>
+        </div>
 
         <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Filter hosts" className={FIELD} />
 
@@ -454,7 +438,7 @@ function ConnectPane({
           />
         </label>
 
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             onClick={onFetch}
@@ -473,6 +457,28 @@ function ConnectPane({
               Remove host
             </button>
           ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-xl font-medium tracking-tight text-primary">Simulator</h2>
+            <p className="mt-1 text-sm text-secondary">Three mocked models. No vendor key.</p>
+            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] text-secondary">
+              <li>nano · economy</li>
+              <li>flash · standard</li>
+              <li>frontier · frontier</li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={onSimulator}
+            disabled={busy}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+          >
+            {busy ? "Starting…" : "Start simulator"}
+          </button>
         </div>
       </section>
     </div>
@@ -519,7 +525,7 @@ function FleetPane({
   }, [session.models, session.connections]);
 
   return (
-    <div className="mt-10">
+    <div>
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 lg:col-span-2">
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -809,7 +815,7 @@ function PlayPane({
   }, [meta, session.models]);
 
   return (
-    <div className="mt-10 space-y-6">
+    <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
         <div>
           <div className="flex flex-wrap gap-2">
@@ -1008,130 +1014,6 @@ function PlayPane({
   );
 }
 
-function BenchPane({
-  bench,
-  busy,
-  cachedAt,
-  onRun,
-}: {
-  bench: Bench | null;
-  busy: boolean;
-  cachedAt: number | null;
-  onRun: () => void;
-}) {
-  if (!bench) {
-    return (
-      <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
-        <div className="grid gap-0 lg:grid-cols-2">
-          <div className="p-8">
-            <h2 className="font-display text-2xl font-medium tracking-tight text-primary">15 gold tasks</h2>
-            <p className="mt-3 max-w-md text-secondary">
-              Same prompts, four policies. Cost and quality versus always using the frontier model.
-            </p>
-            <button
-              type="button"
-              onClick={onRun}
-              disabled={busy}
-              className="mt-6 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-            >
-              {busy ? "Running 15 tasks…" : "Run benchmark"}
-            </button>
-          </div>
-          <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">
-            <BenchSpot />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const when =
-    cachedAt != null
-      ? new Date(cachedAt).toLocaleString("en-US", {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : null;
-
-  return (
-    <div className="mt-10">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-secondary">
-            {when ? (
-              <>
-                Last run <span className="text-primary">{when}</span> · restored for this fleet. Re-run only if you
-                change models or tiers.
-              </>
-            ) : (
-              <>Results for the current fleet.</>
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={busy}
-          className="rounded-full px-4 py-2 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)] disabled:opacity-50"
-        >
-          {busy ? "Running 15 tasks…" : "Re-run benchmark"}
-        </button>
-      </div>
-      {bench.policies ? <PolicyBoard policies={bench.policies} /> : null}
-      <div className="mt-6 grid gap-4 sm:grid-cols-4">
-        <Stat label="Saved vs always-frontier" value={`${Number(bench.summary.saved_pct).toFixed(1)}%`} accent />
-        <Stat label="Routed quality" value={Number(bench.summary.avg_quality_routed).toFixed(2)} />
-        <Stat
-          label="Worst-case quality"
-          value={Number(bench.summary.worst_quality_routed ?? bench.summary.avg_quality_routed).toFixed(2)}
-        />
-        <Stat label="Quality vs frontier" value={Number(bench.summary.quality_delta).toFixed(2)} />
-      </div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <Stat label="Routing savings" value={`$${(bench.summary.routing_saved_usd ?? 0).toFixed(5)}`} />
-        <Stat label="Cache savings" value={`$${(bench.summary.cache_saved_usd ?? 0).toFixed(5)}`} accent />
-        <Stat label="Cache hit rate" value={`${((bench.summary.cache_hit_rate ?? 0) * 100).toFixed(0)}%`} />
-      </div>
-      <p className="mt-4 text-sm text-secondary">
-        Quality-aware + cache is the product. Escalated {bench.summary.escalations}
-        {bench.summary.successful_escalations != null ? `, ${bench.summary.successful_escalations} recovered` : ""}.
-      </p>
-      <div className="mt-8 overflow-x-auto rounded-2xl border border-primary/[0.06]">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="bg-card text-secondary">
-            <tr>
-              <th className="px-4 py-3 font-medium">ID</th>
-              <th className="px-4 py-3 font-medium">L</th>
-              <th className="px-4 py-3 font-medium">P</th>
-              <th className="px-4 py-3 font-medium">Model</th>
-              <th className="px-4 py-3 font-medium">Saved</th>
-              <th className="px-4 py-3 font-medium">Q routed</th>
-              <th className="px-4 py-3 font-medium">Q frontier</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bench.rows.map((row) => (
-              <tr key={row.id} className="border-t border-primary/5">
-                <td className="px-4 py-3 font-mono text-xs">{row.id}</td>
-                <td className="px-4 py-3">{row.difficulty}</td>
-                <td className="px-4 py-3 tabular">
-                  {row.p_small_quality != null ? Number(row.p_small_quality).toFixed(2) : "—"}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">{row.model}</td>
-                <td className="px-4 py-3 text-accent tabular">{Number(row.cost.saved_pct).toFixed(0)}%</td>
-                <td className="px-4 py-3 tabular">{Number(row.quality_routed.score).toFixed(2)}</td>
-                <td className="px-4 py-3 tabular">{Number(row.quality_frontier.score).toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function NeedSession({
   onSimulator,
   onConnect,
@@ -1142,7 +1024,7 @@ function NeedSession({
   busy: boolean;
 }) {
   return (
-    <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
+    <div className="overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="p-8">
           <h2 className="font-display text-2xl font-medium tracking-tight text-primary">No fleet yet</h2>
@@ -1178,68 +1060,6 @@ function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
     <div className="flex items-center justify-between gap-4">
       <dt className="text-secondary">{k}</dt>
       <dd className={accent ? "text-accent" : "text-primary"}>{v}</dd>
-    </div>
-  );
-}
-
-const POLICY_LABEL: Record<string, string> = {
-  always_frontier: "Always frontier",
-  difficulty: "Difficulty router",
-  quality: "Quality-aware",
-  quality_cache: "Quality + cache",
-};
-
-function PolicyBoard({ policies }: { policies: Record<string, PolicySummary> }) {
-  const order = ["always_frontier", "difficulty", "quality", "quality_cache"];
-  const points = order
-    .map((id) => policies[id])
-    .filter(Boolean)
-    .map((p) => ({ q: p.avg_quality, c: p.actual_usd }));
-  const maxC = Math.max(...points.map((p) => p.c), 1e-9);
-  const minQ = Math.min(...points.map((p) => p.q), 0.7);
-  const maxQ = Math.max(...points.map((p) => p.q), 1);
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <div className="grid gap-3 sm:grid-cols-2">
-        {order.map((id) => {
-          const p = policies[id];
-          if (!p) return null;
-          return (
-            <div key={id} className="rounded-2xl border border-primary/[0.06] bg-card p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{POLICY_LABEL[id] ?? id}</p>
-              <p className="mt-2 font-display text-2xl font-medium text-primary">${p.actual_usd.toFixed(5)}</p>
-              <p className="mt-1 text-sm text-secondary">
-                Q {p.avg_quality.toFixed(2)} · worst {p.worst_quality.toFixed(2)} · saved {p.saved_pct.toFixed(0)}%
-              </p>
-            </div>
-          );
-        })}
-      </div>
-      <div className="rounded-2xl border border-primary/[0.06] bg-card p-4">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Quality vs cost</p>
-        <svg viewBox="0 0 220 140" className="mt-3 h-36 w-full">
-          <line x1="24" y1="12" x2="24" y2="120" stroke="currentColor" className="text-primary/20" />
-          <line x1="24" y1="120" x2="208" y2="120" stroke="currentColor" className="text-primary/20" />
-          {points.map((p, i) => {
-            const x = 24 + (p.c / maxC) * 170;
-            const y = 120 - ((p.q - minQ) / Math.max(0.001, maxQ - minQ)) * 96;
-            return <circle key={order[i]} cx={x} cy={y} r="5" className={i === 3 ? "fill-accent" : "fill-primary/70"} />;
-          })}
-        </svg>
-        <p className="text-xs text-secondary">Gold is quality-aware + cache. Left is cheaper. Up is higher quality.</p>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
-      <p className={`font-display text-3xl font-medium tracking-tight ${accent ? "text-accent" : "text-primary"}`}>
-        {value}
-      </p>
-      <p className="mt-2 text-sm text-secondary">{label}</p>
     </div>
   );
 }
