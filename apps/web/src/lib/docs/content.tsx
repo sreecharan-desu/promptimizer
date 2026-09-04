@@ -92,8 +92,9 @@ export const DOC_CONTENT: Record<string, DocBody> = {
       <>
         <H2 id="account">1. Create an account</H2>
         <P>
-          Open <Link href="/signup">/signup</Link>. Then the <Link href="/console">console</Link> — the simulator is
-          already connected so you can try routing without a vendor key.
+          Open <Link href="/signup">/signup</Link> and confirm the email we send. Then the{" "}
+          <Link href="/console">console</Link> — the simulator is already connected so you can try routing without a
+          vendor key.
         </P>
         <H2 id="key">2. Mint an API key</H2>
         <P>

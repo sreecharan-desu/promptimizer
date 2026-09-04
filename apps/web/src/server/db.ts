@@ -76,7 +76,22 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS usage_user_idx ON usage_events(user_id, created_at DESC);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
+CREATE TABLE IF NOT EXISTS email_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS email_tokens_user_purpose_idx ON email_tokens(user_id, purpose);
+CREATE TABLE IF NOT EXISTS schema_flags (
+  key TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 export function googleAuthConfigured() {
@@ -85,7 +100,17 @@ export function googleAuthConfigured() {
 
 export async function ensureSchema() {
   if (!ready) {
-    ready = getSql().unsafe(SCHEMA).then(() => undefined);
+    ready = (async () => {
+      await getSql().unsafe(SCHEMA);
+      const inserted = await getSql()`
+        INSERT INTO schema_flags (key) VALUES ('email_verified_backfill_v1')
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+      `;
+      if (inserted.length) {
+        await getSql()`UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL`;
+      }
+    })();
   }
   await ready;
 }

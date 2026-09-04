@@ -100,7 +100,7 @@ pnpm --filter promptimizer test
 
 ## Accounts
 
-Set `DATABASE_URL`, `AUTH_SECRET`, and `ENCRYPTION_KEY`. Sign up at `/signup`, create a `pmz_live_` key at `/account`, then connect a provider in the console or:
+Set `DATABASE_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_MAIL_USER`, and `GOOGLE_MAIL_PASSWORD`. Sign up at `/signup`, confirm the email we send, create a `pmz_live_` key at `/account`, then connect a provider in the console or:
 
 ```bash
 npm run promptimizer -- login --key pmz_live_…

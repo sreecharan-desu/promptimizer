@@ -13,6 +13,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ user });
   } catch (error) {
     const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 401;
-    return NextResponse.json({ detail: error instanceof Error ? error.message : "Could not sign in." }, { status });
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : undefined;
+    return NextResponse.json(
+      { detail: error instanceof Error ? error.message : "Could not sign in.", code },
+      { status },
+    );
   }
 }

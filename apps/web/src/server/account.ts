@@ -4,7 +4,13 @@ import { decryptText, encryptText, hashPassword, hashToken, newApiKey, newId, ne
 
 export const COOKIE = "pmz_session";
 
-export type User = { id: string; email: string; name: string; avatarUrl?: string | null };
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string | null;
+  emailVerified?: boolean;
+};
 
 export type SavedProvider = {
   id: string;
@@ -37,6 +43,7 @@ function publicUser(row: unknown): User {
     email: String(r.email),
     name: String(r.name),
     avatarUrl: r.avatar_url ? String(r.avatar_url) : null,
+    emailVerified: Boolean(r.email_verified_at),
   };
 }
 
@@ -59,7 +66,10 @@ export async function createUser(input: { email: string; password: string; name:
 
 export async function loginUser(email: string, password: string) {
   await ensureSchema();
-  const rows = await getSql()`SELECT id, email, name, password_hash, avatar_url FROM users WHERE email = ${email.trim().toLowerCase()}`;
+  const rows = await getSql()`
+    SELECT id, email, name, password_hash, avatar_url, email_verified_at
+    FROM users WHERE email = ${email.trim().toLowerCase()}
+  `;
   const row = rows[0];
   const hash = row ? String(asRecord(row).password_hash ?? "") : "";
   if (row && !hash) {
@@ -67,6 +77,12 @@ export async function loginUser(email: string, password: string) {
   }
   if (!row || !verifyPassword(password, hash)) {
     throw Object.assign(new Error("Email or password is wrong."), { status: 401 });
+  }
+  if (!asRecord(row).email_verified_at) {
+    throw Object.assign(new Error("Verify your email first. We can send another link."), {
+      status: 403,
+      code: "unverified",
+    });
   }
   return publicUser(row);
 }
@@ -89,7 +105,8 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
       UPDATE users
       SET google_sub = ${input.sub},
           name = CASE WHEN name = '' THEN ${name} ELSE name END,
-          avatar_url = COALESCE(${picture}, avatar_url)
+          avatar_url = COALESCE(${picture}, avatar_url),
+          email_verified_at = COALESCE(email_verified_at, now())
       WHERE id = ${String(row.id)}
     `;
     return publicUser({
@@ -97,14 +114,41 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
       name: String(row.name) || name,
       email: String(row.email),
       avatar_url: picture ?? row.avatar_url,
+      email_verified_at: row.email_verified_at ?? new Date(),
     });
   }
-  const user = { id: newId("usr"), email, name, password_hash: "", google_sub: input.sub, avatar_url: picture };
+  const user = {
+    id: newId("usr"),
+    email,
+    name,
+    password_hash: "",
+    google_sub: input.sub,
+    avatar_url: picture,
+    email_verified_at: new Date(),
+  };
   await sql`
-    INSERT INTO users (id, email, name, password_hash, google_sub, avatar_url)
-    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.google_sub}, ${user.avatar_url})
+    INSERT INTO users (id, email, name, password_hash, google_sub, avatar_url, email_verified_at)
+    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.google_sub}, ${user.avatar_url}, ${user.email_verified_at})
   `;
   return publicUser(user);
+}
+
+export async function deleteUser(userId: string) {
+  await ensureSchema();
+  await getSql()`DELETE FROM users WHERE id = ${userId}`;
+}
+
+export async function setPassword(userId: string, password: string) {
+  if (password.length < 8) {
+    throw Object.assign(new Error("Use a password of at least 8 characters."), { status: 400 });
+  }
+  await ensureSchema();
+  await getSql()`
+    UPDATE users
+    SET password_hash = ${hashPassword(password)},
+        email_verified_at = COALESCE(email_verified_at, now())
+    WHERE id = ${userId}
+  `;
 }
 
 export async function writeSessionCookie(userId: string) {
@@ -137,7 +181,7 @@ export async function getCurrentUser(): Promise<User | null> {
   if (!token) return null;
   await ensureSchema();
   const rows = await getSql()`
-    SELECT u.id, u.email, u.name, u.avatar_url
+    SELECT u.id, u.email, u.name, u.avatar_url, u.email_verified_at
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${hashToken(token)} AND s.expires_at > now()

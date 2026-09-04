@@ -26,6 +26,7 @@ if (existsSync(envFile)) {
 const nextConfig: NextConfig = {
   output: "standalone",
   transpilePackages: ["promptimizer"],
+  serverExternalPackages: ["nodemailer"],
   outputFileTracingRoot: root,
 };
 
