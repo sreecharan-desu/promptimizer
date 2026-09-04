@@ -4,13 +4,31 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-const LINKS = [
-  { href: "/docs", label: "Docs" },
-  { href: "/docs/api", label: "API" },
-  { href: "/docs/sdk", label: "SDK" },
-  { href: "/docs/cli", label: "CLI" },
-  { href: "/privacy", label: "Privacy" },
-  { href: "/terms", label: "Terms" },
+const COLUMNS = [
+  {
+    title: "Product",
+    links: [
+      { href: "/console", label: "Console" },
+      { href: "/account", label: "API keys" },
+      { href: "/portal", label: "Savings" },
+    ],
+  },
+  {
+    title: "Developers",
+    links: [
+      { href: "/docs", label: "Docs" },
+      { href: "/docs/api", label: "API" },
+      { href: "/docs/sdk", label: "SDK" },
+      { href: "/docs/cli", label: "CLI" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/privacy", label: "Privacy" },
+      { href: "/terms", label: "Terms" },
+    ],
+  },
 ];
 
 type Theme = "dark" | "light" | "system";
@@ -43,17 +61,29 @@ export function Footer() {
     theme === "light" ? "Switch to system theme" : theme === "system" ? "Switch to dark mode" : "Switch to light mode";
 
   return (
-    <footer className="border-t border-primary/[0.06] px-4 py-6 sm:px-6">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-        <p className="text-xs text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+    <footer className="border-t border-primary/[0.06] px-4 py-16 sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-10 sm:flex-row sm:justify-between">
+        <div>
+          <p className="font-display text-sm font-medium tracking-tight text-primary">Promptimizer</p>
+          <p className="mt-3 text-sm text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+        </div>
         {compact ? null : (
-          <nav className="flex flex-wrap gap-4">
-            {LINKS.map((link) => (
-              <Link key={link.href} href={link.href} className="text-xs text-primary/50 transition-colors hover:text-primary">
-                {link.label}
-              </Link>
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
+            {COLUMNS.map((column) => (
+              <div key={column.title}>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{column.title}</p>
+                <ul className="mt-3 space-y-2">
+                  {column.links.map((link) => (
+                    <li key={link.href}>
+                      <Link href={link.href} className="text-sm text-primary/50 transition-colors hover:text-primary">
+                        {link.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </nav>
+          </div>
         )}
         <button
           type="button"

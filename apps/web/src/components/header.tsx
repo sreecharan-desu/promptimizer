@@ -34,7 +34,7 @@ export function Header() {
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5 text-primary">
-          <Mark className="h-8 w-8" />
+          <Mark className="h-9 w-9" />
           <span className="font-display text-[17px] font-medium tracking-tight">Promptimizer</span>
         </Link>
 
