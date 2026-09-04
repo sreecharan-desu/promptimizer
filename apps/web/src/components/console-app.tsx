@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
+import {
+  clearConsoleCache,
+  fleetKey,
+  restoreForSession,
+  writeConsoleCache,
+} from "@/lib/console-cache";
 import { BenchSpot, EmptyFleetSpot, KeySpot, SimulatorSpot } from "./console-spots";
 import { Donut, Meter, Pill, usd } from "./metrics";
 
@@ -47,6 +53,7 @@ export function ConsoleApp() {
   const [prompt, setPrompt] = useState(EXAMPLES[0].prompt);
   const [completion, setCompletion] = useState<Record<string, unknown> | null>(null);
   const [bench, setBench] = useState<Bench | null>(null);
+  const [benchCachedAt, setBenchCachedAt] = useState<number | null>(null);
 
   const host = HOSTS.find((h) => h.id === hostId) ?? HOSTS[0];
   const hosts = useMemo(() => {
@@ -55,18 +62,60 @@ export function ConsoleApp() {
     return HOSTS.filter((h) => h.label.toLowerCase().includes(q) || h.id.includes(q) || h.base_url.toLowerCase().includes(q));
   }, [query]);
 
+  function persist(next: {
+    session: Session;
+    bench?: Bench | null;
+    completion?: Record<string, unknown> | null;
+    prompt?: string;
+    tab?: Tab;
+    benchAt?: number | null;
+  }) {
+    writeConsoleCache({
+      fleetKey: fleetKey(next.session),
+      sessionId: next.session.session_id,
+      bench: next.bench === undefined ? bench : next.bench,
+      completion: next.completion === undefined ? completion : next.completion,
+      prompt: next.prompt === undefined ? prompt : next.prompt,
+      tab: next.tab === undefined ? tab : next.tab,
+      benchAt: next.benchAt === undefined ? benchCachedAt : next.benchAt,
+    });
+  }
+
   useEffect(() => {
     api
       .session()
       .then((s) => {
         writeSessionId(s.session_id);
         setSession(s);
-        setTab("fleet");
+        const cached = restoreForSession(s);
+        if (cached) {
+          if (cached.bench) setBench(cached.bench as Bench);
+          if (cached.completion) setCompletion(cached.completion);
+          if (cached.prompt) setPrompt(cached.prompt);
+          if (cached.benchAt) setBenchCachedAt(cached.bench ? cached.benchAt : null);
+          const restoredTab = TABS.some(([id]) => id === cached.tab) ? (cached.tab as Tab) : "fleet";
+          setTab(cached.bench && restoredTab === "connect" ? "bench" : restoredTab === "connect" ? "fleet" : restoredTab);
+        } else {
+          setTab("fleet");
+        }
       })
       .catch(() => {
         if (readSessionId()) clearSessionId();
       });
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    writeConsoleCache({
+      fleetKey: fleetKey(session),
+      sessionId: session.session_id,
+      bench,
+      completion,
+      prompt,
+      tab,
+      benchAt: benchCachedAt,
+    });
+  }, [session, bench, completion, prompt, tab, benchCachedAt]);
 
   async function connectSimulator() {
     setBusy(true);
@@ -74,9 +123,11 @@ export function ConsoleApp() {
     try {
       const next = await api.connect({ mode: "mock", label: "Simulator" });
       writeSessionId(next.session_id);
+      clearConsoleCache();
       setSession(next);
       setCompletion(null);
       setBench(null);
+      setBenchCachedAt(null);
       setTab("fleet");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connect failed");
@@ -98,9 +149,11 @@ export function ConsoleApp() {
         api_key: apiKey,
       });
       writeSessionId(next.session_id);
+      clearConsoleCache();
       setSession(next);
       setCompletion(null);
       setBench(null);
+      setBenchCachedAt(null);
       setTab("fleet");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connect failed");
@@ -111,7 +164,11 @@ export function ConsoleApp() {
 
   async function changeTier(id: string, tier: string) {
     if (!session) return;
-    setSession(await api.patchModels({ overrides: { [id]: tier } }));
+    const next = await api.patchModels({ overrides: { [id]: tier } });
+    setSession(next);
+    // Fleet changed — prior benchmark is no longer valid for this mix.
+    setBench(null);
+    setBenchCachedAt(null);
   }
 
   async function send() {
@@ -135,7 +192,11 @@ export function ConsoleApp() {
     try {
       const result = await api.benchmark();
       setBench(result);
+      setBenchCachedAt(Date.now());
       setTab("bench");
+      if (session) {
+        persist({ session, bench: result, tab: "bench", benchAt: Date.now() });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Benchmark failed");
     } finally {
@@ -226,7 +287,7 @@ export function ConsoleApp() {
 
       {tab === "bench" ? (
         session ? (
-          <BenchPane bench={bench} busy={busy} onRun={runBench} />
+          <BenchPane bench={bench} busy={busy} cachedAt={benchCachedAt} onRun={runBench} />
         ) : (
           <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
         )
@@ -693,7 +754,17 @@ function PlayPane({
   );
 }
 
-function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean; onRun: () => void }) {
+function BenchPane({
+  bench,
+  busy,
+  cachedAt,
+  onRun,
+}: {
+  bench: Bench | null;
+  busy: boolean;
+  cachedAt: number | null;
+  onRun: () => void;
+}) {
   if (!bench) {
     return (
       <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
@@ -720,8 +791,40 @@ function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean;
     );
   }
 
+  const when =
+    cachedAt != null
+      ? new Date(cachedAt).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
+
   return (
     <div className="mt-10">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-secondary">
+            {when ? (
+              <>
+                Last run <span className="text-primary">{when}</span> · restored for this fleet. Re-run only if you
+                change models or tiers.
+              </>
+            ) : (
+              <>Results for the current fleet.</>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={busy}
+          className="rounded-full px-4 py-2 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)] disabled:opacity-50"
+        >
+          {busy ? "Running 15 tasks…" : "Re-run benchmark"}
+        </button>
+      </div>
       {bench.policies ? <PolicyBoard policies={bench.policies} /> : null}
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
         <Stat label="Saved vs always-frontier" value={`${Number(bench.summary.saved_pct).toFixed(1)}%`} accent />
