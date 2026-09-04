@@ -201,38 +201,6 @@ export function ConsoleApp() {
     }
   }
 
-  async function runBench() {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api.benchmark();
-      setBench(result);
-      setBenchCachedAt(Date.now());
-      // Pull measured quality onto the fleet (server mutates session; also merge profiles client-side).
-      let next = result.session ?? (await api.session());
-      if (result.quality_profiles?.length) {
-        const byId = new Map(result.quality_profiles.map((p) => [p.model_id, p.overall_quality]));
-        next = {
-          ...next,
-          models: next.models.map((m) => ({
-            ...m,
-            overall_quality: byId.get(m.id) ?? m.overall_quality ?? null,
-          })),
-        };
-      } else {
-        next = await api.session();
-      }
-      setSession(next);
-      writeSessionId(next.session_id);
-      setTab("fleet");
-      persist({ session: next, bench: result, tab: "fleet", benchAt: Date.now() });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Benchmark failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const meta = completion?.promptimizer as Record<string, unknown> | undefined;
   const usage = completion?.usage as { cost?: Record<string, number> } | undefined;
   const answer = useMemo(() => {
@@ -334,7 +302,7 @@ export function ConsoleApp() {
 
           {tab === "fleet" ? (
             session ? (
-              <FleetPane session={session} busy={busy} onTier={changeTier} onBench={runBench} />
+              <FleetPane session={session} onTier={changeTier} />
             ) : (
               <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
             )
@@ -551,14 +519,10 @@ function ConnectPane({
 
 function FleetPane({
   session,
-  busy,
   onTier,
-  onBench,
 }: {
   session: Session;
-  busy: boolean;
   onTier: (id: string, tier: string) => void;
-  onBench: () => void;
 }) {
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(0);
@@ -630,8 +594,8 @@ function FleetPane({
                 <span className="break-all font-mono text-primary">{session.baseline_model ?? "—"}</span>
               </p>
               <p className="mt-1 text-sm text-secondary">
-                Change a tier if the auto-map is wrong. Quality shows ~estimates until you run a benchmark; measured
-                scores replace them for models that were scored.
+                Change a tier if the auto-map is wrong. Quality shows ~estimates; measured scores appear for models that
+                have been scored.
               </p>
               {hostCounts.length ? (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -650,20 +614,7 @@ function FleetPane({
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              onClick={onBench}
-              disabled={busy}
-              className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-            >
-              {busy ? "Running 15 tasks…" : "Run benchmark"}
-            </button>
           </div>
-          {busy ? (
-            <p className="mt-4 text-sm text-secondary">
-              Scoring hits each tier model live on your provider — usually 1–3 minutes on Baseten.
-            </p>
-          ) : null}
         </div>
         <div className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)]">
           <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Selected mix</p>
