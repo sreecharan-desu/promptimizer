@@ -1,0 +1,44 @@
+---
+title: "Connect a provider"
+api: "POST /v1/providers/connect"
+description: "Start a mock or BYOK session and receive a tiered fleet."
+---
+
+<ParamField body="mode" type="string" required>
+  `mock` or `byok`.
+</ParamField>
+
+<ParamField body="provider" type="string">
+  Known id such as `baseten` or `groq`. Fills `base_url`.
+</ParamField>
+
+<ParamField body="label" type="string">
+  Human name. Defaults to the provider label.
+</ParamField>
+
+<ParamField body="base_url" type="string">
+  Only required for an unknown provider.
+</ParamField>
+
+<ParamField body="api_key" type="string">
+  Required for `byok`. Sent only to the provider.
+</ParamField>
+
+```bash
+curl -s http://localhost:3000/api/v1/providers/connect \
+  -H 'content-type: application/json' \
+  -d '{"mode":"byok","provider":"baseten","api_key":"…"}'
+```
+
+```json
+{
+  "session_id": "sess_…",
+  "mode": "mock",
+  "models": [
+    { "id": "promptimizer-nano", "tier": "economy" },
+    { "id": "promptimizer-flash", "tier": "standard" },
+    { "id": "promptimizer-frontier", "tier": "frontier" }
+  ],
+  "baseline_model": "promptimizer-frontier"
+}
+```

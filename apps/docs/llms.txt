@@ -1,0 +1,26 @@
+# Promptimizer
+
+Quality-aware LLM routing for any OpenAI-compatible key.
+
+Promptimizer sits in front of cheap and frontier models. It classifies each request (L1–L5), routes to the cheapest adequate tier, caches repeated system/context prefixes, and reports cost saved versus always-frontier together with a quality score.
+
+## Docs
+
+- [Introduction](https://hackathon-omega-liart.vercel.app/docs)
+- [Quickstart](https://hackathon-omega-liart.vercel.app/docs/quickstart)
+- [Concepts](https://hackathon-omega-liart.vercel.app/docs/concepts)
+- [Classification](https://hackathon-omega-liart.vercel.app/docs/guides/classification)
+- [Routing](https://hackathon-omega-liart.vercel.app/docs/guides/routing)
+- [Prompt cache](https://hackathon-omega-liart.vercel.app/docs/guides/caching)
+- [Quality gate](https://hackathon-omega-liart.vercel.app/docs/guides/quality)
+- [BYOK](https://hackathon-omega-liart.vercel.app/docs/guides/byok)
+- [Benchmark](https://hackathon-omega-liart.vercel.app/docs/guides/benchmark)
+- [SDK](https://hackathon-omega-liart.vercel.app/docs/sdk)
+- [API](https://hackathon-omega-liart.vercel.app/docs/api)
+
+## Product rules
+
+- Bring your own key. Any OpenAI-compatible `/v1`.
+- Step up, never down.
+- Measure quality. Savings from silent degradation fail the demo.
+- Simulator needs no vendor key: `promptimizer-nano`, `promptimizer-flash`, `promptimizer-frontier`.

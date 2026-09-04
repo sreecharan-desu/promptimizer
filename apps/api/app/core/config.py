@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     cache_backend: str = "memory"
     redis_url: str = "redis://localhost:6379/0"
+    upstash_redis_url: str = ""
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
     cache_ttl_seconds: int = 3600
 
     default_provider_base_url: str = "https://api.openai.com/v1"
@@ -22,6 +25,9 @@ class Settings(BaseSettings):
 
     session_secret: str = "change-me-to-a-long-random-string"
     session_ttl_seconds: int = 14400
+    database_url: str = ""
+    auth_secret: str = ""
+    encryption_key: str = ""
 
     quality_guard: bool = True
     quality_escalate_threshold: float = 0.62

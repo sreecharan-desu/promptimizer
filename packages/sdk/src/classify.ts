@@ -47,8 +47,9 @@ export function classifyText(text: string): Classification {
 
   const category = categoryOf(features);
   const complexity = complexityOf(features, category);
-  const quality_risk = riskOf(category, complexity);
-  const recommended_tier = tierOf(complexity, quality_risk);
+  const p_small_quality = pSmallQuality(features, category, complexity);
+  const quality_risk = riskOf(category, complexity, p_small_quality);
+  const recommended_tier = tierFromP(p_small_quality);
   const signals = [
     features.code_fence,
     features.code_kw,
@@ -67,7 +68,11 @@ export function classifyText(text: string): Classification {
     confidence: Number(confidence.toFixed(3)),
     recommended_tier,
     quality_risk,
-    rationale: `${category.replaceAll("_", " ")} at complexity L${complexity} (${words} words). quality_risk=${quality_risk}. Route to ${recommended_tier}.`,
+    p_small_quality,
+    uncertainty: Number((1 - p_small_quality).toFixed(3)),
+    structured_output: Boolean(features.code_fence || (features.constraints as number) >= 1),
+    context_tokens_est: Math.max(1, Math.round(text.length / 4)),
+    rationale: `${category.replaceAll("_", " ")} L${complexity}. P(quality|small)=${p_small_quality}. Route to ${recommended_tier}.`,
     features,
   };
 }
@@ -103,14 +108,36 @@ function complexityOf(h: Record<string, unknown>, category: string): number {
   return Math.max(1, Math.min(5, score));
 }
 
-function riskOf(category: string, complexity: number): Classification["quality_risk"] {
-  if (HIGH_RISK.has(category) || complexity >= 5) return "high";
-  if (complexity >= 3) return "medium";
+function pSmallQuality(h: Record<string, unknown>, category: string, complexity: number): number {
+  let p = 0.96;
+  if (h.design || category === "system_design") p -= 0.28;
+  if (h.safety || category === "safety_sensitive") p -= 0.3;
+  if (h.debug || category === "code_debug") p -= 0.22;
+  if (h.reason || category === "reasoning") p -= 0.18;
+  if (complexity >= 5) p -= 0.22;
+  else if (complexity >= 4) p -= 0.14;
+  else if (complexity === 3) p -= 0.06;
+  if ((h.words as number) > 120) p -= 0.07;
+  if ((h.constraints as number) >= 2) p -= 0.07;
+  if (category === "code_generation") p -= 0.05;
+  if (category === "factual_recall" && (h.words as number) < 24) p = Math.max(p, 0.94);
+  return Number(Math.min(0.99, Math.max(0.05, p)).toFixed(3));
+}
+
+function riskOf(category: string, complexity: number, p: number): Classification["quality_risk"] {
+  if (HIGH_RISK.has(category) || complexity >= 5 || p < 0.72) return "high";
+  if (complexity >= 3 || p < 0.9) return "medium";
   return "low";
 }
 
-function tierOf(complexity: number, risk: Classification["quality_risk"]): Tier {
-  if (complexity >= 4 || risk === "high") return "frontier";
+function tierFromP(p: number): Tier {
+  if (p >= 0.9) return "economy";
+  if (p >= 0.72) return "standard";
+  return "frontier";
+}
+
+export function difficultyTier(complexity: number): Tier {
+  if (complexity <= 2) return "economy";
   if (complexity === 3) return "standard";
-  return "economy";
+  return "frontier";
 }

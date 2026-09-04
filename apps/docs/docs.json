@@ -1,0 +1,107 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Promptimizer",
+  "description": "Quality-aware LLM routing for any OpenAI-compatible key.",
+  "colors": {
+    "primary": "#E4B35A",
+    "light": "#C9922E",
+    "dark": "#E4B35A"
+  },
+  "appearance": {
+    "default": "dark",
+    "strict": false
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/sreecharan-desu/promptimizer"
+      },
+      {
+        "label": "Console",
+        "href": "https://hackathon-omega-liart.vercel.app/console"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Open console",
+      "href": "https://hackathon-omega-liart.vercel.app/console"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/sreecharan-desu/promptimizer"
+    }
+  },
+  "fonts": {
+    "heading": { "family": "Inter" },
+    "body": { "family": "Inter" }
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude"]
+  },
+  "search": {
+    "prompt": "Search…"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["index", "quickstart", "concepts"]
+          },
+          {
+            "group": "How it works",
+            "pages": [
+              "guides/classification",
+              "guides/routing",
+              "guides/caching",
+              "guides/quality",
+              "guides/byok",
+              "guides/benchmark"
+            ]
+          },
+          {
+            "group": "SDK",
+            "pages": ["sdk/index", "sdk/client", "sdk/classifier", "sdk/openai"]
+          },
+          {
+            "group": "Product",
+            "pages": ["console", "cli", "portal"]
+          }
+        ]
+      },
+      {
+        "tab": "API reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api-reference/overview", "api-reference/authentication", "api-reference/errors"]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api-reference/providers",
+              "api-reference/connect",
+              "api-reference/session",
+              "api-reference/models",
+              "api-reference/classify",
+              "api-reference/chat",
+              "api-reference/benchmark",
+              "api-reference/analytics",
+              "api-reference/savings"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

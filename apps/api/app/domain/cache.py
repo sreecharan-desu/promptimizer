@@ -39,17 +39,51 @@ class PromptCache:
         settings = get_settings()
         self.ttl = settings.cache_ttl_seconds
         self.backend = settings.cache_backend
-        if self.backend == "redis":
-            try:
-                import redis
+        redis_url = settings.upstash_redis_url or settings.redis_url
+        if self.backend == "redis" or settings.upstash_redis_rest_url:
+            if redis_url and not settings.upstash_redis_rest_url:
+                try:
+                    import redis
 
-                self._redis = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-                self._redis.ping()
-            except Exception:
-                self.backend = "memory"
+                    self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
+                    self._redis.ping()
+                    self.backend = "redis"
+                except Exception:
+                    self.backend = "memory"
+                    self._redis = None
+            elif settings.upstash_redis_rest_url and settings.upstash_redis_rest_token:
+                self.backend = "upstash"
                 self._redis = None
 
+    def _upstash(self, *parts: str) -> Any | None:
+        settings = get_settings()
+        url = settings.upstash_redis_rest_url.rstrip("/")
+        token = settings.upstash_redis_rest_token
+        if not url or not token:
+            return None
+        try:
+            import httpx
+
+            response = httpx.post(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=list(parts),
+                timeout=5.0,
+            )
+            if not response.is_success:
+                return None
+            return response.json().get("result")
+        except Exception:
+            return None
+
     def get(self, key: str) -> Any | None:
+        if self.backend == "upstash":
+            raw = self._upstash("GET", f"pm:cache:{key}")
+            if raw is None:
+                self._misses += 1
+                return None
+            self._hits += 1
+            return json.loads(raw) if isinstance(raw, str) else raw
         if self._redis is not None:
             raw = self._redis.get(f"pm:cache:{key}")
             if raw is None:
@@ -66,12 +100,17 @@ class PromptCache:
         return item[1]
 
     def set(self, key: str, value: Any) -> None:
+        if self.backend == "upstash":
+            self._upstash("SET", f"pm:cache:{key}", json.dumps(value), "EX", str(self.ttl))
+            return
         if self._redis is not None:
             self._redis.setex(f"pm:cache:{key}", self.ttl, json.dumps(value))
             return
         self._memory[key] = (time.time() + self.ttl, value)
 
     def exists(self, key: str) -> bool:
+        if self.backend == "upstash":
+            return bool(self._upstash("EXISTS", f"pm:cache:{key}"))
         if self._redis is not None:
             return bool(self._redis.exists(f"pm:cache:{key}"))
         item = self._memory.get(key)

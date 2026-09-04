@@ -1,0 +1,35 @@
+---
+title: "Routing"
+description: "Quality-constrained. Step up, never down."
+---
+
+## Algorithm
+
+<Steps>
+  <Step title="Prefix cache">
+    Hash system + long context. Hits bill those tokens at 50% input.
+  </Step>
+  <Step title="P(quality | small)">
+    If the cheap model is likely to pass, pick the cheapest selected model in that tier. Never step down.
+  </Step>
+  <Step title="Complete">
+    Call the provider (or the mock) with that model id.
+  </Step>
+  <Step title="Guard">
+    If the answer looks degraded, retry one tier higher and mark `escalated: true`.
+  </Step>
+  <Step title="Price">
+    Split savings: routing (cheaper model) plus cache (repeat prefixes).
+  </Step>
+</Steps>
+
+## Metadata
+
+```json
+{
+  "p_small_quality": 0.96,
+  "tier": "economy",
+  "escalated": false,
+  "quality_gate": "pass"
+}
+```

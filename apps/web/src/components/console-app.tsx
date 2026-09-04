@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, clearSessionId, readSessionId, writeSessionId, type Session } from "@/lib/api";
+import { PROVIDERS } from "promptimizer";
+import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
 import { EmptySpot } from "@/components/spot";
 
 const PRESETS = [
-  { label: "Simulator", mode: "mock" as const, base_url: "" },
-  { label: "OpenAI", mode: "byok" as const, base_url: "https://api.openai.com/v1" },
-  { label: "Groq", mode: "byok" as const, base_url: "https://api.groq.com/openai/v1" },
-  { label: "OpenRouter", mode: "byok" as const, base_url: "https://openrouter.ai/api/v1" },
-  { label: "Together", mode: "byok" as const, base_url: "https://api.together.xyz/v1" },
-  { label: "Fireworks", mode: "byok" as const, base_url: "https://api.fireworks.ai/inference/v1" },
-  { label: "DeepSeek", mode: "byok" as const, base_url: "https://api.deepseek.com/v1" },
-  { label: "Ollama", mode: "byok" as const, base_url: "http://localhost:11434/v1" },
-  { label: "Custom", mode: "byok" as const, base_url: "" },
+  { id: "simulator", label: "Simulator", mode: "mock" as const, base_url: "", hint: "" },
+  ...PROVIDERS.map((p) => ({
+    id: p.id,
+    label: p.label,
+    mode: "byok" as const,
+    base_url: p.baseURL,
+    hint: p.hint,
+  })),
+  { id: "custom", label: "Custom", mode: "byok" as const, base_url: "", hint: "sk-..." },
 ];
 
 type Bench = Awaited<ReturnType<typeof api.benchmark>>;
@@ -31,25 +32,30 @@ export function ConsoleApp() {
   const [bench, setBench] = useState<Bench | null>(null);
 
   useEffect(() => {
-    const existing = readSessionId();
-    if (!existing) return;
     api
       .session()
       .then((s) => {
+        writeSessionId(s.session_id);
         setSession(s);
         setTab("fleet");
       })
-      .catch(() => clearSessionId());
+      .catch(() => {
+        const existing = readSessionId();
+        if (!existing) return;
+        clearSessionId();
+      });
   }, []);
 
   async function connect() {
     setBusy(true);
     setError(null);
     try {
+      const custom = preset.id === "custom";
       const next = await api.connect({
         mode: preset.mode,
         label: preset.label,
-        base_url: preset.mode === "mock" ? undefined : baseUrl || preset.base_url,
+        provider: preset.mode === "byok" && !custom ? preset.id : undefined,
+        base_url: preset.mode === "mock" ? undefined : custom ? baseUrl : undefined,
         api_key: preset.mode === "mock" ? undefined : apiKey,
       });
       writeSessionId(next.session_id);
@@ -149,14 +155,14 @@ export function ConsoleApp() {
             <div className="flex flex-wrap gap-2">
               {PRESETS.map((item) => (
                 <button
-                  key={item.label}
+                  key={item.id}
                   type="button"
                   onClick={() => {
                     setPreset(item);
                     setBaseUrl(item.base_url);
                   }}
                   className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                    preset.label === item.label
+                    preset.id === item.id
                       ? "bg-accent text-background"
                       : "text-primary/60 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)]"
                   }`}
@@ -167,22 +173,26 @@ export function ConsoleApp() {
             </div>
             {preset.mode === "byok" ? (
               <div className="mt-6 space-y-4">
-                <label className="block text-sm font-medium text-primary">
-                  Base URL
-                  <input
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
-                    className="mt-2 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
-                  />
-                </label>
+                {preset.id === "custom" ? (
+                  <label className="block text-sm font-medium text-primary">
+                    Base URL
+                    <input
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder="https://api.example.com/v1"
+                      className="mt-2 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
+                    />
+                  </label>
+                ) : (
+                  <p className="text-sm text-secondary">Uses {preset.base_url}</p>
+                )}
                 <label className="block text-sm font-medium text-primary">
                   API key
                   <input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-..."
+                    placeholder={preset.hint || "sk-..."}
                     className="mt-2 h-11 w-full rounded-lg border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent"
                   />
                 </label>
@@ -282,6 +292,7 @@ export function ConsoleApp() {
                 <Row k="Model" v={String(meta.model)} />
                 <Row k="Tier" v={String(meta.tier)} />
                 <Row k="Complexity" v={`L${meta.complexity} · ${meta.category}`} />
+                <Row k="P(quality|small)" v={meta.p_small_quality != null ? Number(meta.p_small_quality).toFixed(2) : "—"} />
                 <Row k="Cache" v={meta.cache_hit ? "hit" : "miss"} />
                 <Row k="Quality gate" v={String(meta.quality_gate)} />
                 <Row k="Escalated" v={meta.escalated ? "yes" : "no"} />
@@ -310,15 +321,23 @@ export function ConsoleApp() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-4">
+              {bench.policies ? <PolicyBoard policies={bench.policies} /> : null}
+              <div className="mt-6 grid gap-4 sm:grid-cols-4">
                 <Stat label="Saved vs always-frontier" value={`${Number(bench.summary.saved_pct).toFixed(1)}%`} accent />
                 <Stat label="Routed quality" value={Number(bench.summary.avg_quality_routed).toFixed(2)} />
-                <Stat label="Frontier quality" value={Number(bench.summary.avg_quality_frontier).toFixed(2)} />
-                <Stat label="Quality delta" value={Number(bench.summary.quality_delta).toFixed(2)} />
+                <Stat label="Worst-case quality" value={Number(bench.summary.worst_quality_routed ?? bench.summary.avg_quality_routed).toFixed(2)} />
+                <Stat label="Quality vs frontier" value={Number(bench.summary.quality_delta).toFixed(2)} />
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                <Stat label="Routing savings" value={`$${(bench.summary.routing_saved_usd ?? 0).toFixed(5)}`} />
+                <Stat label="Cache savings" value={`$${(bench.summary.cache_saved_usd ?? 0).toFixed(5)}`} accent />
+                <Stat label="Cache hit rate" value={`${((bench.summary.cache_hit_rate ?? 0) * 100).toFixed(0)}%`} />
               </div>
               <p className="mt-4 text-sm text-secondary">
-                Quality delta near zero is the point. Cheap on easy tasks. Frontier on hard ones. Escalations:{" "}
-                {bench.summary.escalations}.
+                Quality-aware + cache is the product. Difficulty-only is the naive baseline. Escalated{" "}
+                {bench.summary.escalations}
+                {bench.summary.successful_escalations != null ? `, ${bench.summary.successful_escalations} recovered` : ""}.
+                Small model {bench.summary.small_model ?? "—"} · frontier direct {bench.summary.frontier_direct ?? "—"}.
               </p>
               <div className="mt-8 overflow-x-auto rounded-2xl border border-primary/[0.06]">
                 <table className="w-full min-w-[720px] text-left text-sm">
@@ -326,6 +345,7 @@ export function ConsoleApp() {
                     <tr>
                       <th className="px-4 py-3 font-medium">ID</th>
                       <th className="px-4 py-3 font-medium">L</th>
+                      <th className="px-4 py-3 font-medium">P</th>
                       <th className="px-4 py-3 font-medium">Model</th>
                       <th className="px-4 py-3 font-medium">Saved</th>
                       <th className="px-4 py-3 font-medium">Q routed</th>
@@ -337,6 +357,7 @@ export function ConsoleApp() {
                       <tr key={row.id} className="border-t border-primary/5">
                         <td className="px-4 py-3 font-mono text-xs">{row.id}</td>
                         <td className="px-4 py-3">{row.difficulty}</td>
+                        <td className="px-4 py-3 tabular">{row.p_small_quality != null ? Number(row.p_small_quality).toFixed(2) : "—"}</td>
                         <td className="px-4 py-3 font-mono text-xs">{row.model}</td>
                         <td className="px-4 py-3 text-accent tabular">{Number(row.cost.saved_pct).toFixed(0)}%</td>
                         <td className="px-4 py-3 tabular">{Number(row.quality_routed.score).toFixed(2)}</td>
@@ -363,6 +384,57 @@ function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
     <div className="flex items-center justify-between gap-4">
       <dt className="text-secondary">{k}</dt>
       <dd className={accent ? "text-accent" : "text-primary"}>{v}</dd>
+    </div>
+  );
+}
+
+const POLICY_LABEL: Record<string, string> = {
+  always_frontier: "Always frontier",
+  difficulty: "Difficulty router",
+  quality: "Quality-aware",
+  quality_cache: "Quality + cache",
+};
+
+function PolicyBoard({ policies }: { policies: Record<string, PolicySummary> }) {
+  const order = ["always_frontier", "difficulty", "quality", "quality_cache"];
+  const points = order
+    .map((id) => policies[id])
+    .filter(Boolean)
+    .map((p) => ({ q: p.avg_quality, c: p.actual_usd }));
+  const maxC = Math.max(...points.map((p) => p.c), 1e-9);
+  const minQ = Math.min(...points.map((p) => p.q), 0.7);
+  const maxQ = Math.max(...points.map((p) => p.q), 1);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {order.map((id) => {
+          const p = policies[id];
+          if (!p) return null;
+          return (
+            <div key={id} className="rounded-2xl border border-primary/[0.06] bg-card p-4">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{POLICY_LABEL[id] ?? id}</p>
+              <p className="mt-2 font-display text-2xl font-medium text-primary">${p.actual_usd.toFixed(5)}</p>
+              <p className="mt-1 text-sm text-secondary">
+                Q {p.avg_quality.toFixed(2)} · worst {p.worst_quality.toFixed(2)} · saved {p.saved_pct.toFixed(0)}%
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="rounded-2xl border border-primary/[0.06] bg-card p-4">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Quality vs cost</p>
+        <svg viewBox="0 0 220 140" className="mt-3 h-36 w-full">
+          <line x1="24" y1="12" x2="24" y2="120" stroke="currentColor" className="text-primary/20" />
+          <line x1="24" y1="120" x2="208" y2="120" stroke="currentColor" className="text-primary/20" />
+          {points.map((p, i) => {
+            const x = 24 + (p.c / maxC) * 170;
+            const y = 120 - ((p.q - minQ) / Math.max(0.001, maxQ - minQ)) * 96;
+            return <circle key={order[i]} cx={x} cy={y} r="5" className={i === 3 ? "fill-accent" : "fill-primary/70"} />;
+          })}
+        </svg>
+        <p className="text-xs text-secondary">Gold is quality-aware + cache. Left is cheaper. Up is higher quality.</p>
+      </div>
     </div>
   );
 }

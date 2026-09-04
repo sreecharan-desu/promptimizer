@@ -9,13 +9,13 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6">
         <div className="flex justify-center">
           <Link
-            href="/console"
+            href="/signup"
             className="group/trigger inline-flex items-center gap-2.5 rounded-full border border-primary/[0.08] bg-card/60 py-1.5 pe-1.5 ps-2.5 backdrop-blur"
           >
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium tracking-wide text-background">
               NEW
             </span>
-            <span className="text-sm font-medium text-primary">BYOK simulator is live</span>
+            <span className="text-sm font-medium text-primary">Accounts and API keys are live</span>
             <span className="grid size-6 place-items-center rounded-full bg-primary/[0.06] text-xs">↗</span>
           </Link>
         </div>
@@ -30,10 +30,10 @@ export default function HomePage() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/console"
+              href="/signup"
               className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
             >
-              Open the console
+              Create an account
             </Link>
             <Link
               href="/docs"
@@ -73,7 +73,7 @@ export default function HomePage() {
           </Showcase>
           <Showcase className="md:col-span-2" title="BYOK" cta="Connect">
             <div className="text-sm text-secondary">
-              OpenAI, Groq, OpenRouter, Together, Fireworks, DeepSeek, Ollama.
+              OpenAI, Groq, Baseten, OpenRouter — or any OpenAI-compatible /v1.
             </div>
           </Showcase>
         </div>
@@ -93,17 +93,18 @@ export default function HomePage() {
           <CodePanel />
           <div className="grid grid-cols-3 gap-4 lg:grid-cols-1">
             <Stat value="80%+" label="cost cut vs always-frontier on the fixed task set" />
-            <Stat value="L1–L5" label="heuristic complexity, not a vibes classifier" />
+            <Stat value="P(q|small)" label="route on expected quality, not an easy/hard if" />
             <Stat value="0 keys stored" label="BYOK sessions encrypt in memory and expire" />
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6">
-        <h2 className="font-display text-3xl tracking-tight text-primary sm:text-4xl">Judges care about quality.</h2>
+        <h2 className="font-display text-3xl tracking-tight text-primary sm:text-4xl">Quality-constrained, not cost-first.</h2>
         <p className="mt-4 max-w-2xl text-lg text-secondary">
-          A router that saves money by answering hard questions badly should lose. Promptimizer scores every
-          benchmark row against gold + required concepts, and compares that score to the always-expensive baseline.
+          A cheap answer is not a win if it is wrong. The router predicts P(quality | small), escalates when the
+          guard fails, and the benchmark compares four policies on the same gold set — always-frontier, difficulty-only,
+          quality-aware, and quality-aware plus cache.
         </p>
         <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
           <div className="grid grid-cols-4 border-b border-primary/[0.06] px-5 py-3 text-xs font-medium text-secondary">

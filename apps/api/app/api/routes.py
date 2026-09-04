@@ -23,6 +23,7 @@ from app.domain.quality import score_answer
 from app.domain.router import RoutingError, route_chat
 from app.providers.openai_compat import ProviderError, list_models
 from app.providers.mock import mock_models
+from app.domain.providers import public_catalog, resolve_base_url
 
 router = APIRouter()
 _BENCH = Path(__file__).resolve().parent.parent / "data" / "benchmark.json"
@@ -30,7 +31,8 @@ _BENCH = Path(__file__).resolve().parent.parent / "data" / "benchmark.json"
 
 class ConnectBody(BaseModel):
     mode: str = Field(description="mock | byok")
-    label: str = "BYOK"
+    label: str | None = None
+    provider: str | None = None
     base_url: str | None = None
     api_key: str | None = None
 
@@ -64,15 +66,29 @@ async def health() -> dict[str, Any]:
     return {"ok": True, "service": "promptimizer", "cache": cache.stats()}
 
 
+@router.get("/v1/providers")
+async def providers() -> dict[str, Any]:
+    return {"object": "list", "data": public_catalog()}
+
+
 @router.post("/v1/providers/connect")
 async def connect(body: ConnectBody) -> dict[str, Any]:
     if body.mode == "mock":
         session = create_mock_session(body.label or "Promptimizer simulator")
         return public_session(session)
-    if not body.base_url or not body.api_key:
-        raise HTTPException(status_code=400, detail="base_url and api_key are required for BYOK.")
+    base_url, provider = resolve_base_url(provider=body.provider, base_url=body.base_url)
+    if not base_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Unknown provider. Pass base_url for a custom OpenAI-compatible /v1.",
+        )
+    api_key = (body.api_key or "").strip()
+    if not api_key and provider and provider["id"] == "ollama":
+        api_key = "ollama"
+    if not api_key:
+        raise HTTPException(status_code=400, detail="api_key is required.")
     try:
-        raw = await list_models(body.base_url, body.api_key)
+        raw = await list_models(base_url, api_key)
     except ProviderError as exc:
         raise HTTPException(status_code=exc.status_code, detail=f"Provider rejected the key: {exc.detail}")
     if not raw:
@@ -84,9 +100,9 @@ async def connect(body: ConnectBody) -> dict[str, Any]:
             detail="No chat models found on this OpenAI-compatible endpoint.",
         )
     session = create_byok_session(
-        label=body.label,
-        base_url=body.base_url,
-        api_key=body.api_key,
+        label=body.label or (provider["label"] if provider else "BYOK"),
+        base_url=base_url,
+        api_key=api_key,
         fleet=fleet,
     )
     return public_session(session)
@@ -180,6 +196,8 @@ async def run_benchmark(
         "escalations": 0,
         "cache_hits": 0,
         "quality_fails": 0,
+        "worst_routed": 1.0,
+        "worst_frontier": 1.0,
     }
 
     for task in spec["tasks"]:
@@ -228,6 +246,8 @@ async def run_benchmark(
         totals["escalations"] += 1 if meta.get("escalated") else 0
         totals["cache_hits"] += 1 if meta.get("cache_hit") else 0
         totals["quality_fails"] += 1 if q_routed.degraded else 0
+        totals["worst_routed"] = min(totals["worst_routed"], q_routed.score)
+        totals["worst_frontier"] = min(totals["worst_frontier"], q_frontier.score)
 
         rows.append(
             {
@@ -260,7 +280,10 @@ async def run_benchmark(
             "saved_pct": round(saved_pct, 2),
             "avg_quality_routed": round(totals["routed_quality"] / n, 3),
             "avg_quality_frontier": round(totals["frontier_quality"] / n, 3),
+            "worst_quality_routed": round(totals["worst_routed"], 3),
             "quality_delta": round((totals["routed_quality"] - totals["frontier_quality"]) / n, 3),
+            "cache_hit_rate": round(totals["cache_hits"] / n, 3),
+            "escalation_rate": round(totals["escalations"] / n, 3),
             "escalations": totals["escalations"],
             "cache_hits": totals["cache_hits"],
             "quality_fails": totals["quality_fails"],

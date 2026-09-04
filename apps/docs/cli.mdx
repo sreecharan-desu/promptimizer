@@ -1,0 +1,28 @@
+---
+title: "CLI"
+description: "A small binary. Flags, not wizards."
+---
+
+```bash
+node packages/cli/bin/promptimizer.mjs
+# or, from the repo root
+npm run promptimizer -- help
+```
+
+## Commands
+
+```bash
+promptimizer login --key pmz_live_…
+promptimizer connect baseten --key $BASETEN_API_KEY
+promptimizer chat "What is 17 * 24?"
+promptimizer savings
+```
+
+Known providers never take `--base-url`. Custom does.
+
+```bash
+promptimizer connect custom --base-url https://llm.example/v1 --key $CUSTOM_KEY
+promptimizer providers
+```
+
+Provider keys can also come from the matching env var (`BASETEN_API_KEY`, `GROQ_API_KEY`, …). The Promptimizer key lives in `~/.promptimizer/config.json`.

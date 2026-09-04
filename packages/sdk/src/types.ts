@@ -12,6 +12,10 @@ export type Classification = {
   confidence: number;
   recommended_tier: Tier;
   quality_risk: "low" | "medium" | "high";
+  p_small_quality: number;
+  uncertainty: number;
+  structured_output: boolean;
+  context_tokens_est: number;
   rationale: string;
   features: Record<string, unknown>;
 };
@@ -29,9 +33,37 @@ export type ModelInfo = {
 export type ConnectOptions = {
   mode?: "mock" | "byok";
   label?: string;
+  provider?: string;
   baseURL?: string;
   apiKey?: string;
   gatewayURL?: string;
+};
+
+export type SavingsSummary = {
+  requests: number;
+  actual_usd: number;
+  baseline_usd: number;
+  saved_usd: number;
+  saved_pct: number;
+  routing_saved_usd: number;
+  cache_saved_usd: number;
+  cache_hits: number;
+  escalations: number;
+  avg_quality: number | null;
+  recent: Array<{
+    id: string;
+    model: string;
+    tier: string;
+    actual_usd: number;
+    baseline_usd: number;
+    saved_usd: number;
+    routing_saved_usd: number;
+    cache_saved_usd: number;
+    cache_hit: boolean;
+    escalated: boolean;
+    quality: number | null;
+    created_at: string;
+  }>;
 };
 
 export type PromptimizerOptions = {
@@ -56,6 +88,7 @@ export type CostBreakdown = {
   baseline_usd: number;
   saved_usd: number;
   saved_pct: number;
+  routing_saved_usd: number;
   cache_discount_usd: number;
   prompt_tokens: number;
   completion_tokens: number;

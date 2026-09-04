@@ -1,0 +1,21 @@
+---
+title: "Classify"
+api: "POST /v1/classify"
+description: "Difficulty without spending a completion."
+---
+
+<ParamField body="prompt" type="string">
+  Raw text. Use this or `messages`.
+</ParamField>
+
+<ParamField body="messages" type="array">
+  OpenAI chat messages. Content strings are concatenated.
+</ParamField>
+
+```bash
+curl -s http://localhost:3000/api/v1/classify \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"Design a rate limiter for 1 million QPS"}'
+```
+
+Does not require a session. Safe to call from CI.

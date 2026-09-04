@@ -11,6 +11,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./providers": {
+      "types": "./src/providers.ts",
+      "import": "./src/providers.ts",
+      "default": "./src/providers.ts"
     }
   },
   "files": [
@@ -21,7 +26,8 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/classify.test.ts"
+    "test": "node --experimental-strip-types --test src/classify.test.ts src/providers.test.ts",
+    "publish:npm": "npm publish --access public"
   },
   "keywords": [
     "llm",

@@ -1,0 +1,34 @@
+---
+title: "Quickstart"
+description: "Account, API key, first routed prompt."
+---
+
+## 1. Create an account
+
+Open `/signup`, then the console. The simulator is already connected so you can try routing without a vendor key.
+
+## 2. Mint an API key
+
+`/account` creates a `pmz_live_` key. Copy it once.
+
+## 3. Route a prompt
+
+```bash
+curl -s http://localhost:3000/api/v1/chat/completions \
+  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'
+```
+
+You should see `promptimizer-nano`, a Paris answer, and `usage.cost.saved_pct` versus the frontier baseline.
+
+## 4. Add your provider
+
+In the console or CLI, pick a known provider and paste the key. We already have the base URL.
+
+```bash
+promptimizer login --key $PROMPTIMIZER_API_KEY
+promptimizer connect baseten --key $BASETEN_API_KEY
+promptimizer chat "What is the capital of France?"
+promptimizer savings
+```

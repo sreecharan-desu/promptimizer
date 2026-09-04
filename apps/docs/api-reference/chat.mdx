@@ -1,0 +1,41 @@
+---
+title: "Chat completions"
+api: "POST /v1/chat/completions"
+description: "The drop-in. Routes, caches, maybe escalates."
+---
+
+Requires a session.
+
+<ParamField body="messages" type="array" required>
+  OpenAI messages.
+</ParamField>
+
+<ParamField body="model" type="string">
+  `"auto"` (default) or a fleet id.
+</ParamField>
+
+<ParamField body="level_override" type="integer">
+  Force complexity 1–5.
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Forwarded to the provider. Ignored by the mock.
+</ParamField>
+
+<ParamField body="max_tokens" type="integer">
+  Forwarded to the provider.
+</ParamField>
+
+<ParamField body="stream" type="boolean">
+  Must be `false`. Streaming is not enabled yet.
+</ParamField>
+
+## Extra response
+
+<ResponseField name="usage.cost" type="object">
+  `actual_usd`, `baseline_usd`, `saved_usd`, `saved_pct`, `cache_discount_usd`, `cached_tokens`.
+</ResponseField>
+
+<ResponseField name="promptimizer" type="object">
+  Classification, chosen tier, cache flags, `escalated`, `quality_gate`.
+</ResponseField>

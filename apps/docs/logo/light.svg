@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 36" fill="none">
+  <rect width="36" height="36" rx="10" fill="#0A0A0A"/>
+  <path d="M9 23.5c4.2-9 7.4-13 13.8-13" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="24.5" cy="10.2" r="2.1" fill="#E4B35A"/>
+  <circle cx="11.2" cy="24.2" r="2.1" fill="#FFFFFF"/>
+  <text x="46" y="24" fill="#0A0A0A" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500">Promptimizer</text>
+</svg>

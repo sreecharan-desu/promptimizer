@@ -1,0 +1,36 @@
+---
+title: "Prompt cache"
+description: "Pay full price the first time you send a system block. Half after that."
+---
+
+Provider prompt caching (OpenAI, Anthropic, Gemini) discounts repeated prefixes. Promptimizer models that on every session.
+
+## What is hashed
+
+1. Every `system` message
+2. The first 800 characters of a long `user` context (≥ 800 chars)
+
+SHA-256 of the canonical JSON. First sighting is a miss. Repeats set `prefix_cache_hit: true` and bill those tokens at **50%** of the routed model's input price.
+
+## Exact cache
+
+The full `messages + model` tuple is also stored. An identical retry returns the stored completion (`exact_cache_hit`). Useful for the benchmark's second pass and for playground retries.
+
+## Backends
+
+| Environment | Backend |
+| --- | --- |
+| Next.js / Vercel | In-memory `Map` (per instance) |
+| FastAPI local | In-memory |
+| Docker Compose | Redis, TTL from `CACHE_TTL_SECONDS` |
+
+<Note>
+  Serverless memory does not survive cold starts. Use Redis (`CACHE_BACKEND=redis`) when you want cache hits across instances.
+</Note>
+
+## Billing
+
+```
+billable_prompt = prompt_tokens − cached_tokens
+actual = billable_prompt * input + cached_tokens * input * 0.5 + completion * output
+```

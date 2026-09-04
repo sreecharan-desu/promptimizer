@@ -1,0 +1,33 @@
+---
+title: "Quality gate"
+description: "Savings that come from worse hard answers are a product failure."
+---
+
+Savings without a quality score are marketing. Promptimizer measures both.
+
+## Two checks
+
+<Tabs>
+  <Tab title="Online guard">
+    After a cheap completion, if the answer is empty, shorter than 80 characters on L4+, or contains a refusal (`I don't know`, `too complex`, `as a small model`), we escalate and retry. The extra cost is real. The quality is preserved.
+  </Tab>
+  <Tab title="Benchmark score">
+    Each of the 15 gold tasks is scored with required-concept coverage + structure. The dashboard compares four policies and prints average quality, worst-case quality, and the delta vs always-frontier.
+  </Tab>
+</Tabs>
+
+## What “degraded” means
+
+- Missing required concepts (`token bucket`, `Euclid`, `peeking`…)
+- A thin outline on a system-design prompt
+- An explicit small-model refusal
+
+Economy answers on L1 factual tasks are allowed to be short. That is not degradation.
+
+## How to fail on purpose
+
+Route everything to nano. `saved_pct` looks heroic. `avg_quality_routed` collapses on the five hard rows. That is the slide you do **not** want.
+
+## Threshold
+
+`QUALITY_ESCALATE_THRESHOLD` (default `0.62`). Below that, the row is a quality fail even if we did not escalate.

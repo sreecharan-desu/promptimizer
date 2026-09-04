@@ -1,0 +1,45 @@
+---
+title: "Bring your own key"
+description: "Any OpenAI-compatible /v1. We fetch models and route against your prices."
+---
+
+Promptimizer does not sell tokens. You already have a provider.
+
+## Presets
+
+We already know the OpenAI-compatible URL for OpenAI, Groq, Baseten, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, xAI, Google, Perplexity, NVIDIA NIM, SambaNova, Hyperbolic, Moonshot, and Ollama. Custom is the only case that asks for a base URL.
+
+The URL must speak:
+
+- `GET /models`
+- `POST /chat/completions`
+
+## What we store
+
+<Warning>
+  Keys never go in git, logs, or `localStorage`. FastAPI encrypts them with `SESSION_SECRET` and expires the session (`SESSION_TTL_SECONDS`, default 4 hours).
+</Warning>
+
+## Auto-tiering
+
+1. Known catalog (gpt-4o, haiku, llama-3.1-8b, …)
+2. Name heuristics (`mini`, `nano`, `8b` → economy; `opus`, `gpt-4`, `o3` → frontier)
+3. Price blend when we have numbers
+
+You can override any row in the console or via `PATCH /v1/models`.
+
+## Dropped models
+
+Embeddings, whisper, TTS, DALL·E / image, moderation. They cannot answer chat completions.
+
+## SDK
+
+```ts
+const { client, session } = await Promptimizer.connect({
+  gatewayURL: "https://your-app.vercel.app/api",
+  provider: "baseten",
+  apiKey: process.env.BASETEN_API_KEY,
+});
+
+console.log(session.models.map((m) => [m.id, m.tier]));
+```

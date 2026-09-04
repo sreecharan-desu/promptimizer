@@ -5,11 +5,9 @@ import { useState } from "react";
 const SAMPLES: Record<string, string> = {
   TypeScript: `import { Promptimizer } from "promptimizer";
 
-const { client } = await Promptimizer.connect({
+const client = new Promptimizer({
   gatewayURL: process.env.PROMPTIMIZER_URL,
-  mode: "byok",
-  baseURL: "https://api.groq.com/openai/v1",
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.PROMPTIMIZER_API_KEY,
 });
 
 const res = await client.chat.completions.create({
@@ -19,25 +17,15 @@ const res = await client.chat.completions.create({
 console.log(res.model, res.usage.cost?.saved_pct);`,
   Python: `import httpx
 
-session = httpx.post("http://localhost:8000/v1/providers/connect", json={
-    "mode": "byok",
-    "base_url": "https://api.openai.com/v1",
-    "api_key": OPENAI_API_KEY,
-}).json()
-
 r = httpx.post(
-    "http://localhost:8000/v1/chat/completions",
-    headers={"X-Promptimizer-Session": session["session_id"]},
+    "https://your-host/api/v1/chat/completions",
+    headers={"Authorization": f"Bearer {PROMPTIMIZER_API_KEY}"},
     json={"messages": [{"role": "user", "content": "What is 17 * 24?"}]},
 ).json()
 
 print(r["promptimizer"]["tier"], r["usage"]["cost"]["saved_pct"])`,
-  cURL: `curl -s http://localhost:8000/v1/providers/connect \\
-  -H 'content-type: application/json' \\
-  -d '{"mode":"mock"}' | jq .session_id
-
-curl -s http://localhost:8000/v1/chat/completions \\
-  -H "X-Promptimizer-Session: $SESSION" \\
+  cURL: `curl -s https://your-host/api/v1/chat/completions \\
+  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\
   -H 'content-type: application/json' \\
   -d '{"messages":[{"role":"user","content":"What is 17 * 24?"}]}'`,
 };

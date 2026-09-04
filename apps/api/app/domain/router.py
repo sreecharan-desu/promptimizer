@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from app.core.config import get_settings
@@ -54,6 +55,7 @@ async def route_chat(
         raise RoutingError("Streaming is not enabled in the simulator API yet.")
 
     extra = extra or {}
+    started = time.perf_counter()
     classification = (
         complexity_from_override(level_override) if level_override else classify_messages(messages)
     )
@@ -134,6 +136,8 @@ async def route_chat(
         "complexity": classification.complexity,
         "category": classification.category,
         "confidence": classification.confidence,
+        "p_small_quality": classification.p_small_quality,
+        "uncertainty": classification.uncertainty,
         "tier": routed.tier,
         "model": routed.id,
         "baseline_model": baseline.id,
@@ -143,6 +147,7 @@ async def route_chat(
         "escalated": escalated,
         "quality_gate": "fail" if quality.degraded else "pass",
         "quality": quality.as_dict(),
+        "latency_ms": round((time.perf_counter() - started) * 1000, 1),
         "rationale": classification.rationale,
         "features": classification.features,
     }

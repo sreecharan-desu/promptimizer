@@ -3,6 +3,7 @@ import type {
   ChatCompletionRequest,
   ConnectOptions,
   PromptimizerOptions,
+  SavingsSummary,
   Session,
 } from "./types";
 
@@ -20,11 +21,13 @@ export class PromptimizerError extends Error {
 export class Promptimizer {
   readonly gatewayURL: string;
   sessionId?: string;
+  apiKey?: string;
   private readonly fetcher: typeof fetch;
 
   constructor(options: PromptimizerOptions = {}) {
-    this.gatewayURL = (options.gatewayURL ?? "http://localhost:8000").replace(/\/$/, "");
+    this.gatewayURL = (options.gatewayURL ?? options.baseURL ?? "http://localhost:3000/api").replace(/\/$/, "");
     this.sessionId = options.sessionId;
+    this.apiKey = options.apiKey;
     this.fetcher = options.fetch ?? fetch;
   }
 
@@ -42,13 +45,24 @@ export class Promptimizer {
       method: "POST",
       body: JSON.stringify({
         mode: options.mode ?? "byok",
-        label: options.label ?? "BYOK",
+        label: options.label,
+        provider: options.provider,
         base_url: options.baseURL,
         api_key: options.apiKey,
       }),
     });
     this.sessionId = session.session_id;
     return session;
+  }
+
+  async providers() {
+    return this.request<{ object: string; data: Array<{ id: string; label: string; base_url: string; env: string }> }>(
+      "/v1/providers",
+    );
+  }
+
+  async savings(): Promise<SavingsSummary> {
+    return this.request("/v1/savings");
   }
 
   async session(): Promise<Session> {
@@ -96,7 +110,9 @@ export class Promptimizer {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
-    if (this.sessionId) {
+    if (this.apiKey) {
+      headers.set("Authorization", `Bearer ${this.apiKey}`);
+    } else if (this.sessionId) {
       headers.set("X-Promptimizer-Session", this.sessionId);
       headers.set("Authorization", `Bearer ${this.sessionId}`);
     }

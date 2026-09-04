@@ -12,6 +12,7 @@ class CostBreakdown:
     baseline_usd: float
     saved_usd: float
     saved_pct: float
+    routing_saved_usd: float
     cache_discount_usd: float
     prompt_tokens: int
     completion_tokens: int
@@ -23,6 +24,7 @@ class CostBreakdown:
             "baseline_usd": round(self.baseline_usd, 8),
             "saved_usd": round(self.saved_usd, 8),
             "saved_pct": round(self.saved_pct, 2),
+            "routing_saved_usd": round(self.routing_saved_usd, 8),
             "cache_discount_usd": round(self.cache_discount_usd, 8),
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
@@ -64,7 +66,9 @@ def compute_cost(
         + (completion_tokens / 1_000_000) * rout
     )
     baseline_cost = (prompt_tokens / 1_000_000) * bin_ + (completion_tokens / 1_000_000) * bout
-    cache_discount_usd = (cached / 1_000_000) * rin * (1 - cache_discount)
+    full_routed = (prompt_tokens / 1_000_000) * rin + (completion_tokens / 1_000_000) * rout
+    cache_discount_usd = max(0.0, full_routed - actual)
+    routing_saved = max(0.0, baseline_cost - full_routed)
     saved = max(0.0, baseline_cost - actual)
     pct = (saved / baseline_cost * 100) if baseline_cost > 0 else 0.0
     return CostBreakdown(
@@ -72,6 +76,7 @@ def compute_cost(
         baseline_usd=baseline_cost,
         saved_usd=saved,
         saved_pct=pct,
+        routing_saved_usd=routing_saved,
         cache_discount_usd=cache_discount_usd,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

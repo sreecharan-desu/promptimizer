@@ -37,7 +37,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set("Content-Type", "application/json");
   const session = readSessionId();
   if (session) headers.set("X-Promptimizer-Session", session);
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, { ...init, headers, credentials: "include" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: string }).detail ?? response.statusText;
@@ -46,20 +46,51 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+export type PolicySummary = {
+  actual_usd: number;
+  baseline_usd: number;
+  saved_usd: number;
+  saved_pct: number;
+  routing_saved_usd: number;
+  cache_saved_usd: number;
+  avg_quality: number;
+  worst_quality: number;
+  quality_delta: number;
+  avg_latency_ms: number;
+  cache_hit_rate: number;
+  escalation_rate: number;
+  quality_fails: number;
+  requests: number;
+  small_model: number;
+  frontier_direct: number;
+  escalated: number;
+  successful_escalations: number;
+};
+
 export type BenchmarkResult = {
   name: string;
   tasks: number;
+  policies?: Record<string, PolicySummary>;
   summary: {
     actual_usd: number;
     baseline_usd: number;
     saved_usd: number;
     saved_pct: number;
+    routing_saved_usd?: number;
+    cache_saved_usd?: number;
     avg_quality_routed: number;
     avg_quality_frontier: number;
+    worst_quality_routed?: number;
     quality_delta: number;
+    avg_latency_ms?: number;
+    cache_hit_rate?: number;
+    escalation_rate?: number;
     escalations: number;
     cache_hits: number;
     quality_fails: number;
+    small_model?: number;
+    frontier_direct?: number;
+    successful_escalations?: number;
   };
   rows: Array<{
     id: string;
@@ -69,6 +100,7 @@ export type BenchmarkResult = {
     model: string;
     tier: string;
     complexity: number;
+    p_small_quality?: number;
     escalated: boolean;
     cost: { saved_pct: number };
     quality_routed: { score: number };
@@ -80,7 +112,7 @@ export type BenchmarkResult = {
 };
 
 export const api = {
-  connect: (body: { mode: "mock" | "byok"; label?: string; base_url?: string; api_key?: string }) =>
+  connect: (body: { mode: "mock" | "byok"; label?: string; provider?: string; base_url?: string; api_key?: string }) =>
     request<Session>("/api/v1/providers/connect", { method: "POST", body: JSON.stringify(body) }),
   session: () => request<Session>("/api/v1/session"),
   models: () => request<{ data: Session["models"]; baseline_model: string | null }>("/api/v1/models"),

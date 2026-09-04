@@ -1,0 +1,55 @@
+---
+title: "Concepts"
+description: "Sessions, fleets, tiers, and the always-frontier baseline."
+---
+
+## Session
+
+A session is a short-lived connection to a provider.
+
+- `mode: mock` — built-in three-tier simulator
+- `mode: byok` — your `base_url` + `api_key`
+
+The raw key is encrypted in the FastAPI session store and **never** written to `localStorage`. The browser keeps only `sess_…`.
+
+Pass it as `X-Promptimizer-Session` or `Authorization: Bearer sess_…`.
+
+## Fleet
+
+The chat models we discovered, minus embeddings, whisper, TTS, and image models. Each row has:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Provider model id |
+| `tier` | `economy`, `standard`, or `frontier` |
+| `input_per_1m` / `output_per_1m` | USD, when known |
+| `source` | `catalog`, `heuristic`, `price`, or `user` |
+| `selected` | Eligible for routing |
+
+## Tiers
+
+<AccordionGroup>
+  <Accordion title="Economy">
+    Mini, nano, haiku, 8B, instant. L1–L2 factual and short transforms.
+  </Accordion>
+  <Accordion title="Standard">
+    Flash, sonnet, 70B. L3 code, analysis, medium reasoning.
+  </Accordion>
+  <Accordion title="Frontier">
+    GPT-4 class, opus, o-series. L4–L5, plus anything with high quality risk (system design, legal/medical, deep proofs).
+  </Accordion>
+</AccordionGroup>
+
+## Baseline
+
+`baseline_model` is the expensive model we compare against. Cost saved is always:
+
+```
+saved = cost(baseline, same tokens) − cost(routed, same tokens, cache discount)
+```
+
+We do **not** invent a cheaper token count. Same prompt tokens, same completion tokens, different price.
+
+## Quality risk
+
+Independent of complexity. `system_design`, `safety_sensitive`, `code_debug`, and `reasoning` are high risk. High risk cannot route to economy even if the prompt is short.

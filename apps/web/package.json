@@ -33,6 +33,7 @@
     "postcss-nested": "^6.2.0",
     "postcss-selector-parser": "^7.1.6",
     "postcss-value-parser": "^4.2.0",
+    "postgres": "^3.4.9",
     "promptimizer": "file:../../packages/sdk",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

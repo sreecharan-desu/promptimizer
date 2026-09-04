@@ -3,14 +3,26 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { AuthNav } from "./auth-nav";
 import { Mark } from "./mark";
 
 const NAV = [
-  { href: "/console", label: "Console" },
   { href: "/docs", label: "Docs" },
-  { href: "/docs/sdk", label: "SDK" },
   { href: "/docs/api", label: "API" },
+  { href: "/docs/sdk", label: "SDK" },
+  { href: "/console", label: "Console" },
+  { href: "/portal", label: "Portal" },
 ];
+
+function navActive(pathname: string, href: string) {
+  if (href === "/docs") {
+    return (
+      pathname === "/docs" ||
+      (pathname.startsWith("/docs/") && !pathname.startsWith("/docs/api") && !pathname.startsWith("/docs/sdk"))
+    );
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function Header() {
   const pathname = usePathname();
@@ -26,7 +38,7 @@ export function Header() {
 
         <nav className="hidden items-center lg:flex">
           {NAV.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            const active = navActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
@@ -41,19 +53,8 @@ export function Header() {
           })}
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
-          <Link
-            href="/docs"
-            className="relative isolate inline-flex h-9 items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
-          >
-            Read docs
-          </Link>
-          <Link
-            href="/console"
-            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
-          >
-            Open console
-          </Link>
+        <div className="hidden items-center gap-3 lg:flex">
+          <AuthNav />
         </div>
 
         <button
@@ -74,8 +75,8 @@ export function Header() {
                 {item.label}
               </Link>
             ))}
-            <Link href="/console" onClick={() => setOpen(false)} className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-primary text-sm font-medium text-background">
-              Open console
+            <Link href="/signup" onClick={() => setOpen(false)} className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-primary text-sm font-medium text-background">
+              Get API keys
             </Link>
           </div>
         </div>

@@ -1,0 +1,47 @@
+---
+title: "Classification"
+description: "P(quality | small), not easy/hard."
+---
+
+Every request is classified before it is routed. The same rules live in Python and in the TypeScript SDK.
+
+## Output
+
+```json
+{
+  "p_small_quality": 0.43,
+  "recommended_tier": "frontier",
+  "complexity": 5,
+  "category": "system_design",
+  "uncertainty": 0.57
+}
+```
+
+## P(quality | small)
+
+The classifier does not answer easy/hard. It estimates the chance an economy or standard model will clear the quality bar.
+
+| P(quality | small) | Route |
+| --- | --- |
+| ≥ 0.90 | economy |
+| ≥ 0.72 | standard |
+| below | frontier |
+
+Complexity and category are **features** that move the probability. They are not the routing rule.
+
+## Signals
+
+Length, code fences, language keywords, math/LaTeX, design language, proofs, races/panics, safety terms, and constraint words.
+
+## Offline
+
+```ts
+import { classifyText } from "promptimizer";
+
+classifyText("Design a rate limiter for 1 million QPS");
+// p_small_quality < 0.72, recommended_tier: "frontier"
+```
+
+<Warning>
+  This is a heuristic. The quality guard can still escalate after the first answer.
+</Warning>

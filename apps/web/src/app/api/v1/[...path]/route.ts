@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser, recordUsage, saveProvider, savingsForUser, userFromApiKey } from "@/server/account";
+import { authConfigured } from "@/server/db";
+import { classifyText, publicCatalog, resolveBaseURL } from "promptimizer";
 import {
+  accountSessionId,
   createByokSession,
   createMockSession,
   getSession,
@@ -7,32 +11,84 @@ import {
   publicSession,
   routeChat,
   runBenchmark,
+  sessionForUser,
 } from "@/server/engine";
-import { classifyText } from "promptimizer";
 import { BENCHMARK } from "@/server/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function sessionFrom(request: NextRequest) {
-  return request.headers.get("x-promptimizer-session") ??
+function bearer(request: NextRequest) {
+  return (
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    null;
+    request.headers.get("x-promptimizer-session") ??
+    null
+  );
 }
 
-function needSession(request: NextRequest) {
-  const session = getSession(sessionFrom(request));
-  if (!session) {
-    return { error: NextResponse.json({ detail: "Missing session. Connect a provider or use the simulator." }, { status: 401 }) };
+async function accountFromRequest(request: NextRequest) {
+  const token = bearer(request);
+  if (token?.startsWith("pmz_")) return userFromApiKey(token);
+  if (authConfigured()) return getCurrentUser();
+  return null;
+}
+
+function connectPayload(body: {
+  mode?: string;
+  provider?: string;
+  label?: string;
+  base_url?: string;
+  api_key?: string;
+}) {
+  if (body.mode === "mock") {
+    return { mode: "mock" as const, label: body.label || "Promptimizer simulator" };
   }
-  return { session };
+  const { baseURL, provider } = resolveBaseURL({ provider: body.provider, baseURL: body.base_url });
+  if (!baseURL) {
+    throw Object.assign(new Error("Unknown provider. Pass base_url for a custom OpenAI-compatible /v1."), {
+      status: 400,
+    });
+  }
+  let apiKey = body.api_key?.trim() ?? "";
+  if (!apiKey && provider?.id === "ollama") apiKey = "ollama";
+  if (!apiKey) throw Object.assign(new Error("api_key is required."), { status: 400 });
+  return {
+    mode: "byok" as const,
+    label: body.label || provider?.label || "BYOK",
+    base_url: baseURL,
+    api_key: apiKey,
+  };
+}
+
+async function resolve(request: NextRequest) {
+  const token = bearer(request);
+  if (token?.startsWith("pmz_")) {
+    const user = await userFromApiKey(token);
+    if (!user) {
+      return { error: NextResponse.json({ detail: "Invalid API key." }, { status: 401 }) };
+    }
+    return { user, session: await sessionForUser(user.id) };
+  }
+  if (token) {
+    const session = getSession(token);
+    if (session) {
+      const user = authConfigured() ? await getCurrentUser() : null;
+      return { user, session };
+    }
+  }
+  if (authConfigured()) {
+    const user = await getCurrentUser();
+    if (user) return { user, session: await sessionForUser(user.id) };
+  }
+  return { user: null, session: null };
 }
 
 async function handle(request: NextRequest, path: string[]) {
   const joined = path.join("/");
   const url = process.env.PROMPTIMIZER_API_URL;
+  const token = bearer(request);
 
-  if (url) {
+  if (url && !authConfigured() && !token?.startsWith("pmz_")) {
     const target = `${url.replace(/\/$/, "")}/v1/${joined}${request.nextUrl.search}`;
     const headers = new Headers(request.headers);
     headers.delete("host");
@@ -46,13 +102,24 @@ async function handle(request: NextRequest, path: string[]) {
   }
 
   try {
+    if (joined === "providers" && request.method === "GET") {
+      return NextResponse.json({ object: "list", data: publicCatalog() });
+    }
+
     if (joined === "providers/connect" && request.method === "POST") {
       const body = await request.json();
-      if (body.mode === "mock") return NextResponse.json(createMockSession(body.label));
-      if (!body.base_url || !body.api_key) {
-        return NextResponse.json({ detail: "base_url and api_key are required for BYOK." }, { status: 400 });
+      const user = await accountFromRequest(request);
+      const sid = user ? accountSessionId(user.id) : undefined;
+      const payload = connectPayload(body);
+      const published =
+        payload.mode === "mock"
+          ? createMockSession(payload.label, sid)
+          : await createByokSession(payload, sid);
+      if (user) {
+        const session = getSession(accountSessionId(user.id));
+        if (session) await saveProvider(user.id, session);
       }
-      return NextResponse.json(await createByokSession(body));
+      return NextResponse.json(published);
     }
 
     if (joined === "classify" && request.method === "POST") {
@@ -68,9 +135,12 @@ async function handle(request: NextRequest, path: string[]) {
       return NextResponse.json({ name: "Promptimizer Fixed Task Set", tasks: BENCHMARK });
     }
 
-    const gated = needSession(request);
-    if ("error" in gated && gated.error) return gated.error;
-    const session = gated.session!;
+    const actor = await resolve(request);
+    if ("error" in actor && actor.error) return actor.error;
+    if (!actor.session) {
+      return NextResponse.json({ detail: "Sign in or pass a Promptimizer API key." }, { status: 401 });
+    }
+    const session = actor.session;
 
     if (joined === "session" && request.method === "GET") return NextResponse.json(publicSession(session));
     if (joined === "session" && request.method === "DELETE") {
@@ -80,10 +150,44 @@ async function handle(request: NextRequest, path: string[]) {
       return NextResponse.json({ object: "list", data: session.models, baseline_model: session.baseline_model });
     }
     if (joined === "models" && request.method === "PATCH") {
-      return NextResponse.json(patchFleet(session, await request.json()));
+      const next = patchFleet(session, await request.json());
+      if (actor.user) await saveProvider(actor.user.id, session);
+      return NextResponse.json(next);
+    }
+    if (joined === "savings" && request.method === "GET") {
+      if (!actor.user) {
+        return NextResponse.json({ detail: "Sign in or pass a Promptimizer API key." }, { status: 401 });
+      }
+      return NextResponse.json(await savingsForUser(actor.user.id));
     }
     if (joined === "chat/completions" && request.method === "POST") {
-      return NextResponse.json(await routeChat(session, await request.json()));
+      const result = await routeChat(session, await request.json());
+      if (actor.user) {
+        const cost = result.usage.cost;
+        const meta = result.promptimizer;
+        if (cost && meta) {
+          try {
+            await recordUsage(actor.user.id, {
+              model: String(meta.model ?? result.model),
+              tier: String(meta.tier ?? ""),
+              actual_usd: cost.actual_usd,
+              baseline_usd: cost.baseline_usd,
+              saved_usd: cost.saved_usd,
+              routing_saved_usd: cost.routing_saved_usd,
+              cache_saved_usd: cost.cache_discount_usd,
+              cache_hit: Boolean(meta.cache_hit),
+              escalated: Boolean(meta.escalated),
+              quality:
+                typeof meta.quality === "object" && meta.quality && "score" in meta.quality
+                  ? Number((meta.quality as { score: number }).score)
+                  : null,
+            });
+          } catch {
+            /* receipts should not fail the completion */
+          }
+        }
+      }
+      return NextResponse.json(result);
     }
     if (joined === "benchmark/run" && request.method === "POST") {
       return NextResponse.json(await runBenchmark(session));

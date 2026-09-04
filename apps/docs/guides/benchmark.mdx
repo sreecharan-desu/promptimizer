@@ -1,0 +1,33 @@
+---
+title: "Benchmark"
+description: "Four policies. Same gold set."
+---
+
+The task file lives at `apps/api/app/data/benchmark.json` (mirrored in the Next.js engine).
+
+## Mix
+
+| Band | Count | Examples |
+| --- | --- | --- |
+| Easy L1–L2 | 5 | Capital of France, HTTP, 17×24, REST |
+| Medium L3 | 5 | Merge sorted lists, TCP vs UDP, coin flips |
+| Hard L4–L5 | 5 | 1M QPS limiter, Euclid + twins, Go map race |
+
+Every row has `gold` and `must_include`.
+
+## Policies
+
+| Policy | Purpose |
+| --- | --- |
+| Always frontier | Baseline |
+| Difficulty router | Naive `if complexity` |
+| Quality-aware | P(quality\|small) + escalation |
+| Quality-aware + cache | The product |
+
+Same token counts. Quality, worst-case quality, latency, cache hit rate, and escalation rate on every policy.
+
+Savings split into **routing** (cheaper model) and **cache** (repeat prefixes).
+
+<Tip>
+  Run it from the console Benchmark tab. The quality-vs-cost plot is the point.
+</Tip>

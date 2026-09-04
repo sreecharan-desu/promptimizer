@@ -1,0 +1,26 @@
+# Promptimizer
+
+Quality-aware LLM routing for any OpenAI-compatible key.
+
+Promptimizer sits in front of cheap and frontier models. It classifies each request (L1–L5), routes to the cheapest adequate tier, caches repeated system/context prefixes, and reports cost saved versus always-frontier together with a quality score.
+
+## Docs
+
+- [Introduction](/docs)
+- [Quickstart](/docs/quickstart)
+- [Concepts](/docs/concepts)
+- [Classification](/docs/guides/classification)
+- [Routing](/docs/guides/routing)
+- [Prompt cache](/docs/guides/caching)
+- [Quality gate](/docs/guides/quality)
+- [BYOK](/docs/guides/byok)
+- [Benchmark](/docs/guides/benchmark)
+- [SDK](/docs/sdk)
+- [API](/docs/api)
+
+## Product rules
+
+- Bring your own key. Any OpenAI-compatible `/v1`.
+- Step up, never down.
+- Measure quality. Savings from silent degradation fail the demo.
+- Simulator needs no vendor key: `promptimizer-nano`, `promptimizer-flash`, `promptimizer-frontier`.

@@ -1,0 +1,16 @@
+---
+title: "Authentication"
+description: "A Promptimizer API key. Your provider key never comes back."
+---
+
+Create a key in the account page. Send it on every call:
+
+```
+Authorization: Bearer pmz_live_...
+```
+
+<Warning>
+  `401` — missing or revoked key. The raw key is shown once at creation.
+</Warning>
+
+Signed-in console requests use the account cookie. Provider keys are encrypted at rest with `ENCRYPTION_KEY` and never returned.

@@ -5,6 +5,7 @@ import { classifyText } from "./classify.ts";
 test("easy factual stays economy", () => {
   const result = classifyText("What is the capital of France?");
   assert.equal(result.recommended_tier, "economy");
+  assert.ok(result.p_small_quality >= 0.9);
   assert.ok(result.complexity <= 2);
 });
 
@@ -14,4 +15,5 @@ test("system design goes frontier", () => {
   );
   assert.equal(result.recommended_tier, "frontier");
   assert.equal(result.category, "system_design");
+  assert.ok(result.p_small_quality < 0.72);
 });

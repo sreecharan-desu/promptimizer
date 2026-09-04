@@ -5,7 +5,8 @@
   "packageManager": "pnpm@10.15.1",
   "workspaces": [
     "apps/web",
-    "packages/sdk"
+    "packages/sdk",
+    "packages/cli"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@promptimizer/web",
@@ -14,7 +15,10 @@
     "build": "npm run build --workspace=@promptimizer/web",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspace=promptimizer",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "docs": "cd apps/docs && npx --yes mintlify@latest dev",
+    "publish:sdk": "npm publish --workspace=promptimizer --access public",
+    "promptimizer": "node packages/cli/bin/promptimizer.mjs"
   },
   "engines": {
     "node": ">=20"

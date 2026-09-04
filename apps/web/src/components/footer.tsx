@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Mark } from "./mark";
 
@@ -8,9 +9,10 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
+      { href: "/signup", label: "Create account" },
+      { href: "/account", label: "API keys" },
       { href: "/console", label: "Console" },
-      { href: "/docs", label: "How it works" },
-      { href: "/docs/sdk", label: "npm package" },
+      { href: "/portal", label: "Savings" },
     ],
   },
   {
@@ -18,7 +20,7 @@ const COLUMNS = [
     links: [
       { href: "/docs/api", label: "API reference" },
       { href: "/docs/sdk", label: "SDK" },
-      { href: "/docs#quality", label: "Quality gate" },
+      { href: "/docs/guides/quality", label: "Quality gate" },
     ],
   },
   {
@@ -33,7 +35,9 @@ const COLUMNS = [
 type Theme = "dark" | "light" | "system";
 
 export function Footer() {
+  const pathname = usePathname();
   const [theme, setTheme] = useState<Theme>("dark");
+  const docs = pathname.startsWith("/docs");
 
   useEffect(() => {
     const stored = (localStorage.getItem("promptimizer-theme") as Theme | null) ?? "dark";
@@ -56,6 +60,24 @@ export function Footer() {
 
   const label =
     theme === "light" ? "Switch to system theme" : theme === "system" ? "Switch to dark mode" : "Switch to light mode";
+
+  if (docs) {
+    return (
+      <footer className="border-t border-primary/[0.06] px-4 py-6 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <p className="text-xs text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+          <button
+            type="button"
+            onClick={cycle}
+            aria-label={label}
+            className="size-7 rounded-full text-primary/30 transition-colors duration-150 hover:text-primary/60"
+          >
+            {theme === "light" ? "○" : theme === "system" ? "◐" : "●"}
+          </button>
+        </div>
+      </footer>
+    );
+  }
 
   return (
     <footer className="border-t border-primary/[0.06] px-4 py-16 sm:px-6">

@@ -1,0 +1,22 @@
+---
+title: "OpenAI drop-in"
+description: "Keep the official client. Change baseURL."
+---
+
+After `connect`, the session id is a bearer token.
+
+```ts
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: process.env.PROMPTIMIZER_SESSION_ID,
+  baseURL: "https://your-app.vercel.app/api/v1",
+});
+
+await openai.chat.completions.create({
+  model: "auto",
+  messages: [{ role: "user", content: "Explain REST in two sentences." }],
+});
+```
+
+Works with LangChain, Vercel AI SDK, and any agent that already speaks OpenAI chat completions. Streaming is not enabled in the simulator yet.

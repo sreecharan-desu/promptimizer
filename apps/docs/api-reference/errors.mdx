@@ -1,0 +1,17 @@
+---
+title: "Errors"
+description: "OpenAI-shaped enough. FastAPI uses detail."
+---
+
+```json
+{ "detail": "Provider rejected the key: ..." }
+```
+
+| Status | When |
+| --- | --- |
+| `400` | Missing body, no chat models, no selected models, streaming requested |
+| `401` | Missing or expired session |
+| `4xx/5xx` | Passed through from the BYOK provider |
+| `500` | Unexpected gateway error |
+
+Streaming returns `400` with a clear message rather than a half-SSE.

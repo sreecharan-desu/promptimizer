@@ -1,0 +1,26 @@
+---
+title: "Session"
+api: "GET /v1/session"
+description: "Public session plus cumulative savings. Never the raw key."
+---
+
+Requires the session header.
+
+`DELETE /v1/session` drops it.
+
+```json
+{
+  "session_id": "sess_…",
+  "mode": "byok",
+  "label": "Groq",
+  "stats": {
+    "requests": 12,
+    "actual_usd": 0.0041,
+    "baseline_usd": 0.031,
+    "saved_usd": 0.0269,
+    "cache_hits": 3,
+    "escalations": 1,
+    "quality_fails": 0
+  }
+}
+```

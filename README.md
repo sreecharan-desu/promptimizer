@@ -4,14 +4,14 @@ Quality-aware LLM routing for any OpenAI-compatible key.
 
 Promptimizer sits in front of a cheap model and a frontier model (real providers or the built-in simulator). It classifies each request, routes it to the cheapest adequate tier, caches repeated system/context prefixes, and reports **cost saved versus always-frontier** on a fixed benchmark — together with a **quality score**, so savings that come from silently worse answers are visible.
 
-**BYOK.** Paste an OpenAI, Groq, OpenRouter, Together, Fireworks, DeepSeek, or Ollama key. We fetch `/v1/models`, auto-tier them, and route.
+**BYOK.** Paste a key for a known host (OpenAI, Groq, Baseten, OpenRouter, …). We already have the base URL. Custom is the only case that asks for one. We fetch `/v1/models`, auto-tier them, and route. Savings land on `/portal` and in the CLI.
 
 ## Why this stack
 
 | Piece | Choice | Why |
 | --- | --- | --- |
-| Gateway | FastAPI / Python 3.12 | Brief-suggested, excellent OpenAPI, easy for judges to read |
-| Console + marketing | Next.js 15 on Vercel | First-visit product surface, serverless `/api/v1` so the live demo is self-contained |
+| Gateway | FastAPI / Python 3.12 | OpenAPI, Redis, self-host |
+| Console + marketing | Next.js 15 on Vercel | Accounts, API keys, and the production `/api/v1` |
 | SDK | TypeScript, `npm i promptimizer` | Dynaroute-style drop-in + offline classifier |
 | Cache | In-memory or Redis | Prompt-prefix hits in Compose; memory for the simulator |
 | Deploy | Docker Compose + Vercel | Production-shaped local, one-click web |
@@ -24,6 +24,7 @@ Theme is jet chrome with a **gold** accent — savings you can see, not another 
 flowchart LR
   subgraph Clients
     Web[Next.js console]
+    CLI[promptimizer CLI]
     SDK[promptimizer npm]
     OpenAI[Official OpenAI SDK]
   end
@@ -43,6 +44,7 @@ flowchart LR
   end
 
   Web --> GW
+  CLI --> GW
   SDK --> GW
   OpenAI --> GW
   GW --> C --> R
@@ -59,9 +61,11 @@ flowchart LR
 
 ```
 apps/api          FastAPI gateway, classifier, cache, benchmark
-apps/web          Next.js marketing + console
+apps/web          Next.js marketing + console + /docs
+apps/docs         Mintlify source (same IA as /docs)
 packages/sdk      promptimizer npm package
-docs/             API, frontend, SDK, architecture
+packages/cli      promptimizer binary (login, connect, chat, savings)
+docs/             Internal notes (architecture, API, SDK)
 ```
 
 ## Run locally
@@ -94,14 +98,45 @@ cd apps/api && .venv/bin/pytest -q
 pnpm --filter promptimizer test
 ```
 
+## Accounts
+
+Set `DATABASE_URL`, `AUTH_SECRET`, and `ENCRYPTION_KEY`. Sign up at `/signup`, create a `pmz_live_` key at `/account`, then connect a provider in the console or:
+
+```bash
+npm run promptimizer -- login --key pmz_live_…
+npm run promptimizer -- connect baseten --key "$BASETEN_API_KEY"
+npm run promptimizer -- chat "What is 17 * 24?"
+npm run promptimizer -- savings
+```
+
+Or from the SDK:
+
+```ts
+import { Promptimizer } from "promptimizer";
+
+const client = new Promptimizer({
+  gatewayURL: "https://your-host/api",
+  apiKey: process.env.PROMPTIMIZER_API_KEY,
+});
+```
+
 ## Docs
 
-- [How it works](docs/architecture.md)
-- [API reference](docs/api.md)
-- [Frontend](docs/frontend.md)
-- [SDK](docs/sdk.md)
+Product docs live at `/docs` on the Next.js site (Mintlify-style sidebar, search, API pages). The same pages are Mintlify MDX in `apps/docs`.
 
-Interactive OpenAPI: `http://localhost:8000/docs`
+```bash
+# Site
+npm run dev:web
+# open http://localhost:3000/docs
+
+# Official Mintlify preview
+cd apps/docs && npx mintlify dev
+```
+
+- [Introduction](https://hackathon-omega-liart.vercel.app/docs)
+- [API reference](https://hackathon-omega-liart.vercel.app/docs/api)
+- [SDK](https://hackathon-omega-liart.vercel.app/docs/sdk)
+- FastAPI OpenAPI: `http://localhost:8000/docs`
 
 ## License
 

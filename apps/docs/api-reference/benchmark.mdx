@@ -1,0 +1,29 @@
+---
+title: "Benchmark"
+description: "The fixed task set, and a scored run."
+---
+
+## Spec
+
+`GET /v1/benchmark` — name, version, gold tasks. No session required.
+
+## Run
+
+`POST /v1/benchmark/run` — requires a session.
+
+<ParamField body="compare_always_frontier" type="boolean">
+  Default `true`. Also scores the baseline model on every row.
+</ParamField>
+
+```json
+{
+  "summary": {
+    "saved_pct": 81.4,
+    "avg_quality_routed": 0.91,
+    "avg_quality_frontier": 0.93,
+    "quality_delta": -0.02,
+    "escalations": 2,
+    "quality_fails": 0
+  }
+}
+```

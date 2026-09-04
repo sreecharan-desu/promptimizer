@@ -1,0 +1,16 @@
+{
+  "name": "promptimizer-cli",
+  "version": "0.1.0",
+  "description": "Login, connect a provider, route prompts, and read savings.",
+  "type": "module",
+  "bin": {
+    "promptimizer": "./bin/promptimizer.mjs"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,18 @@
+---
+title: "Offline classifier"
+description: "Same rules as the gateway. No API key."
+---
+
+```ts
+import { classifyText, classifyMessages } from "promptimizer";
+
+classifyText("What is the capital of France?");
+// recommended_tier: "economy"
+
+classifyMessages([
+  { role: "user", content: "Prove there are infinitely many primes, then explain twins." },
+]);
+// recommended_tier: "frontier"
+```
+
+Use this in an agent loop when you want to log difficulty before you pay for a completion, or to pre-label a dataset.

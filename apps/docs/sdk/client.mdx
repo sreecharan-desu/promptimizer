@@ -1,0 +1,37 @@
+---
+title: "Client"
+description: "Mint a key, then chat.completions.create."
+---
+
+```ts
+import { Promptimizer } from "promptimizer";
+
+const client = new Promptimizer({
+  gatewayURL: process.env.PROMPTIMIZER_URL,
+  apiKey: process.env.PROMPTIMIZER_API_KEY,
+});
+
+const completion = await client.chat.completions.create({
+  messages: [{ role: "user", content: "What is 17 * 24?" }],
+});
+
+console.log(completion.model);
+console.log(completion.usage.cost?.saved_pct);
+console.log(completion.promptimizer);
+```
+
+## Methods
+
+| Method | Maps to |
+| --- | --- |
+| `connect` | `POST /v1/providers/connect` |
+| `providers` | `GET /v1/providers` |
+| `savings` | `GET /v1/savings` |
+| `session` | `GET /v1/session` |
+| `models` | `GET /v1/models` |
+| `updateFleet` | `PATCH /v1/models` |
+| `classify` | `POST /v1/classify` |
+| `createChatCompletion` | `POST /v1/chat/completions` |
+| `benchmark` | `POST /v1/benchmark/run` |
+
+`PromptimizerError` carries `status` and the JSON body.

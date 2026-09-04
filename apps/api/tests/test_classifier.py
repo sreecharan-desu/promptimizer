@@ -6,6 +6,7 @@ def test_easy_factual():
     assert result.complexity <= 2
     assert result.recommended_tier == "economy"
     assert result.category == "factual_recall"
+    assert result.p_small_quality >= 0.9
 
 
 def test_hard_system_design_goes_frontier():
@@ -17,6 +18,7 @@ def test_hard_system_design_goes_frontier():
     assert result.recommended_tier == "frontier"
     assert result.category == "system_design"
     assert result.quality_risk == "high"
+    assert result.p_small_quality < 0.72
 
 
 def test_code_generation_is_not_economy_by_default():

@@ -62,6 +62,10 @@ class Classification:
     confidence: float
     recommended_tier: Tier
     quality_risk: Literal["low", "medium", "high"]
+    p_small_quality: float
+    uncertainty: float
+    structured_output: bool
+    context_tokens_est: int
     rationale: str
     features: dict[str, Any]
 
@@ -114,10 +118,11 @@ def classify_text(text: str) -> Classification:
 
     category = _category(hits)
     complexity = _complexity(hits, category)
-    risk = _risk(category, complexity)
-    tier = _tier(complexity, risk)
+    p_small = _p_small_quality(hits, category, complexity)
+    risk = _risk(category, complexity, p_small)
+    tier = _tier_from_p(p_small)
     confidence = _confidence(hits, category)
-    rationale = _rationale(category, complexity, tier, risk, hits)
+    rationale = _rationale(category, complexity, tier, p_small)
 
     return Classification(
         complexity=complexity,
@@ -125,6 +130,10 @@ def classify_text(text: str) -> Classification:
         confidence=round(confidence, 3),
         recommended_tier=tier,
         quality_risk=risk,
+        p_small_quality=p_small,
+        uncertainty=round(1 - p_small, 3),
+        structured_output=bool(hits["code_fence"] or hits["constraints"] >= 1),
+        context_tokens_est=max(1, round(chars / 4)),
         rationale=rationale,
         features=hits,
     )
@@ -183,20 +192,55 @@ def _complexity(hits: dict[str, Any], category: str) -> int:
     return max(1, min(5, score))
 
 
-def _risk(category: str, complexity: int) -> Literal["low", "medium", "high"]:
-    if category in HIGH_RISK or complexity >= 5:
+def _p_small_quality(hits: dict[str, Any], category: str, complexity: int) -> float:
+    p = 0.96
+    if hits["design"] or category == "system_design":
+        p -= 0.28
+    if hits["safety"] or category == "safety_sensitive":
+        p -= 0.30
+    if hits["debug"] or category == "code_debug":
+        p -= 0.22
+    if hits["reason"] or category == "reasoning":
+        p -= 0.18
+    if complexity >= 5:
+        p -= 0.22
+    elif complexity >= 4:
+        p -= 0.14
+    elif complexity == 3:
+        p -= 0.06
+    if hits["words"] > 120:
+        p -= 0.07
+    if hits["constraints"] >= 2:
+        p -= 0.07
+    if category == "code_generation":
+        p -= 0.05
+    if category == "factual_recall" and hits["words"] < 24:
+        p = max(p, 0.94)
+    return round(min(0.99, max(0.05, p)), 3)
+
+
+def _risk(category: str, complexity: int, p_small: float) -> Literal["low", "medium", "high"]:
+    if category in HIGH_RISK or complexity >= 5 or p_small < 0.72:
         return "high"
-    if complexity >= 3 or category in {"analysis", "code_generation"}:
+    if complexity >= 3 or p_small < 0.90:
         return "medium"
     return "low"
 
 
-def _tier(complexity: int, risk: str) -> Tier:
-    if complexity >= 4 or risk == "high":
-        return "frontier"
+def _tier_from_p(p_small: float) -> Tier:
+    if p_small >= 0.90:
+        return "economy"
+    if p_small >= 0.72:
+        return "standard"
+    return "frontier"
+
+
+def difficulty_tier(complexity: int) -> Tier:
+    if complexity <= 2:
+        return "economy"
     if complexity == 3:
         return "standard"
-    return "economy"
+    return "frontier"
 
 
 def _confidence(hits: dict[str, Any], category: str) -> float:
@@ -210,24 +254,28 @@ def _confidence(hits: dict[str, Any], category: str) -> float:
     return min(0.95, 0.55 + 0.12 * signals)
 
 
-def _rationale(category: str, complexity: int, tier: Tier, risk: str, hits: dict[str, Any]) -> str:
+def _rationale(category: str, complexity: int, tier: Tier, p_small: float) -> str:
     return (
-        f"{category.replace('_', ' ')} at complexity L{complexity} "
-        f"({hits['words']} words). quality_risk={risk}. "
-        f"Route to {tier} — cheapest tier that is adequate for this task."
+        f"{category.replace('_', ' ')} L{complexity}. "
+        f"P(quality|small)={p_small}. Route to {tier}."
     )
 
 
 def complexity_from_override(level: int) -> Classification:
     level = max(1, min(5, int(level)))
-    tier: Tier = "economy" if level <= 2 else "standard" if level == 3 else "frontier"
-    risk = "low" if level <= 2 else "medium" if level == 3 else "high"
+    p = {1: 0.96, 2: 0.93, 3: 0.80, 4: 0.55, 5: 0.35}[level]
+    tier = _tier_from_p(p)
+    risk = _risk("analysis", level, p)
     return Classification(
         complexity=level,
         category="analysis",
         confidence=1.0,
         recommended_tier=tier,
         quality_risk=risk,
-        rationale=f"Caller overrode complexity to L{level}.",
+        p_small_quality=p,
+        uncertainty=round(1 - p, 3),
+        structured_output=False,
+        context_tokens_est=0,
+        rationale=f"Caller overrode complexity to L{level}. P(quality|small)={p}.",
         features={"override": True, "level": level},
     )

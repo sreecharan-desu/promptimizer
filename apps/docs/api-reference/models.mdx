@@ -1,0 +1,40 @@
+---
+title: "Models"
+api: "GET /v1/models"
+description: "OpenAI-shaped list with tier, price, and selection."
+---
+
+## List
+
+```json
+{
+  "object": "list",
+  "baseline_model": "gpt-4o",
+  "data": [
+    {
+      "id": "gpt-4o-mini",
+      "tier": "economy",
+      "input_per_1m": 0.15,
+      "output_per_1m": 0.6,
+      "source": "catalog",
+      "selected": true
+    }
+  ]
+}
+```
+
+## Patch
+
+`PATCH /v1/models`
+
+<ParamField body="overrides" type="object">
+  Map of model id → `economy` \| `standard` \| `frontier`.
+</ParamField>
+
+<ParamField body="selected" type="object">
+  Map of model id → boolean.
+</ParamField>
+
+<ParamField body="baseline_model" type="string">
+  Always-expensive comparison model.
+</ParamField>

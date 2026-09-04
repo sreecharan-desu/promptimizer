@@ -1,0 +1,33 @@
+---
+title: "API overview"
+description: "OpenAI-compatible chat completions, plus receipts."
+---
+
+Two bases, one contract.
+
+| Host | Base |
+| --- | --- |
+| Next.js / Vercel | `https://<app>/api` |
+| FastAPI | `http://localhost:8000` |
+
+Interactive explorer when FastAPI is running: `/docs` (Swagger) and `/redoc`.
+
+## Compatibility
+
+`POST /v1/chat/completions` accepts the usual OpenAI body (`messages`, `temperature`, `max_tokens`, `model`). Extra fields:
+
+- `model` defaults to `"auto"`
+- `level_override` — force complexity 1–5
+
+Extra response fields: `usage.cost` and `promptimizer`.
+
+Streaming is not enabled in the simulator.
+
+## Typical flow
+
+<Steps>
+  <Step title="Connect">`POST /v1/providers/connect`</Step>
+  <Step title="Optional">`PATCH /v1/models` to fix tiers or the baseline</Step>
+  <Step title="Route">`POST /v1/chat/completions`</Step>
+  <Step title="Prove it">`POST /v1/benchmark/run`</Step>
+</Steps>

@@ -1,0 +1,45 @@
+---
+title: "Introduction"
+description: "Route every prompt to the cheapest model that still gets it right."
+---
+
+Promptimizer is middleware, not a new model vendor. You bring an OpenAI-compatible key. We classify each request, route it to the cheapest adequate tier, cache repeated system and context prefixes, and measure **cost saved versus always-frontier** — with a quality score, so silent degradation is visible.
+
+<Note>
+  Create an account, mint an API key, then open the console. The simulator needs no vendor key.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Connect a session and route your first prompt in under two minutes.
+  </Card>
+  <Card title="BYOK" icon="key" href="/guides/byok">
+    Paste any OpenAI-compatible base URL. We fetch `/v1/models` and auto-tier them.
+  </Card>
+  <Card title="Quality gate" icon="shield-check" href="/guides/quality">
+    Hard questions escalate. A cheap-only router fails the benchmark on purpose.
+  </Card>
+  <Card title="npm SDK" icon="cube" href="/sdk">
+    `npm i promptimizer` — drop-in chat completions plus an offline classifier.
+  </Card>
+</CardGroup>
+
+## What you get
+
+| Piece | Job |
+| --- | --- |
+| Classifier | Complexity L1–L5, category, quality risk |
+| Router | Cheapest selected model in the adequate tier. Step up, never down |
+| Prompt cache | SHA-256 of system + long context. Repeat prefixes bill at 50% input |
+| Quality guard | Thin or refusing answers on hard tasks retry one tier higher |
+| Benchmark | Fixed 15-task gold set. Cost **and** quality vs always-frontier |
+
+## Quality is measured
+
+A router that saves money by answering hard questions badly is not cheaper — it is broken. Promptimizer prints routed quality, frontier quality, and the delta on every benchmark run. Dumping everything on a nano model produces a fat savings number and a collapsed quality score.
+
+## Stack
+
+- **FastAPI** — production gateway, Redis, encrypted BYOK sessions, OpenAPI at `/docs`
+- **Next.js** — marketing, console, accounts, and the production `/api/v1`
+- **`promptimizer` npm package** — TypeScript client + offline classifier

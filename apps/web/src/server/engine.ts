@@ -1,5 +1,6 @@
-import { classifyText, type Classification } from "promptimizer";
+import { classifyText, difficultyTier, type Classification } from "promptimizer";
 import { BENCHMARK, PRICING } from "./data";
+import { cacheGet, cacheRemember, cacheSet } from "./upstash";
 
 export type Tier = "economy" | "standard" | "frontier";
 
@@ -26,8 +27,6 @@ export type Session = {
 };
 
 const store = new Map<string, Session>();
-const prefixSeen = new Set<string>();
-const exactCache = new Map<string, unknown>();
 
 const TIER_ORDER: Tier[] = ["economy", "standard", "frontier"];
 
@@ -98,14 +97,22 @@ export function getSession(sessionId: string | null) {
   return store.get(sessionId) ?? null;
 }
 
-export function createMockSession(label = "Promptimizer simulator") {
+function emptyStats() {
+  return { requests: 0, actual_usd: 0, baseline_usd: 0, saved_usd: 0, cache_hits: 0, escalations: 0, quality_fails: 0 };
+}
+
+export function accountSessionId(userId: string) {
+  return `acct_${userId}`;
+}
+
+export function createMockSession(label = "Promptimizer simulator", sessionId?: string) {
   const models = fleetFrom([
     { id: "promptimizer-nano" },
     { id: "promptimizer-flash" },
     { id: "promptimizer-frontier" },
   ]);
   const session: Session = {
-    id: id(),
+    id: sessionId ?? id(),
     mode: "mock",
     label,
     base_url: "mock://promptimizer",
@@ -113,13 +120,16 @@ export function createMockSession(label = "Promptimizer simulator") {
     models,
     baseline_model: "promptimizer-frontier",
     created_at: Date.now() / 1000,
-    stats: { requests: 0, actual_usd: 0, baseline_usd: 0, saved_usd: 0, cache_hits: 0, escalations: 0, quality_fails: 0 },
+    stats: emptyStats(),
   };
   store.set(session.id, session);
   return publicSession(session);
 }
 
-export async function createByokSession(input: { label?: string; base_url: string; api_key: string }) {
+export async function createByokSession(
+  input: { label?: string; base_url: string; api_key: string },
+  sessionId?: string,
+) {
   const response = await fetch(`${input.base_url.replace(/\/$/, "")}/models`, {
     headers: { Authorization: `Bearer ${input.api_key}` },
   });
@@ -132,7 +142,7 @@ export async function createByokSession(input: { label?: string; base_url: strin
   if (!models.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
   const frontier = cheapest(models, "frontier") ?? models[models.length - 1];
   const session: Session = {
-    id: id(),
+    id: sessionId ?? id(),
     mode: "byok",
     label: input.label ?? "BYOK",
     base_url: input.base_url.replace(/\/$/, ""),
@@ -140,7 +150,7 @@ export async function createByokSession(input: { label?: string; base_url: strin
     models,
     baseline_model: frontier.id,
     created_at: Date.now() / 1000,
-    stats: { requests: 0, actual_usd: 0, baseline_usd: 0, saved_usd: 0, cache_hits: 0, escalations: 0, quality_fails: 0 },
+    stats: emptyStats(),
   };
   store.set(session.id, session);
   return publicSession(session);
@@ -172,6 +182,7 @@ function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, co
   const bin = baseline.input_per_1m ?? 5;
   const bout = baseline.output_per_1m ?? 15;
   const cached = Math.min(cachedTokens, promptTokens);
+  const fullRouted = (promptTokens / 1e6) * rin + (completionTokens / 1e6) * rout;
   const actual =
     ((promptTokens - cached) / 1e6) * rin + (cached / 1e6) * rin * 0.5 + (completionTokens / 1e6) * rout;
   const baselineUsd = (promptTokens / 1e6) * bin + (completionTokens / 1e6) * bout;
@@ -181,7 +192,8 @@ function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, co
     baseline_usd: baselineUsd,
     saved_usd: saved,
     saved_pct: baselineUsd ? (saved / baselineUsd) * 100 : 0,
-    cache_discount_usd: (cached / 1e6) * rin * 0.5,
+    routing_saved_usd: Math.max(0, baselineUsd - fullRouted),
+    cache_discount_usd: Math.max(0, fullRouted - actual),
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     cached_tokens: cached,
@@ -277,13 +289,13 @@ export async function routeChat(
   body: { messages: Array<{ role: string; content: string }>; model?: string; level_override?: number },
 ) {
   const prompt = body.messages.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
-  const classification = body.level_override
-    ? {
-        ...classifyText(prompt),
-        complexity: body.level_override,
-        recommended_tier: (body.level_override >= 4 ? "frontier" : body.level_override === 3 ? "standard" : "economy") as Tier,
-      }
-    : classifyText(prompt);
+  const started = Date.now();
+  const classification = classifyText(prompt);
+  if (body.level_override) {
+    classification.complexity = body.level_override;
+    classification.recommended_tier = difficultyTier(body.level_override);
+    classification.p_small_quality = body.level_override <= 2 ? 0.94 : body.level_override === 3 ? 0.8 : 0.45;
+  }
 
   let routed = pick(session, classification, body.model);
   if (!routed) throw Object.assign(new Error("No selected models."), { status: 400 });
@@ -291,15 +303,14 @@ export async function routeChat(
 
   const system = body.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
-  const prefixHit = prefixKey.length >= 40 && prefixSeen.has(prefixKey);
-  if (prefixKey.length >= 40) prefixSeen.add(prefixKey);
+  const prefixHit = prefixKey.length >= 40 ? await cacheRemember(`pm:prefix:${prefixKey}`) : false;
 
-  const exactKey = JSON.stringify({ m: body.messages, model: routed.id });
-  let payload = exactCache.get(exactKey) as Awaited<ReturnType<typeof complete>> | undefined;
+  const exactKey = `pm:exact:${JSON.stringify({ m: body.messages, model: routed.id })}`;
+  let payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
   const exactHit = Boolean(payload);
   if (!payload) {
     payload = await complete(session, routed.id, body.messages, classification);
-    exactCache.set(exactKey, payload);
+    await cacheSet(exactKey, payload);
   }
 
   let escalated = false;
@@ -336,6 +347,8 @@ export async function routeChat(
       complexity: classification.complexity,
       category: classification.category,
       confidence: classification.confidence,
+      p_small_quality: classification.p_small_quality,
+      uncertainty: classification.uncertainty,
       tier: routed.tier,
       model: routed.id,
       baseline_model: baseline.id,
@@ -345,68 +358,242 @@ export async function routeChat(
       escalated,
       quality_gate: quality.degraded ? "fail" : "pass",
       quality,
+      latency_ms: Date.now() - started,
       rationale: classification.rationale,
     },
   };
 }
 
+const POLICY_PREFIX =
+  "Account quality policy: prefer a cheap model only when P(quality|small) clears the threshold. Escalate if the cheap answer is thin, refusing, or missing required concepts. This shared prefix is cached across the run.\n\n";
+
+type PolicyKey = "always_frontier" | "difficulty" | "quality" | "quality_cache";
+
+function emptyPolicy() {
+  return {
+    actual_usd: 0,
+    baseline_usd: 0,
+    saved_usd: 0,
+    routing_saved_usd: 0,
+    cache_saved_usd: 0,
+    qualities: [] as number[],
+    latencies: [] as number[],
+    escalations: 0,
+    cache_hits: 0,
+    quality_fails: 0,
+    small: 0,
+    frontier_direct: 0,
+    successful_escalations: 0,
+  };
+}
+
+function rollup(p: ReturnType<typeof emptyPolicy>, n: number, frontierAvg: number) {
+  const qs = p.qualities;
+  const avg = qs.length ? qs.reduce((a, b) => a + b, 0) / qs.length : 0;
+  return {
+    actual_usd: p.actual_usd,
+    baseline_usd: p.baseline_usd,
+    saved_usd: p.saved_usd,
+    saved_pct: p.baseline_usd ? (p.saved_usd / p.baseline_usd) * 100 : 0,
+    routing_saved_usd: p.routing_saved_usd,
+    cache_saved_usd: p.cache_saved_usd,
+    avg_quality: avg,
+    worst_quality: qs.length ? Math.min(...qs) : 0,
+    quality_delta: avg - frontierAvg,
+    avg_latency_ms: p.latencies.length ? p.latencies.reduce((a, b) => a + b, 0) / p.latencies.length : 0,
+    cache_hit_rate: n ? p.cache_hits / n : 0,
+    escalation_rate: n ? p.escalations / n : 0,
+    quality_fails: p.quality_fails,
+    requests: n,
+    small_model: p.small,
+    frontier_direct: p.frontier_direct,
+    escalated: p.escalations,
+    successful_escalations: p.successful_escalations,
+  };
+}
+
 export async function runBenchmark(session: Session) {
+  const byTier = {
+    economy: cheapest(session.models, "economy"),
+    standard: cheapest(session.models, "standard"),
+    frontier:
+      cheapest(session.models, "frontier") ??
+      session.models.find((m) => m.id === session.baseline_model) ??
+      cheapest(session.models),
+  };
+  const policies: Record<PolicyKey, ReturnType<typeof emptyPolicy>> = {
+    always_frontier: emptyPolicy(),
+    difficulty: emptyPolicy(),
+    quality: emptyPolicy(),
+    quality_cache: emptyPolicy(),
+  };
+  const prefixTokens = tokens(POLICY_PREFIX);
   const rows = [];
-  const totals = { actual_usd: 0, baseline_usd: 0, saved_usd: 0, routed_quality: 0, frontier_quality: 0, escalations: 0, cache_hits: 0, quality_fails: 0 };
-  for (const task of BENCHMARK) {
-    const routed = await routeChat(session, { messages: [{ role: "user", content: task.prompt }] });
-    const answer = routed.choices[0].message.content;
-    const qRouted = scoreAnswer(answer, task.gold, task.must_include, task.difficulty);
-    const frontier = await routeChat(session, {
-      messages: [{ role: "user", content: task.prompt }],
-      model: session.baseline_model ?? undefined,
-    });
-    const qFrontier = scoreAnswer(frontier.choices[0].message.content, task.gold, task.must_include, task.difficulty);
-    const cost = routed.usage.cost!;
-    totals.actual_usd += cost.actual_usd;
-    totals.baseline_usd += cost.baseline_usd;
-    totals.saved_usd += cost.saved_usd;
-    totals.routed_quality += qRouted.score;
-    totals.frontier_quality += qFrontier.score;
-    totals.escalations += routed.promptimizer.escalated ? 1 : 0;
-    totals.cache_hits += routed.promptimizer.cache_hit ? 1 : 0;
-    totals.quality_fails += qRouted.degraded ? 1 : 0;
+
+  for (const [index, task] of BENCHMARK.entries()) {
+    const clf = classifyText(task.prompt);
+    const messages = [{ role: "user" as const, content: task.prompt }];
+    const scored: Partial<Record<Tier, { model: ModelInfo; text: string; tokensIn: number; tokensOut: number; quality: ReturnType<typeof scoreAnswer>; latency: number }>> = {};
+
+    for (const tier of TIER_ORDER) {
+      const model = byTier[tier];
+      if (!model) continue;
+      const t0 = Date.now();
+      const payload = await complete(session, model.id, messages, clf);
+      const text = payload.choices?.[0]?.message?.content ?? "";
+      scored[tier] = {
+        model,
+        text,
+        tokensIn: payload.usage?.prompt_tokens ?? tokens(task.prompt),
+        tokensOut: payload.usage?.completion_tokens ?? tokens(text),
+        quality: scoreAnswer(text, task.gold, task.must_include, task.difficulty),
+        latency: Date.now() - t0,
+      };
+    }
+
+    const maybeFrontier = scored.frontier ?? scored.standard ?? scored.economy;
+    if (!maybeFrontier) continue;
+    const locked: {
+      model: ModelInfo;
+      text: string;
+      tokensIn: number;
+      tokensOut: number;
+      quality: ReturnType<typeof scoreAnswer>;
+      latency: number;
+    } = maybeFrontier;
+
+    function pickTier(tier: Tier, escalate: boolean): { chosen: typeof locked; escalated: boolean } {
+      const hit = scored[tier];
+      let chosen = hit ?? locked;
+      let escalated = false;
+      if (escalate && chosen.quality.degraded && chosen.model.tier !== "frontier") {
+        const next = TIER_ORDER[TIER_ORDER.indexOf(chosen.model.tier) + 1] as Tier | undefined;
+        const upgrade = next ? scored[next] : undefined;
+        if (upgrade) {
+          escalated = true;
+          chosen = upgrade;
+        }
+      }
+      return { chosen, escalated };
+    }
+
+    function add(key: PolicyKey, chosen: typeof locked, escalated: boolean, cacheHit: boolean) {
+      const cachedTok = cacheHit ? prefixTokens : 0;
+      const cost = costOf(chosen.model, locked.model, chosen.tokensIn, chosen.tokensOut, cachedTok);
+      const bucket = policies[key];
+      bucket.actual_usd += cost.actual_usd;
+      bucket.baseline_usd += cost.baseline_usd;
+      bucket.saved_usd += cost.saved_usd;
+      bucket.routing_saved_usd += cost.routing_saved_usd;
+      bucket.cache_saved_usd += cost.cache_discount_usd;
+      bucket.qualities.push(chosen.quality.score);
+      bucket.latencies.push(chosen.latency + (escalated ? 8 : 0));
+      bucket.escalations += escalated ? 1 : 0;
+      bucket.cache_hits += cacheHit ? 1 : 0;
+      bucket.quality_fails += chosen.quality.degraded ? 1 : 0;
+      if (escalated) {
+        if (!chosen.quality.degraded) bucket.successful_escalations += 1;
+      } else if (chosen.model.tier === "frontier") {
+        bucket.frontier_direct += 1;
+      } else {
+        bucket.small += 1;
+      }
+      return cost;
+    }
+
+    add("always_frontier", locked, false, false);
+
+    const naive = pickTier(difficultyTier(clf.complexity), false);
+    add("difficulty", naive.chosen, false, false);
+
+    const quality = pickTier(clf.recommended_tier, true);
+    add("quality", quality.chosen, quality.escalated, false);
+
+    const cached = pickTier(clf.recommended_tier, true);
+    const cost = add("quality_cache", cached.chosen, cached.escalated, index > 0);
+
     rows.push({
       id: task.id,
       difficulty: task.difficulty,
       category: task.category,
       prompt: task.prompt,
-      model: routed.promptimizer.model,
-      tier: routed.promptimizer.tier,
-      complexity: routed.promptimizer.complexity,
-      escalated: routed.promptimizer.escalated,
+      model: cached.chosen.model.id,
+      tier: cached.chosen.model.tier,
+      complexity: clf.complexity,
+      p_small_quality: clf.p_small_quality,
+      escalated: cached.escalated,
       cost,
-      quality_routed: qRouted,
-      quality_frontier: qFrontier,
-      quality_delta: qRouted.score - qFrontier.score,
-      answer,
-      frontier_answer: frontier.choices[0].message.content,
+      quality_routed: cached.chosen.quality,
+      quality_frontier: locked.quality,
+      quality_delta: cached.chosen.quality.score - locked.quality.score,
+      answer: cached.chosen.text,
+      frontier_answer: locked.text,
     });
   }
+
   const n = rows.length;
+  const frontierAvg =
+    policies.always_frontier.qualities.reduce((a, b) => a + b, 0) / Math.max(1, policies.always_frontier.qualities.length);
+  const qualityCache = rollup(policies.quality_cache, n, frontierAvg);
+
   return {
     name: "Promptimizer Fixed Task Set",
     tasks: n,
+    policies: {
+      always_frontier: rollup(policies.always_frontier, n, frontierAvg),
+      difficulty: rollup(policies.difficulty, n, frontierAvg),
+      quality: rollup(policies.quality, n, frontierAvg),
+      quality_cache: qualityCache,
+    },
     summary: {
-      actual_usd: totals.actual_usd,
-      baseline_usd: totals.baseline_usd,
-      saved_usd: totals.saved_usd,
-      saved_pct: totals.baseline_usd ? (totals.saved_usd / totals.baseline_usd) * 100 : 0,
-      avg_quality_routed: totals.routed_quality / n,
-      avg_quality_frontier: totals.frontier_quality / n,
-      quality_delta: (totals.routed_quality - totals.frontier_quality) / n,
-      escalations: totals.escalations,
-      cache_hits: totals.cache_hits,
-      quality_fails: totals.quality_fails,
+      actual_usd: qualityCache.actual_usd,
+      baseline_usd: qualityCache.baseline_usd,
+      saved_usd: qualityCache.saved_usd,
+      saved_pct: qualityCache.saved_pct,
+      routing_saved_usd: qualityCache.routing_saved_usd,
+      cache_saved_usd: qualityCache.cache_saved_usd,
+      avg_quality_routed: qualityCache.avg_quality,
+      avg_quality_frontier: frontierAvg,
+      worst_quality_routed: qualityCache.worst_quality,
+      quality_delta: qualityCache.quality_delta,
+      avg_latency_ms: qualityCache.avg_latency_ms,
+      cache_hit_rate: qualityCache.cache_hit_rate,
+      escalation_rate: qualityCache.escalation_rate,
+      escalations: qualityCache.escalated,
+      cache_hits: policies.quality_cache.cache_hits,
+      quality_fails: qualityCache.quality_fails,
+      small_model: qualityCache.small_model,
+      frontier_direct: qualityCache.frontier_direct,
+      successful_escalations: qualityCache.successful_escalations,
     },
     rows,
     session: publicSession(session),
   };
+}
+
+export async function sessionForUser(userId: string): Promise<Session> {
+  const sid = accountSessionId(userId);
+  const cached = store.get(sid);
+  if (cached) return cached;
+  const { loadDefaultProvider } = await import("./account");
+  const saved = await loadDefaultProvider(userId);
+  if (saved?.mode === "byok" && saved.api_key && Array.isArray(saved.models) && saved.models.length) {
+    const session: Session = {
+      id: sid,
+      mode: "byok",
+      label: saved.label,
+      base_url: saved.base_url,
+      api_key: saved.api_key,
+      models: saved.models as ModelInfo[],
+      baseline_model: saved.baseline_model,
+      created_at: Date.now() / 1000,
+      stats: emptyStats(),
+    };
+    store.set(sid, session);
+    return session;
+  }
+  createMockSession(saved?.label ?? "Promptimizer simulator", sid);
+  return store.get(sid)!;
 }
 
 export { publicSession };
