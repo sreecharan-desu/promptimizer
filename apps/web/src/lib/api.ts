@@ -32,18 +32,35 @@ export function clearSessionId() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, opts?: { timeoutMs?: number }): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   const session = readSessionId();
   if (session) headers.set("X-Promptimizer-Session", session);
-  const response = await fetch(path, { ...init, headers, credentials: "include" });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = (data as { detail?: string }).detail ?? response.statusText;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  const timeoutMs = opts?.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers,
+      credentials: "include",
+      signal: controller?.signal ?? init.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = (data as { detail?: string }).detail ?? response.statusText;
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return data as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Timed out waiting for the server. Try again, or use fewer selected models.");
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return data as T;
 }
 
 export type PolicySummary = {
@@ -126,9 +143,13 @@ export const api = {
       body: JSON.stringify({ messages, model }),
     }),
   benchmark: () =>
-    request<BenchmarkResult>("/api/v1/benchmark/run", {
-      method: "POST",
-      body: JSON.stringify({ compare_always_frontier: true }),
-    }),
+    request<BenchmarkResult>(
+      "/api/v1/benchmark/run",
+      {
+        method: "POST",
+        body: JSON.stringify({ compare_always_frontier: true }),
+      },
+      { timeoutMs: 280_000 },
+    ),
   analytics: () => request("/api/v1/analytics"),
 };

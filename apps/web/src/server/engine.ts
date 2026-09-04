@@ -253,7 +253,13 @@ function mockAnswer(model: string, prompt: string, classification: Classificatio
   return prompt.slice(0, 220);
 }
 
-async function complete(session: Session, model: string, messages: Array<{ role: string; content: string }>, classification: Classification) {
+async function complete(
+  session: Session,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  classification: Classification,
+  opts?: { max_tokens?: number },
+) {
   const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (session.mode === "mock") {
     const text = mockAnswer(model, prompt, classification);
@@ -276,7 +282,11 @@ async function complete(session: Session, model: string, messages: Array<{ role:
       Authorization: `Bearer ${session.api_key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model, messages }),
+    body: JSON.stringify({
+      model,
+      messages,
+      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+    }),
   });
   if (!response.ok) {
     throw Object.assign(new Error(await response.text()), { status: response.status });
@@ -433,22 +443,43 @@ export async function runBenchmark(session: Session) {
   for (const [index, task] of BENCHMARK.entries()) {
     const clf = classifyText(task.prompt);
     const messages = [{ role: "user" as const, content: task.prompt }];
-    const scored: Partial<Record<Tier, { model: ModelInfo; text: string; tokensIn: number; tokensOut: number; quality: ReturnType<typeof scoreAnswer>; latency: number }>> = {};
+    type Scored = {
+      model: ModelInfo;
+      text: string;
+      tokensIn: number;
+      tokensOut: number;
+      quality: ReturnType<typeof scoreAnswer>;
+      latency: number;
+    };
+    const scored: Partial<Record<Tier, Scored>> = {};
 
+    // One live call per unique model id; run those in parallel so BYOK benches finish.
+    const unique = new Map<string, ModelInfo>();
+    for (const tier of TIER_ORDER) {
+      const model = byTier[tier];
+      if (model) unique.set(model.id, model);
+    }
+    const byModel = new Map<string, Scored>();
+    await Promise.all(
+      [...unique.values()].map(async (model) => {
+        const t0 = Date.now();
+        const payload = await complete(session, model.id, messages, clf, { max_tokens: 320 });
+        const text = payload.choices?.[0]?.message?.content ?? "";
+        byModel.set(model.id, {
+          model,
+          text,
+          tokensIn: payload.usage?.prompt_tokens ?? tokens(task.prompt),
+          tokensOut: payload.usage?.completion_tokens ?? tokens(text),
+          quality: scoreAnswer(text, task.gold, task.must_include, task.difficulty),
+          latency: Date.now() - t0,
+        });
+      }),
+    );
     for (const tier of TIER_ORDER) {
       const model = byTier[tier];
       if (!model) continue;
-      const t0 = Date.now();
-      const payload = await complete(session, model.id, messages, clf);
-      const text = payload.choices?.[0]?.message?.content ?? "";
-      scored[tier] = {
-        model,
-        text,
-        tokensIn: payload.usage?.prompt_tokens ?? tokens(task.prompt),
-        tokensOut: payload.usage?.completion_tokens ?? tokens(text),
-        quality: scoreAnswer(text, task.gold, task.must_include, task.difficulty),
-        latency: Date.now() - t0,
-      };
+      const hit = byModel.get(model.id);
+      if (hit) scored[tier] = hit;
     }
 
     const maybeFrontier = scored.frontier ?? scored.standard ?? scored.economy;

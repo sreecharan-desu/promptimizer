@@ -17,6 +17,8 @@ import { BENCHMARK } from "@/server/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Benchmark runs many live completions; keep the function alive on Vercel. */
+export const maxDuration = 300;
 
 function bearer(request: NextRequest) {
   return (

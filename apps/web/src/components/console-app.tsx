@@ -374,9 +374,15 @@ function FleetPane({
           disabled={busy}
           className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
         >
-          {busy ? "Scoring…" : "Run benchmark"}
+          {busy ? "Running 15 tasks…" : "Run benchmark"}
         </button>
       </div>
+      {busy ? (
+        <p className="mb-4 text-sm text-secondary">
+          Scoring hits each tier model live on your provider — usually 1–3 minutes on Baseten. The empty price columns
+          are separate (unknown catalog rates), not part of this run.
+        </p>
+      ) : null}
       <div className="overflow-hidden rounded-2xl border border-primary/[0.06]">
         <table className="w-full text-left text-sm">
           <thead className="bg-card text-secondary">
