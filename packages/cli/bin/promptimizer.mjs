@@ -190,10 +190,8 @@ function banner(session, version) {
   if (hostCount > 1) out(`  ${color(ANSI.dim, `${hostCount} hosts merged · router picks across all`)}`);
   out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
   out();
-  out(
-    `  ${color(ANSI.dim, "Type a prompt, or /help  /hosts  /models  /connect  /disconnect  /clear  /quit")}`,
-  );
-  out(`  ${color(ANSI.dim, "Cache keys on full history — /clear then repeat a prompt to see cache hit")}`);
+  out(`  ${color(ANSI.dim, "Type a prompt, or /help  /hosts  /models  /connect  /disconnect  /clear  /quit")}`);
+  out(`  ${color(ANSI.dim, "Repeating the same last message hits prompt cache; /clear resets the chat thread")}`);
   out();
 }
 
@@ -302,8 +300,9 @@ function printMeta(result) {
   if (meta.provider_id || meta.host) bits.push(String(meta.provider_id || meta.host));
   if (saved != null) bits.push(`saved ${usd(saved)}`);
   if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
+  else if (meta.prompt_cache_hit) bits.push(color(ANSI.green, "prompt cache"));
   else if (meta.semantic_cache_hit) {
-    const mode = meta.semantic_cache_mode === "full" ? "semantic full" : "semantic hybrid";
+    const mode = meta.semantic_cache_mode === "full" ? "semantic full" : meta.semantic_cache_mode === "prompt" ? "prompt cache" : "semantic hybrid";
     const sim =
       meta.semantic_similarity != null ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%` : "";
     bits.push(color(ANSI.green, `${mode}${sim}`));
@@ -328,6 +327,76 @@ async function complete(flags, config, messages) {
     sessionId,
     body: { messages },
   });
+}
+
+/** Stream a completion; writes tokens to stdout as they arrive. Returns { text, result }. */
+async function completeStream(flags, config, messages) {
+  const gatewayURL = gateway(flags, config);
+  const { apiKey, sessionId } = authFromConfig(flags, config);
+  const headers = { "content-type": "application/json" };
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  else if (sessionId) {
+    headers.authorization = `Bearer ${sessionId}`;
+    headers["x-promptimizer-session"] = sessionId;
+  }
+  const response = await fetch(`${gatewayURL}/v1/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ messages, stream: true }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const detail =
+      typeof data === "object" && data && "detail" in data ? String(data.detail) : response.statusText;
+    throw Object.assign(new Error(detail), { status: response.status });
+  }
+  if (!response.body) {
+    const data = await response.json();
+    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let result = {
+    model: undefined,
+    usage: undefined,
+    promptimizer: undefined,
+    choices: [{ message: { role: "assistant", content: "" } }],
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n");
+    buffer = parts.pop() ?? "";
+    for (const line of parts) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      if (!data) continue;
+      if (data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.error?.message) throw new Error(parsed.error.message);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) {
+          text += delta;
+          process.stdout.write(delta);
+        }
+        if (parsed.promptimizer) result.promptimizer = parsed.promptimizer;
+        if (parsed.usage) result.usage = parsed.usage;
+        if (parsed.model) result.model = parsed.model;
+      } catch (err) {
+        if (err instanceof Error && err.message && !err.message.includes("JSON")) throw err;
+      }
+    }
+  }
+
+  result.choices = [{ message: { role: "assistant", content: text } }];
+  return { text, result };
 }
 
 async function cmdLogin(flags) {
@@ -466,10 +535,11 @@ async function cmdChat(flags, positional) {
   const config = readConfig();
   const prompt = String(flags.prompt || positional.join(" ")).trim();
   if (!prompt) die('Usage: promptimizer chat "What is 17 * 24?"');
-  const result = await complete(flags, config, [{ role: "user", content: prompt }]);
-  const text = result.choices?.[0]?.message?.content?.trim() ?? "";
   out();
-  out(text);
+  out(color(ANSI.magenta, "✦"));
+  const { text, result } = await completeStream(flags, config, [{ role: "user", content: prompt }]);
+  if (!text) process.stdout.write(color(ANSI.dim, "(empty)"));
+  process.stdout.write("\n");
   out();
   printMeta(result);
   out();
@@ -674,20 +744,18 @@ async function interactive(flags) {
       }
 
       history.push({ role: "user", content: trimmed });
-      process.stdout.write(color(ANSI.dim, "  … routing\r"));
+      out();
+      out(color(ANSI.magenta, "✦"));
       try {
-        const result = await complete(flags, readConfig(), history);
-        process.stdout.write("               \r");
-        const text = result.choices?.[0]?.message?.content?.trim() ?? "";
+        const { text, result } = await completeStream(flags, readConfig(), history);
+        if (!text) process.stdout.write(color(ANSI.dim, "(empty)"));
+        process.stdout.write("\n");
         history.push({ role: "assistant", content: text });
-        out();
-        out(color(ANSI.magenta, "✦"));
-        out(text);
         out();
         printMeta(result);
         out();
       } catch (error) {
-        process.stdout.write("               \r");
+        process.stdout.write("\n");
         history.pop();
         out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
         out();

@@ -215,9 +215,49 @@ function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
   };
 }
 
+function normalizeBaseUrl(url: string) {
+  return url.trim().replace(/\/$/, "").toLowerCase();
+}
+
 function connectionIdFor(baseUrl: string, providerKey?: string) {
   if (providerKey?.trim()) return providerKey.trim().toLowerCase();
-  return baseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+  return normalizeBaseUrl(baseUrl).replace(/^https?:\/\//, "");
+}
+
+/** Drop duplicate hosts (same base URL / id) and duplicate model rows. */
+function dedupeFleet(session: Session) {
+  const byBase = new Map<string, ProviderConnection>();
+  for (const c of session.connections) {
+    const key = normalizeBaseUrl(c.base_url) || c.id;
+    const prev = byBase.get(key);
+    if (!prev) byBase.set(key, c);
+    else {
+      // Prefer canonical provider id (short) over URL-slug ids.
+      if (c.id.length < prev.id.length) byBase.set(key, c);
+    }
+  }
+  session.connections = [...byBase.values()];
+  const idByBase = new Map(session.connections.map((c) => [normalizeBaseUrl(c.base_url), c.id]));
+  const unique = new Map<string, ModelInfo>();
+  for (const m of session.models) {
+    const conn = session.connections.find((c) => c.id === m.provider_id);
+    const providerId =
+      conn?.id ??
+      idByBase.get(normalizeBaseUrl(m.provider_id)) ??
+      m.provider_id;
+    const key = `${providerId}::${m.id}`;
+    if (!unique.has(key)) {
+      unique.set(key, {
+        ...m,
+        provider_id: providerId,
+        provider_label: conn?.label ?? m.provider_label ?? providerId,
+      });
+    }
+  }
+  session.models = [...unique.values()].sort(
+    (a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b),
+  );
+  refreshSessionLabel(session);
 }
 
 function refreshSessionLabel(session: Session) {
@@ -296,7 +336,7 @@ export async function createByokSession(
   input: { label?: string; base_url: string; api_key: string; provider?: string },
   sessionId?: string,
 ) {
-  const base = input.base_url.replace(/\/$/, "");
+  const base = normalizeBaseUrl(input.base_url);
   const connId = connectionIdFor(base, input.provider);
   const response = await fetch(`${base}/models`, {
     headers: { Authorization: `Bearer ${input.api_key}` },
@@ -327,6 +367,13 @@ export async function createByokSession(
           stats: emptyStats(),
         } satisfies Session);
 
+  const replacedIds = new Set(
+    mergeInto.connections
+      .filter((c) => c.id === connId || normalizeBaseUrl(c.base_url) === base)
+      .map((c) => c.id),
+  );
+  replacedIds.add(connId);
+
   const connection: ProviderConnection = {
     id: connId,
     label: hostLabel,
@@ -334,15 +381,15 @@ export async function createByokSession(
     api_key: input.api_key,
   };
   mergeInto.connections = [
-    ...mergeInto.connections.filter((c) => c.id !== connId && c.base_url !== base),
+    ...mergeInto.connections.filter((c) => !replacedIds.has(c.id) && normalizeBaseUrl(c.base_url) !== base),
     connection,
   ];
   mergeInto.models = [
-    ...mergeInto.models.filter((m) => m.provider_id !== connId),
+    ...mergeInto.models.filter((m) => !replacedIds.has(m.provider_id)),
     ...incoming,
-  ].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b));
+  ];
   mergeInto.mode = "byok";
-  refreshSessionLabel(mergeInto);
+  dedupeFleet(mergeInto);
   const baseline = pickBaseline(mergeInto.models);
   mergeInto.baseline_model = baseline?.id ?? null;
   store.set(mergeInto.id, mergeInto);
@@ -535,6 +582,208 @@ async function complete(
   return response.json();
 }
 
+/** Stream tokens from the provider (or mock). Yields text deltas; resolves with full text. */
+async function* completeStreaming(
+  session: Session,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  classification: Classification,
+  opts?: { max_tokens?: number; provider_id?: string },
+): AsyncGenerator<string, string, void> {
+  const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  if (session.mode === "mock") {
+    const text = mockAnswer(model, prompt, classification);
+    for (const part of text.match(/.{1,12}/g) ?? [text]) {
+      yield part;
+      await new Promise((r) => setTimeout(r, 8));
+    }
+    return text;
+  }
+  const modelInfo =
+    (opts?.provider_id
+      ? session.models.find((m) => m.id === model && m.provider_id === opts.provider_id)
+      : undefined) ?? session.models.find((m) => m.id === model);
+  const conn =
+    session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
+    session.connections[0];
+  const baseUrl = conn?.base_url || session.base_url;
+  const apiKey = conn?.api_key || session.api_key;
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: true,
+      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+    }),
+  });
+  if (!response.ok) {
+    throw Object.assign(new Error(await response.text()), { status: response.status });
+  }
+  if (!response.body) {
+    const json = await response.json();
+    const text = String(json.choices?.[0]?.message?.content ?? "");
+    yield text;
+    return text;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(data) as {
+          choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+        };
+        const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
+        if (delta) {
+          full += delta;
+          yield delta;
+        }
+      } catch {
+        /* ignore partial JSON */
+      }
+    }
+  }
+  return full;
+}
+
+function sseEncode(data: unknown) {
+  return `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
+}
+
+/**
+ * OpenAI-compatible SSE stream. Tokens flush as the provider generates them.
+ * Final chunk carries usage + promptimizer meta (same shape as non-stream).
+ */
+export function routeChatStream(
+  session: Session,
+  body: Parameters<typeof routeChat>[1],
+  opts?: Parameters<typeof routeChat>[2],
+  hooks?: { onComplete?: (result: Awaited<ReturnType<typeof routeChat>>) => Promise<void> | void },
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    async start(controller) {
+      const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
+      try {
+        // Resolve routing + caches via the non-stream path only when already cached;
+        // for live calls we stream from the provider for low TTFT.
+        const textMessages = body.messages.map((m) => ({
+          role: m.role,
+          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
+        }));
+        const userPrompt =
+          [...textMessages].reverse().find((m) => m.role === "user")?.content ??
+          textMessages.map((m) => m.content).join("\n");
+        const classification = classifyText(userPrompt);
+        let routed =
+          body.model && body.model !== "auto" && body.model !== "promptimizer"
+            ? session.models.find((m) => m.id === body.model)
+            : pick(session, classification, body.model);
+        if (!routed) {
+          push({ error: { message: "No selected models.", type: "invalid_request_error" } });
+          push("[DONE]");
+          controller.close();
+          return;
+        }
+
+        const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
+        const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
+        let cached =
+          (await cacheGet<{ choices?: Array<{ message?: { content?: string } }> }>(exactKey)) ??
+          (await cacheGet<{ choices?: Array<{ message?: { content?: string } }> }>(promptKey));
+        let text = "";
+        let fromCache = false;
+
+        if (cached?.choices?.[0]?.message?.content) {
+          fromCache = true;
+          text = cached.choices[0].message.content;
+          for (const part of text.match(/.{1,24}/g) ?? [text]) {
+            push({
+              id: `chatcmpl-stream-${Date.now()}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: routed.id,
+              choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
+            });
+          }
+        } else {
+          const stream = completeStreaming(session, routed.id, textMessages, classification, {
+            provider_id: routed.provider_id,
+          });
+          let next = await stream.next();
+          while (!next.done) {
+            const delta = next.value;
+            text += delta;
+            push({
+              id: `chatcmpl-stream-${Date.now()}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: routed.id,
+              choices: [{ index: 0, delta: { content: delta }, finish_reason: null }],
+            });
+            next = await stream.next();
+          }
+          text = next.value || text;
+        }
+
+        // Finalize through the normal path so cache / quality / receipts stay consistent.
+        // Rebuild a completion-shaped body and let routeChat re-hit prompt/exact cache we just warm.
+        if (!fromCache && text) {
+          const warm = {
+            id: `chatcmpl-stream-${Date.now()}`,
+            object: "chat.completion",
+            created: Math.floor(Date.now() / 1000),
+            model: routed.id,
+            choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: tokens(JSON.stringify(textMessages)),
+              completion_tokens: tokens(text),
+              total_tokens: tokens(JSON.stringify(textMessages)) + tokens(text),
+            },
+          };
+          await cacheSet(exactKey, warm);
+          await cacheSet(promptKey, warm);
+        }
+
+        const final = await routeChat(session, { ...body, model: routed.id }, opts);
+        if (hooks?.onComplete) await hooks.onComplete(final);
+        push({
+          id: final.id ?? `chatcmpl-stream-${Date.now()}`,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: final.model,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: final.usage,
+          promptimizer: final.promptimizer,
+        });
+        push("[DONE]");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "stream failed";
+        push({ error: { message, type: "server_error" } });
+        push("[DONE]");
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
 export async function routeChat(
   session: Session,
   body: {
@@ -610,8 +859,15 @@ export async function routeChat(
   let payload: Awaited<ReturnType<typeof complete>> | undefined;
 
   const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
+  // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
+  const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
   payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
   exactHit = Boolean(payload);
+  let promptHit = false;
+  if (!payload) {
+    payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(promptKey);
+    promptHit = Boolean(payload);
+  }
 
   if (!payload) {
     semantic = await findSimilar(userPrompt);
@@ -665,12 +921,17 @@ export async function routeChat(
         provider_id: routed.provider_id,
       });
       await cacheSet(exactKey, payload);
+      await cacheSet(promptKey, payload);
     } else {
       payload = await complete(session, routed.id, textMessages, classification, {
         provider_id: routed.provider_id,
       });
       await cacheSet(exactKey, payload);
+      await cacheSet(promptKey, payload);
     }
+  } else if (promptHit && !exactHit) {
+    // Count as prompt-level cache hit (same last user text).
+    semanticMode = "full";
   }
 
   let escalated = false;
@@ -697,7 +958,7 @@ export async function routeChat(
     audit: runAudit,
   });
 
-  const cacheSkipEscalate = exactHit || semanticMode === "full";
+  const cacheSkipEscalate = exactHit || promptHit || semanticMode === "full";
   const shouldEscalate =
     qualityGuardEnabled() &&
     !cacheSkipEscalate &&
@@ -731,6 +992,7 @@ export async function routeChat(
       });
       text = payload.choices?.[0]?.message?.content ?? "";
       await cacheSet(exactKey, payload);
+      await cacheSet(promptKey, payload);
     }
   }
 
@@ -765,7 +1027,7 @@ export async function routeChat(
   };
 
   const semanticHit = semanticMode === "full" || semanticMode === "hybrid";
-  const anyCacheHit = exactHit || prefixHit || semanticMode === "full";
+  const anyCacheHit = exactHit || promptHit || prefixHit || semanticMode === "full";
 
   session.stats.requests += 1;
   session.stats.actual_usd += cost.actual_usd;
@@ -824,8 +1086,9 @@ export async function routeChat(
       cache_hit: anyCacheHit || semanticHit,
       prefix_cache_hit: prefixHit,
       exact_cache_hit: exactHit,
-      semantic_cache_hit: semanticHit,
-      semantic_cache_mode: semanticMode,
+      prompt_cache_hit: promptHit,
+      semantic_cache_hit: semanticHit || promptHit,
+      semantic_cache_mode: promptHit && !exactHit && semanticMode === "full" ? "prompt" : semanticMode,
       semantic_similarity: semantic?.similarity ?? null,
       semantic_shared_ratio: semantic?.shared_ratio ?? null,
       escalated,
@@ -1094,6 +1357,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
   const sid = accountSessionId(userId);
   const cached = store.get(sid);
   if (cached) {
+    dedupeFleet(cached);
     try {
       const { loadQualityProfiles } = await import("./account");
       const profiles = await loadQualityProfiles(userId);
@@ -1112,26 +1376,29 @@ export async function sessionForUser(userId: string): Promise<Session> {
   if (byok.length) {
     const connections: ProviderConnection[] = [];
     const models: ModelInfo[] = [];
+    const seenBase = new Set<string>();
     for (const saved of byok) {
-      const cid = connectionIdFor(saved.base_url, saved.provider_key ?? undefined);
+      const base = normalizeBaseUrl(saved.base_url);
+      if (seenBase.has(base)) continue;
+      seenBase.add(base);
+      const cid = connectionIdFor(base, saved.provider_key ?? undefined);
       connections.push({
         id: cid,
         label: saved.label,
-        base_url: saved.base_url,
+        base_url: base,
         api_key: saved.api_key,
       });
       for (const raw of saved.models as ModelInfo[]) {
         models.push(
           enrichModel({
             ...raw,
-            provider_id: raw.provider_id || cid,
+            provider_id: cid,
             provider_label: raw.provider_label || saved.label,
             selected: raw.selected !== false,
           }, new Map([[cid, saved.label]])),
         );
       }
     }
-    models.sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b));
     const session: Session = {
       id: sid,
       mode: "byok",
@@ -1140,10 +1407,12 @@ export async function sessionForUser(userId: string): Promise<Session> {
       api_key: connections[0].api_key,
       connections,
       models,
-      baseline_model: pickBaseline(models)?.id ?? null,
+      baseline_model: null,
       created_at: Date.now() / 1000,
       stats: emptyStats(),
     };
+    dedupeFleet(session);
+    session.baseline_model = pickBaseline(session.models)?.id ?? null;
     try {
       const profiles = await loadQualityProfiles(userId);
       for (const p of profiles) {

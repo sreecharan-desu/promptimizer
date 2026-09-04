@@ -21,6 +21,7 @@ import {
   patchFleet,
   publicSession,
   routeChat,
+  routeChatStream,
   runBenchmark,
   sessionForUser,
 } from "@/server/engine";
@@ -197,7 +198,65 @@ async function handle(request: NextRequest, path: string[]) {
     }
     if (joined === "chat/completions" && request.method === "POST") {
       const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
-      const result = await routeChat(session, await request.json(), { qualityProfiles: profiles });
+      const body = await request.json();
+      if (body.stream) {
+        const record = async (result: Awaited<ReturnType<typeof routeChat>>) => {
+          if (!actor.user) return;
+          const cost = result.usage.cost;
+          const meta = result.promptimizer;
+          if (!cost || !meta) return;
+          try {
+            await recordUsage(actor.user.id, {
+              model: String(meta.model ?? result.model),
+              tier: String(meta.tier ?? ""),
+              actual_usd: cost.actual_usd,
+              baseline_usd: cost.baseline_usd,
+              saved_usd: cost.saved_usd,
+              routing_saved_usd: cost.routing_saved_usd,
+              cache_saved_usd: cost.cache_discount_usd,
+              cache_hit: Boolean(meta.cache_hit),
+              escalated: Boolean(meta.escalated),
+              quality:
+                typeof meta.quality === "object" && meta.quality && "score" in meta.quality
+                  ? Number((meta.quality as { score: number }).score)
+                  : null,
+              semantic_hit: Boolean(meta.semantic_cache_hit),
+              semantic_similarity:
+                meta.semantic_similarity == null ? null : Number(meta.semantic_similarity),
+              quality_gate: meta.quality_gate ? String(meta.quality_gate) : "",
+              quality_audit: Boolean(meta.quality_audit),
+              quality_audit_pass:
+                meta.quality_audit_pass == null ? null : Boolean(meta.quality_audit_pass),
+            });
+            await recordRoutingEvent(actor.user.id, {
+              request_id: String(meta.request_id ?? ""),
+              policy: String(meta.routing_policy ?? "bootstrap_heuristic"),
+              selected_model: String(meta.initial_model ?? meta.model ?? ""),
+              final_model: String(meta.final_model ?? meta.model ?? ""),
+              estimated_cost_usd: meta.estimated_cost_usd == null ? null : Number(meta.estimated_cost_usd),
+              actual_cost_usd: cost.actual_usd,
+              estimated_quality: meta.estimated_quality == null ? null : Number(meta.estimated_quality),
+              cache_hit: Boolean(meta.cache_hit),
+              escalated: Boolean(meta.escalated),
+              escalation_reason: meta.escalation_reason ? String(meta.escalation_reason) : null,
+              rejected: meta.rejected,
+              rationale: meta.rationale ? String(meta.rationale) : null,
+            });
+          } catch {
+            /* receipts should not fail the completion */
+          }
+        };
+        const stream = routeChatStream(session, body, { qualityProfiles: profiles }, { onComplete: record });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
+      const result = await routeChat(session, body, { qualityProfiles: profiles });
       if (actor.user) {
         const cost = result.usage.cost;
         const meta = result.promptimizer;

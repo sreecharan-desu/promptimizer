@@ -264,8 +264,20 @@ export async function persistMultiProviderSession(
 export async function upsertProviderConnection(userId: string, session: PersistableSession) {
   await ensureSchema();
   const sql = getSql();
-  const base = session.base_url.replace(/\/$/, "");
+  const base = session.base_url.replace(/\/$/, "").trim();
   await sql`UPDATE providers SET is_default = false WHERE user_id = ${userId}`;
+  // Collapse accidental duplicate rows for the same host (trailing slash / casing drift).
+  const twins = await sql`
+    SELECT id, base_url FROM providers WHERE user_id = ${userId}
+  `;
+  const keep = twins.find((row) => String(asRecord(row).base_url).replace(/\/$/, "").toLowerCase() === base.toLowerCase());
+  for (const row of twins) {
+    const r = asRecord(row);
+    const b = String(r.base_url).replace(/\/$/, "").toLowerCase();
+    if (b === base.toLowerCase() && keep && String(r.id) !== String(asRecord(keep).id)) {
+      await sql`DELETE FROM providers WHERE id = ${String(r.id)}`;
+    }
+  }
   const existing = await sql`
     SELECT id FROM providers WHERE user_id = ${userId} AND base_url = ${base} LIMIT 1
   `;
@@ -280,7 +292,24 @@ export async function upsertProviderConnection(userId: string, session: Persista
         api_key_encrypted = ${keyEnc},
         baseline_model = ${session.baseline_model},
         fleet_json = ${fleet},
-        is_default = true
+        is_default = true,
+        base_url = ${base}
+      WHERE id = ${id}
+    `;
+    return;
+  }
+  // Also match case-insensitive base if row used different casing.
+  if (keep) {
+    const id = String(asRecord(keep).id);
+    await sql`
+      UPDATE providers SET
+        label = ${session.label},
+        mode = ${session.mode},
+        api_key_encrypted = ${keyEnc},
+        baseline_model = ${session.baseline_model},
+        fleet_json = ${fleet},
+        is_default = true,
+        base_url = ${base}
       WHERE id = ${id}
     `;
     return;
