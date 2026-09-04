@@ -527,7 +527,7 @@ function BenchPane({ bench, busy, onRun }: { bench: Bench | null; busy: boolean;
               disabled={busy}
               className="mt-6 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
             >
-              {busy ? "Scoring…" : "Run benchmark"}
+              {busy ? "Running 15 tasks…" : "Run benchmark"}
             </button>
           </div>
           <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">
