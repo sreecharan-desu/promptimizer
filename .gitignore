@@ -1,0 +1,48 @@
+# dependencies
+node_modules
+.pnpm-store
+.pnpm-debug.log*
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+dist
+build
+.turbo
+.next
+out
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# editors / os
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# logs & coverage
+*.log
+coverage
+.coverage
+htmlcov
+.nyc_output
+
+# vercel
+.vercel
+
+# python / tooling
+.uv
+.python-version
+*.tsbuildinfo
+
+# redis dumps
+dump.rdb

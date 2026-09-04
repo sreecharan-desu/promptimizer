@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+.light {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 4%;
+  --primary: 0 0% 4%;
+  --primary-hover: 221 12% 14%;
+  --secondary: 216 4% 51%;
+  --secondary-hover: 213 12% 70%;
+  --accent: 40 72% 52%;
+  --accent-hover: 40 80% 42%;
+  --card: 40 18% 97%;
+  --border: 222 19% 86%;
+  --input: 0 0% 100%;
+  --background-hover: 222 19% 86%;
+  --site-header-bg: hsl(0 0% 100% / 0.85);
+  --site-header-blur: 12px;
+  --site-header-h: 4rem;
+  --radius: 0.5rem;
+  --codeblock: 0 0% 96%;
+  --success: 142 71% 45%;
+  --error: 0 84% 60%;
+  --warning: 45 93% 47%;
+  color-scheme: light;
+}
+
+.dark {
+  --background: 0 0% 4%;
+  --foreground: 222 19% 86%;
+  --primary: 0 0% 100%;
+  --primary-hover: 40 18% 97%;
+  --secondary: 216 4% 51%;
+  --secondary-hover: 213 12% 70%;
+  --accent: 40 72% 62%;
+  --accent-hover: 40 80% 72%;
+  --card: 0 0% 10%;
+  --border: 221 12% 14%;
+  --input: 216 4% 51%;
+  --background-hover: 221 12% 14%;
+  --site-header-bg: hsl(0 0% 4% / 0.85);
+  --codeblock: 0 0% 7%;
+  --success: 142 69% 58%;
+  --error: 0 72% 65%;
+  --warning: 45 93% 58%;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  min-height: 100%;
+}
+
+body {
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.28);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.35);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--card));
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

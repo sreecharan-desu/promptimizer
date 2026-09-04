@@ -1,0 +1,127 @@
+{
+  "name": "Promptimizer Fixed Task Set",
+  "version": "1.0.0",
+  "baseline_policy": "always_frontier",
+  "tasks": [
+    {
+      "id": "e01",
+      "difficulty": 1,
+      "category": "factual_recall",
+      "prompt": "What is the capital of France?",
+      "must_include": ["Paris"],
+      "gold": "Paris is the capital of France."
+    },
+    {
+      "id": "e02",
+      "difficulty": 1,
+      "category": "factual_recall",
+      "prompt": "Convert 100 degrees Fahrenheit to Celsius. Give the number only.",
+      "must_include": ["37.8", "37"],
+      "gold": "37.8"
+    },
+    {
+      "id": "e03",
+      "difficulty": 1,
+      "category": "factual_recall",
+      "prompt": "What does HTTP stand for?",
+      "must_include": ["HyperText Transfer Protocol", "Hypertext Transfer Protocol"],
+      "gold": "HyperText Transfer Protocol"
+    },
+    {
+      "id": "e04",
+      "difficulty": 1,
+      "category": "math",
+      "prompt": "What is 17 * 24?",
+      "must_include": ["408"],
+      "gold": "408"
+    },
+    {
+      "id": "e05",
+      "difficulty": 2,
+      "category": "summarization",
+      "prompt": "In two sentences, explain what a REST API is.",
+      "must_include": ["HTTP", "resource"],
+      "gold": "A REST API is an HTTP interface that exposes resources through uniform methods like GET and POST. Clients interact with those resources using stateless requests and standard status codes."
+    },
+    {
+      "id": "m01",
+      "difficulty": 3,
+      "category": "code_generation",
+      "prompt": "Write a Python function merge_sorted(a, b) that merges two sorted lists into one sorted list in O(n) time. Include a brief docstring.",
+      "must_include": ["def merge_sorted", "while"],
+      "gold": "def merge_sorted(a, b):\n    \"\"\"Merge two sorted lists in linear time.\"\"\"\n    i = j = 0\n    out = []\n    while i < len(a) and j < len(b):\n        if a[i] <= b[j]:\n            out.append(a[i]); i += 1\n        else:\n            out.append(b[j]); j += 1\n    out.extend(a[i:])\n    out.extend(b[j:])\n    return out"
+    },
+    {
+      "id": "m02",
+      "difficulty": 3,
+      "category": "code_debug",
+      "prompt": "This function is supposed to return the first missing positive integer but fails on [3,4,-1,1]. Explain the bug and give a correct O(n) in-place solution.\n\ndef first_missing(nums):\n    return min([i for i in range(1, len(nums)+2) if i not in nums])",
+      "must_include": ["O(n)", "index"],
+      "gold": "The given code is O(n^2) because `i not in nums` scans the list each time, and it allocates extra memory. The correct in-place approach places each value v at index v-1, then scans for the first index whose value is not index+1."
+    },
+    {
+      "id": "m03",
+      "difficulty": 3,
+      "category": "analysis",
+      "prompt": "Compare TCP and UDP. Give three concrete situations where UDP is the better choice.",
+      "must_include": ["latency", "UDP"],
+      "gold": "TCP provides reliable ordered delivery; UDP is connectionless and avoids retransmission delay. UDP is better for live video, DNS, and multiplayer game state where freshness beats reliability."
+    },
+    {
+      "id": "m04",
+      "difficulty": 3,
+      "category": "math",
+      "prompt": "A fair coin is flipped until the first heads. What is the expected number of flips? Show the equation.",
+      "must_include": ["2"],
+      "gold": "Let E be the expected flips. With probability 1/2 we stop after 1 flip; otherwise we have used 1 flip and are back to start: E = 1 + (1/2)E, so E = 2."
+    },
+    {
+      "id": "m05",
+      "difficulty": 3,
+      "category": "translation",
+      "prompt": "Translate to concise professional English: 'El despliegue falló porque el secreto de la base de datos no estaba montado en el pod.'",
+      "must_include": ["database", "secret"],
+      "gold": "The deployment failed because the database secret was not mounted into the pod."
+    },
+    {
+      "id": "h01",
+      "difficulty": 5,
+      "category": "system_design",
+      "prompt": "Design a rate limiter that supports 1 million QPS across 50 edge regions, per-API-key quotas, and burst tokens. Discuss consistency, failure modes, and a concrete Redis/data-plane sketch.",
+      "must_include": ["token bucket", "Redis", "eventual"],
+      "gold": "Use a distributed token bucket: each edge holds a local slice of tokens, replenished from a Redis cluster (or Redis + local leaky counters) with sliding-window fallback. Keys hash to shards. Accept eventual consistency on refill to keep p99 low; on Redis loss, fail closed for paid keys and fail open with a tiny local ceiling for public GETs. Log decisions to Kafka for quota reconciliation."
+    },
+    {
+      "id": "h02",
+      "difficulty": 5,
+      "category": "reasoning",
+      "prompt": "Prove that there are infinitely many prime numbers. Then explain why the same idea does not immediately prove there are infinitely many twin primes.",
+      "must_include": ["Euclid", "contradiction", "twin"],
+      "gold": "Euclid: if p1..pk were all primes, N = p1..pk + 1 is greater than 1 and not divisible by any pi, so it has a new prime factor. Twin primes are pairs (p, p+2); the Euclid construction produces one new prime, not a pair with difference 2, so it does not generate infinitely many twins."
+    },
+    {
+      "id": "h03",
+      "difficulty": 4,
+      "category": "code_debug",
+      "prompt": "A Go server increments a map counter from many goroutines and occasionally loses counts or panics. Diagnose the race and write a correct design (mutex or sharding) with a short rationale.",
+      "must_include": ["mutex", "race", "map"],
+      "gold": "Go maps are not goroutine-safe; concurrent write/write or write/read is a race and can panic. Protect with sync.Mutex, or shard into N maps by key hash with per-shard locks to cut contention. atomics alone cannot protect map structure."
+    },
+    {
+      "id": "h04",
+      "difficulty": 5,
+      "category": "system_design",
+      "prompt": "You must cut LLM cost 80% on a support desk without dropping answer quality on refunds, legal, and medical-adjacent tickets. Propose a routing + evaluation policy, including how you detect silent quality regressions.",
+      "must_include": ["route", "eval", "gold"],
+      "gold": "Classify tickets by risk and difficulty. Economy models handle FAQ and tracking; frontier handles refunds, legal, and medical-adjacent. Keep a gold set and online eval (LLM-as-judge plus human spot checks) on the high-risk slice. If win-rate vs frontier drops below a threshold, auto-escalate that category. Prompt-cache the policy + retrieved SOP. Never optimize cost without a quality gate."
+    },
+    {
+      "id": "h05",
+      "difficulty": 4,
+      "category": "analysis",
+      "prompt": "A/B test: variant B increased conversion 2.1% (p=0.048) after peeking every day for two weeks. Should we ship B? Walk through the statistical issue and a correct procedure.",
+      "must_include": ["peeking", "multiple", "sequential"],
+      "gold": "Daily peeking inflates Type I error; p=0.048 is not valid. Use a pre-registered sample size, sequential testing with alpha spending, or CUPED/always-valid inference. Do not ship on a peeked p-value."
+    }
+  ]
+}

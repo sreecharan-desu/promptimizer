@@ -1,0 +1,41 @@
+{
+  "name": "promptimizer",
+  "version": "0.1.0",
+  "description": "OpenAI-compatible SDK for Promptimizer — BYOK model routing, classification, and prompt caching.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/classify.test.ts"
+  },
+  "keywords": [
+    "llm",
+    "openai",
+    "router",
+    "prompt-cache",
+    "byok",
+    "cost-optimization"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}
