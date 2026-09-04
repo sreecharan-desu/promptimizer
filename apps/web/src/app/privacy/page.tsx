@@ -18,8 +18,8 @@ export default function PrivacyPage() {
         <h2 className="pt-4 text-xl font-medium text-primary">Email</h2>
         <p>
           If you create an account with email and password, we send a verification link and, if you ask, a
-          password-reset link. Those messages go through Google SMTP from our noreply address. We do not send
-          marketing mail.
+          password-reset link. Those are transactional only (no marketing). Messages are sent through Google SMTP
+          from the configured mailbox.
         </p>
         <h2 className="pt-4 text-xl font-medium text-primary">What we send</h2>
         <p>
