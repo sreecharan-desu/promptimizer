@@ -5,6 +5,8 @@ import {
   aggregateQualityProfiles,
   buildPricing,
   chooseModel,
+  estimateContextLength,
+  estimatePricingPer1m,
   extractRequirements,
   normalizeModel,
   type ModelProfile,
@@ -30,9 +32,11 @@ export type ModelInfo = {
   source: string;
   selected: boolean;
   provider_id: string;
+  provider_label?: string;
   context_length?: number | null;
   max_completion_tokens?: number | null;
   pricing_known?: boolean;
+  pricing_source?: "catalog" | "provider" | "estimate" | "unknown";
   supported_features?: string[];
   input_modalities?: string[];
   description?: string | null;
@@ -62,8 +66,18 @@ function id() {
 
 function lookupPrice(modelId: string) {
   if (PRICING[modelId]) return PRICING[modelId];
-  const hit = Object.entries(PRICING).find(([key]) => modelId.toLowerCase().includes(key));
-  return hit?.[1];
+  const lower = modelId.toLowerCase();
+  const short = lower.includes("/") ? lower.split("/").pop()! : lower;
+  const exact = Object.entries(PRICING).find(([key]) => {
+    const k = key.toLowerCase();
+    return k === lower || k === short || k.endsWith(`/${short}`) || short.endsWith(k);
+  });
+  if (exact) return exact[1];
+  // Prefer longest catalog key contained in the model id (avoids weak short matches).
+  const contained = Object.entries(PRICING)
+    .filter(([key]) => key.length >= 6 && lower.includes(key.toLowerCase()))
+    .sort((a, b) => b[0].length - a[0].length)[0];
+  return contained?.[1];
 }
 
 function inferTier(modelId: string): { tier: Tier; source: string } {
@@ -81,17 +95,34 @@ function blend(model: ModelInfo) {
   return inn * 0.4 + out * 0.6;
 }
 
-function enrichModel(model: ModelInfo): ModelInfo {
+function enrichModel(model: ModelInfo, labelByProvider?: Map<string, string>): ModelInfo {
   const priced = lookupPrice(model.id);
-  const withProvider: ModelInfo = {
-    ...model,
-    provider_id: model.provider_id || "provider",
-  };
-  if (!priced) return withProvider;
+  const providerId = model.provider_id || "provider";
+  const providerLabel =
+    model.provider_label || labelByProvider?.get(providerId) || providerId;
+  let input = model.input_per_1m ?? priced?.input ?? null;
+  let output = model.output_per_1m ?? priced?.output ?? null;
+  let pricingSource = model.pricing_source;
+  let pricingKnown = model.pricing_known;
+  if (input == null || output == null) {
+    const est = estimatePricingPer1m(model.id);
+    input = input ?? est.input;
+    output = output ?? est.output;
+    pricingSource = pricingSource ?? "estimate";
+    pricingKnown = false;
+  } else if (!pricingSource) {
+    pricingSource = priced ? "catalog" : model.pricing_known ? "provider" : "unknown";
+  }
+  const context = model.context_length ?? estimateContextLength(model.id);
   return {
-    ...withProvider,
-    input_per_1m: withProvider.input_per_1m ?? priced.input,
-    output_per_1m: withProvider.output_per_1m ?? priced.output,
+    ...model,
+    provider_id: providerId,
+    provider_label: providerLabel,
+    input_per_1m: input,
+    output_per_1m: output,
+    context_length: context,
+    pricing_known: pricingKnown ?? Boolean(priced),
+    pricing_source: pricingSource,
   };
 }
 
@@ -103,6 +134,7 @@ function cheapest(models: ModelInfo[], tier?: Tier) {
 function fleetFrom(
   raw: Array<Record<string, unknown>>,
   providerId = "provider",
+  providerLabel = providerId,
 ): ModelInfo[] {
   const models: ModelInfo[] = [];
   for (const item of raw) {
@@ -112,22 +144,39 @@ function fleetFrom(
     const priced = lookupPrice(mid);
     const { tier, source } = inferTier(mid);
     const profile = normalizeModel(item as Parameters<typeof normalizeModel>[0], providerId, priced);
+    let input = profile.pricing?.prompt
+      ? profile.pricing.prompt.usd_per_token * 1_000_000
+      : priced?.input ?? null;
+    let output = profile.pricing?.completion
+      ? profile.pricing.completion.usd_per_token * 1_000_000
+      : priced?.output ?? null;
+    let pricingSource: ModelInfo["pricing_source"] = priced
+      ? "catalog"
+      : profile.pricing?.known
+        ? "provider"
+        : "unknown";
+    let pricingKnown = Boolean(profile.pricing?.known || priced);
+    if (input == null || output == null) {
+      const est = estimatePricingPer1m(mid);
+      input = input ?? est.input;
+      output = output ?? est.output;
+      pricingSource = "estimate";
+      pricingKnown = false;
+    }
     models.push({
       id: mid,
       owned_by: String(item.owned_by ?? providerId),
-      input_per_1m: profile.pricing?.prompt
-        ? profile.pricing.prompt.usd_per_token * 1_000_000
-        : priced?.input ?? null,
-      output_per_1m: profile.pricing?.completion
-        ? profile.pricing.completion.usd_per_token * 1_000_000
-        : priced?.output ?? null,
+      input_per_1m: input,
+      output_per_1m: output,
       tier,
-      source: profile.pricing?.known && !priced ? "provider" : source,
+      source: pricingSource === "provider" ? "provider" : source,
       selected: true,
       provider_id: providerId,
-      context_length: profile.context_length,
+      provider_label: providerLabel,
+      context_length: profile.context_length ?? estimateContextLength(mid),
       max_completion_tokens: profile.max_completion_tokens,
-      pricing_known: Boolean(profile.pricing?.known),
+      pricing_known: pricingKnown,
+      pricing_source: pricingSource,
       supported_features: profile.supported_features,
       input_modalities: profile.input_modalities,
       description: profile.description,
@@ -182,6 +231,7 @@ function pickBaseline(models: ModelInfo[]) {
 }
 
 function publicSession(session: Session) {
+  const labelByProvider = new Map(session.connections.map((c) => [c.id, c.label]));
   return {
     session_id: session.id,
     mode: session.mode,
@@ -192,7 +242,7 @@ function publicSession(session: Session) {
       label: c.label,
       base_url: c.base_url,
     })),
-    models: session.models.map(enrichModel),
+    models: session.models.map((m) => enrichModel(m, labelByProvider)),
     baseline_model: session.baseline_model,
     stats: session.stats,
     created_at: session.created_at,
@@ -216,6 +266,7 @@ export function createMockSession(label = "Promptimizer simulator", sessionId?: 
   const models = fleetFrom(
     [{ id: "promptimizer-nano" }, { id: "promptimizer-flash" }, { id: "promptimizer-frontier" }],
     "simulator",
+    "Simulator",
   );
   const session: Session = {
     id: sessionId ?? id(),
@@ -247,7 +298,8 @@ export async function createByokSession(
   }
   const payload = await response.json();
   const raw = (Array.isArray(payload) ? payload : payload.data ?? []) as Array<Record<string, unknown>>;
-  const incoming = fleetFrom(raw, connId);
+  const hostLabel = input.label?.trim() || input.provider?.trim() || connId;
+  const incoming = fleetFrom(raw, connId, hostLabel);
   if (!incoming.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
 
   const existing = sessionId ? store.get(sessionId) : undefined;
@@ -257,7 +309,7 @@ export async function createByokSession(
       : ({
           id: sessionId ?? id(),
           mode: "byok" as const,
-          label: input.label ?? "BYOK",
+          label: hostLabel,
           base_url: base,
           api_key: input.api_key,
           connections: [] as ProviderConnection[],
@@ -269,7 +321,7 @@ export async function createByokSession(
 
   const connection: ProviderConnection = {
     id: connId,
-    label: input.label ?? connId,
+    label: hostLabel,
     base_url: base,
     api_key: input.api_key,
   };
@@ -287,6 +339,42 @@ export async function createByokSession(
   mergeInto.baseline_model = baseline?.id ?? null;
   store.set(mergeInto.id, mergeInto);
   return publicSession(mergeInto);
+}
+
+/** Remove one host from a multi-provider fleet. Needle matches id, label, or base URL. */
+export function disconnectProvider(session: Session, needle: string) {
+  const n = needle.trim().toLowerCase();
+  if (!n) {
+    throw Object.assign(new Error("Provide a host id (e.g. baseten) or label."), { status: 400 });
+  }
+  if (session.mode === "mock") {
+    throw Object.assign(new Error("Simulator has no removable hosts. Connect a BYOK provider first."), {
+      status: 400,
+    });
+  }
+  const conn = session.connections.find(
+    (c) =>
+      c.id.toLowerCase() === n ||
+      c.label.toLowerCase() === n ||
+      c.base_url.toLowerCase().includes(n) ||
+      c.label.toLowerCase().replace(/\s+/g, "") === n.replace(/\s+/g, ""),
+  );
+  if (!conn) {
+    const known = session.connections.map((c) => c.id).join(", ") || "(none)";
+    throw Object.assign(new Error(`Host "${needle}" not connected. Connected: ${known}`), { status: 404 });
+  }
+
+  session.connections = session.connections.filter((c) => c.id !== conn.id);
+  session.models = session.models.filter((m) => m.provider_id !== conn.id);
+
+  if (!session.connections.length) {
+    return { session: createMockSession("Promptimizer simulator", session.id), removed: conn };
+  }
+
+  refreshSessionLabel(session);
+  session.baseline_model = pickBaseline(session.models)?.id ?? null;
+  store.set(session.id, session);
+  return { session: publicSession(session), removed: conn };
 }
 
 export function patchFleet(
@@ -897,8 +985,9 @@ export async function sessionForUser(userId: string): Promise<Session> {
           enrichModel({
             ...raw,
             provider_id: raw.provider_id || cid,
+            provider_label: raw.provider_label || saved.label,
             selected: raw.selected !== false,
-          }),
+          }, new Map([[cid, saved.label]])),
         );
       }
     }

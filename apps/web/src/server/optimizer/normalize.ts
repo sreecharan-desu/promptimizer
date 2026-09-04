@@ -25,6 +25,75 @@ function asStringList(value: unknown): string[] {
   return [];
 }
 
+function asPositiveInt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value);
+  if (typeof value === "string") {
+    const n = Number(value.trim());
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+  }
+  return null;
+}
+
+/** Pull context window from common OpenAI-compatible / NIM shapes. */
+export function extractContextLength(raw: Record<string, unknown>): number | null {
+  const direct =
+    asPositiveInt(raw.context_length) ??
+    asPositiveInt(raw.max_model_len) ??
+    asPositiveInt(raw.max_context_length) ??
+    asPositiveInt(raw.n_ctx) ??
+    asPositiveInt(raw.context_window);
+  if (direct) return direct;
+
+  const nestedKeys = ["model_spec", "meta", "parameters", "info", "capabilities"] as const;
+  for (const key of nestedKeys) {
+    const nest = raw[key];
+    if (!nest || typeof nest !== "object") continue;
+    const obj = nest as Record<string, unknown>;
+    const hit =
+      asPositiveInt(obj.context_length) ??
+      asPositiveInt(obj.max_model_len) ??
+      asPositiveInt(obj.max_context_length) ??
+      asPositiveInt(obj.n_ctx) ??
+      asPositiveInt(obj.context_window);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** When providers omit context (common for NIM), estimate from the model id. */
+export function estimateContextLength(modelId: string): number {
+  const id = modelId.toLowerCase();
+  const explicit = id.match(/(\d+)\s*[kK](?:-?ctx|-?context)?/);
+  if (explicit) return Number(explicit[1]) * 1024;
+  if (/128k|131k/.test(id)) return 131_072;
+  if (/64k|65k/.test(id)) return 65_536;
+  if (/32k/.test(id)) return 32_768;
+  if (/16k/.test(id)) return 16_384;
+  if (/8k/.test(id)) return 8_192;
+  if (/4k/.test(id)) return 4_096;
+  const params = id.match(/(\d+(?:\.\d+)?)\s*b(?:illion)?/);
+  const billions = params ? Number(params[1]) : null;
+  if (billions != null) {
+    if (billions >= 70) return 65_536;
+    if (billions >= 30) return 32_768;
+    if (billions >= 7) return 8_192;
+    return 4_096;
+  }
+  return 8_192;
+}
+
+/** Rough $/1M estimates by parameter class when catalog + provider omit rates. */
+export function estimatePricingPer1m(modelId: string): { input: number; output: number } {
+  const id = modelId.toLowerCase();
+  if (/(opus|405b|ultra|frontier|o1(?!-mini)|o3(?!-mini))/.test(id)) return { input: 5, output: 15 };
+  if (/(70b|72b|90b|120b|123b|235b)/.test(id)) return { input: 0.6, output: 1.8 };
+  if (/(30b|32b|34b|40b|47b)/.test(id)) return { input: 0.4, output: 1.2 };
+  if (/(13b|14b|15b|22b|27b)/.test(id)) return { input: 0.25, output: 0.75 };
+  if (/(7b|8b|9b)/.test(id)) return { input: 0.12, output: 0.36 };
+  if (/(1b|2b|3b|4b|mini|nano|tiny|lite|small)/.test(id)) return { input: 0.05, output: 0.15 };
+  return { input: 0.35, output: 1.05 };
+}
+
 export function normalizeModel(raw: RawModel, providerId: string, catalog?: { input?: number; output?: number } | null): ModelProfile {
   const modelId = String(raw.id ?? raw.name ?? "");
   const fromProvider = pricingFromProviderMeta(raw as Record<string, unknown>);
@@ -48,23 +117,16 @@ export function normalizeModel(raw: RawModel, providerId: string, catalog?: { in
   if (!inputMods.length) inputMods = ["text"];
   if (!outputMods.length) outputMods = ["text"];
 
+  const contextFromProvider = extractContextLength(raw as Record<string, unknown>);
+
   return {
     provider_id: providerId,
     model_id: modelId,
     display_name: modelId,
     description: raw.description ? String(raw.description) : null,
-    context_length:
-      typeof raw.context_length === "number"
-        ? raw.context_length
-        : typeof raw.max_model_len === "number"
-          ? raw.max_model_len
-          : null,
+    context_length: contextFromProvider,
     max_completion_tokens:
-      typeof raw.max_completion_tokens === "number"
-        ? raw.max_completion_tokens
-        : typeof raw.max_tokens === "number"
-          ? raw.max_tokens
-          : null,
+      asPositiveInt(raw.max_completion_tokens) ?? asPositiveInt(raw.max_tokens),
     pricing,
     supported_features: features,
     supported_sampling_parameters: sampling,

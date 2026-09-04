@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getCurrentUser,
+  deleteProviderConnection,
   loadQualityProfiles,
   persistMultiProviderSession,
   recordRoutingEvent,
   recordUsage,
-  saveProvider,
   saveQualityProfiles,
   savingsForUser,
   userFromApiKey,
@@ -16,6 +16,7 @@ import {
   accountSessionId,
   createByokSession,
   createMockSession,
+  disconnectProvider,
   getSession,
   patchFleet,
   publicSession,
@@ -131,23 +132,29 @@ async function handle(request: NextRequest, path: string[]) {
       if (user) {
         const session = getSession(accountSessionId(user.id));
         if (session && session.mode === "byok") {
-          const conn =
-            session.connections.find((c) => c.base_url === session.base_url) ??
-            session.connections[session.connections.length - 1];
-          if (conn) {
-            await saveProvider(user.id, {
-              label: conn.label,
-              mode: "byok",
-              base_url: conn.base_url,
-              api_key: conn.api_key,
-              baseline_model: session.baseline_model,
-              models: session.models.filter((m) => m.provider_id === conn.id),
-              provider_key: conn.id,
-            });
-          }
+          await persistMultiProviderSession(user.id, session);
         }
       }
       return NextResponse.json(published);
+    }
+
+    if (joined === "providers/disconnect" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const needle = String(body.provider ?? body.id ?? body.host ?? "").trim();
+      const actor = await resolve(request);
+      if ("error" in actor && actor.error) return actor.error;
+      if (!actor.session) {
+        return NextResponse.json({ detail: "Sign in or pass a Promptimizer API key." }, { status: 401 });
+      }
+      const { session: published, removed } = disconnectProvider(actor.session, needle);
+      if (actor.user) {
+        await deleteProviderConnection(actor.user.id, removed.base_url);
+        const live = getSession(accountSessionId(actor.user.id));
+        if (live && live.mode === "byok" && live.connections.length) {
+          await persistMultiProviderSession(actor.user.id, live);
+        }
+      }
+      return NextResponse.json({ ...published, removed: { id: removed.id, label: removed.label } });
     }
 
     if (joined === "classify" && request.method === "POST") {

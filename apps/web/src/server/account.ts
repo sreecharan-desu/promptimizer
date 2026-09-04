@@ -295,6 +295,13 @@ export async function upsertProviderConnection(userId: string, session: Persista
   `;
 }
 
+/** Drop one persisted host by base URL (and optional connection id match on fleet). */
+export async function deleteProviderConnection(userId: string, baseUrl: string) {
+  await ensureSchema();
+  const base = baseUrl.replace(/\/$/, "");
+  await getSql()`DELETE FROM providers WHERE user_id = ${userId} AND base_url = ${base}`;
+}
+
 export async function loadDefaultProvider(userId: string): Promise<SavedProvider | null> {
   const all = await loadAllProviderConnections(userId);
   return all.find((p) => p.mode === "byok") ?? all[0] ?? null;

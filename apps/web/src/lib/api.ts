@@ -13,8 +13,10 @@ export type Session = {
     source?: string;
     selected?: boolean;
     provider_id?: string;
+    provider_label?: string;
     context_length?: number | null;
     pricing_known?: boolean;
+    pricing_source?: "catalog" | "provider" | "estimate" | "unknown";
     overall_quality?: number | null;
     supported_features?: string[];
   }>;
@@ -137,6 +139,11 @@ export type BenchmarkResult = {
 export const api = {
   connect: (body: { mode: "mock" | "byok"; label?: string; provider?: string; base_url?: string; api_key?: string }) =>
     request<Session>("/api/v1/providers/connect", { method: "POST", body: JSON.stringify(body) }),
+  disconnect: (body: { provider: string }) =>
+    request<Session & { removed?: { id: string; label: string } }>("/api/v1/providers/disconnect", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   session: () => request<Session>("/api/v1/session"),
   models: () => request<{ data: Session["models"]; baseline_model: string | null }>("/api/v1/models"),
   patchModels: (body: unknown) =>

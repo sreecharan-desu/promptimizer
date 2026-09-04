@@ -30,9 +30,11 @@ const COMMANDS = [
   ["", "Start interactive session (Gemini-style REPL)"],
   ["login", "Save a Promptimizer API key"],
   ["logout", "Remove the saved key"],
-  ["connect", "Attach a model provider"],
+  ["connect", "Add a model host (keeps existing hosts)"],
+  ["disconnect", "Remove a model host from the fleet"],
+  ["hosts", "List connected hosts"],
   ["chat", "Route one completion"],
-  ["models", "List the connected fleet"],
+  ["models", "List the merged fleet"],
   ["savings", "Show account savings"],
   ["providers", "List known provider URLs"],
 ];
@@ -50,7 +52,20 @@ const COMMAND_HELP = {
     "  promptimizer connect <provider> --key <vendor-key>",
     "  promptimizer connect custom --base-url <url> --key <vendor-key>",
     "  promptimizer connect simulator",
+    "",
+    "Adds a host to your fleet without replacing others.",
+    "Aliases: add",
   ],
+  disconnect: [
+    "Usage",
+    "  promptimizer disconnect <provider>",
+    "  promptimizer disconnect baseten",
+    "  promptimizer disconnect nvidia",
+    "",
+    "Removes that host and its models. Other hosts stay.",
+    "Aliases: remove, rm",
+  ],
+  hosts: ["Usage", "  promptimizer hosts", "", "Show connected hosts and model counts."],
   chat: [
     "Usage",
     '  promptimizer chat "What is 17 * 24?"',
@@ -103,6 +118,15 @@ function parse(argv) {
   return { flags, positional };
 }
 
+/** Parse slash-command args inside the REPL: `/connect baseten --key sk-…` */
+function parseLineArgs(line) {
+  const parts = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(line))) parts.push(m[1] ?? m[2] ?? m[3]);
+  return parse(parts);
+}
+
 function readConfig() {
   try {
     return JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
@@ -133,10 +157,24 @@ function printVersion() {
   return pkg.version;
 }
 
+function hostSummary(session) {
+  const connections = session?.connections ?? [];
+  if (connections.length) {
+    return connections
+      .map((c) => {
+        const count = (session.models ?? []).filter((m) => m.provider_id === c.id).length;
+        return `${c.label}${count ? ` (${count})` : ""}`;
+      })
+      .join(" · ");
+  }
+  return session?.label || "not connected";
+}
+
 function banner(session, version) {
-  const label = session?.label || "not connected";
+  const hosts = hostSummary(session);
   const models = session?.models?.length ?? 0;
   const baseline = session?.baseline_model || "—";
+  const hostCount = session?.connections?.length ?? 0;
   out();
   out(color(ANSI.cyan, "     ██████╗ ███╗   ███╗███████╗"));
   out(color(ANSI.cyan, "     ██╔══██╗████╗ ████║╚══███╔╝"));
@@ -148,12 +186,28 @@ function banner(session, version) {
   out(`  ${color(ANSI.bold, "Promptimizer")}  ${color(ANSI.dim, `v${version}`)}`);
   out(`  ${color(ANSI.dim, "Quality-aware routing · OpenAI-compatible")}`);
   out();
-  out(`  ${color(ANSI.green, "●")} ${label}${models ? ` · ${models} models` : ""}`);
+  out(`  ${color(ANSI.green, "●")} ${hosts}${models ? ` · ${models} models` : ""}`);
+  if (hostCount > 1) out(`  ${color(ANSI.dim, `${hostCount} hosts merged · router picks across all`)}`);
   out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
   out();
-  out(`  ${color(ANSI.dim, "Type a prompt, or /help  /models  /savings  /clear  /logout  /quit")}`);
+  out(
+    `  ${color(ANSI.dim, "Type a prompt, or /help  /hosts  /models  /connect  /disconnect  /clear  /quit")}`,
+  );
   out(`  ${color(ANSI.dim, "Cache keys on full history — /clear then repeat a prompt to see cache hit")}`);
   out();
+}
+
+function printFleetSummary(session, { added, removed } = {}) {
+  const connections = session.connections ?? [];
+  if (added) out(`${color(ANSI.green, "✓")} Added ${added}`);
+  if (removed) out(`${color(ANSI.green, "✓")} Removed ${removed}`);
+  if (!added && !removed) out(`${color(ANSI.green, "✓")} ${session.label}`);
+  if (connections.length) {
+    out(`  hosts      ${connections.map((c) => c.label).join(" · ")}`);
+  } else {
+    out(`  ${session.label}  ${session.base_url}`);
+  }
+  out(`  models     ${session.models?.length ?? 0} · baseline ${session.baseline_model ?? "—"}`);
 }
 
 function help() {
@@ -178,8 +232,10 @@ function help() {
   out("  promptimizer");
   out("  promptimizer login --key pmz_live_…");
   out("  promptimizer connect baseten --key $BASETEN_API_KEY");
+  out("  promptimizer connect nvidia --key $NVIDIA_API_KEY");
+  out("  promptimizer hosts");
+  out("  promptimizer disconnect nvidia");
   out('  promptimizer chat "What is 17 * 24?"');
-  out("  promptimizer savings");
   out();
 }
 
@@ -243,6 +299,7 @@ function printMeta(result) {
   const saved = result.usage?.cost?.saved_usd;
   const bits = [meta.model || result.model, meta.tier].filter(Boolean);
   if (meta.routing_policy) bits.push(String(meta.routing_policy));
+  if (meta.provider_id || meta.host) bits.push(String(meta.provider_id || meta.host));
   if (saved != null) bits.push(`saved ${usd(saved)}`);
   if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
   else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
@@ -303,11 +360,14 @@ async function cmdConnect(flags, positional) {
   const provider = String(flags.provider || positional[0] || "").trim();
   const baseURL = flags["base-url"] || flags.baseUrl;
   if (!provider && !baseURL) {
-    die("Usage: promptimizer connect <provider>\n       promptimizer connect custom --base-url https://…");
+    die(
+      "Usage: promptimizer connect <provider> --key <vendor-key>\n       promptimizer connect custom --base-url https://… --key …",
+    );
   }
 
   const mock = provider === "simulator" || provider === "mock";
   let vendorKey = flags.key || flags.k;
+  let label = flags.label;
   if (!mock && !baseURL && provider && provider !== "custom") {
     const catalog = await request("/v1/providers", { gatewayURL });
     const found = (catalog.data ?? []).find(
@@ -318,6 +378,7 @@ async function cmdConnect(flags, positional) {
     if (!vendorKey && found.id !== "ollama") {
       die(`Missing API key for ${found.label}. Pass --key or set ${found.env}.`);
     }
+    label = label || found.label;
   } else if (!mock && !vendorKey && provider !== "ollama") {
     die("Missing provider key. Pass --key.");
   }
@@ -331,6 +392,7 @@ async function cmdConnect(flags, positional) {
       ? { mode: "mock", label: "Promptimizer simulator" }
       : {
           mode: "byok",
+          label,
           provider: provider && provider !== "custom" ? provider : undefined,
           base_url: baseURL,
           api_key: vendorKey,
@@ -338,8 +400,57 @@ async function cmdConnect(flags, positional) {
   });
 
   writeConfig({ ...config, gatewayURL, apiKey, sessionId: session.session_id });
-  out(`${color(ANSI.green, "✓")} ${session.label}  ${session.base_url}`);
-  out(`  ${session.models.length} models · baseline ${session.baseline_model}`);
+  out();
+  printFleetSummary(session, { added: label || provider || session.label });
+  out();
+  return session;
+}
+
+async function cmdDisconnect(flags, positional) {
+  const config = readConfig();
+  const gatewayURL = gateway(flags, config);
+  const provider = String(flags.provider || flags.host || positional[0] || "").trim();
+  if (!provider) die("Usage: promptimizer disconnect <provider>\n       promptimizer disconnect baseten");
+
+  const { apiKey, sessionId } = authFromConfig(flags, config);
+  const session = await request("/v1/providers/disconnect", {
+    method: "POST",
+    gatewayURL,
+    apiKey,
+    sessionId,
+    body: { provider },
+  });
+
+  writeConfig({ ...config, gatewayURL, apiKey, sessionId: session.session_id ?? sessionId });
+  out();
+  printFleetSummary(session, { removed: session.removed?.label || provider });
+  out();
+  return session;
+}
+
+async function cmdHosts(flags) {
+  const config = readConfig();
+  const session = await loadSession(flags, config);
+  const connections = session.connections ?? [];
+  out();
+  if (!connections.length) {
+    out(`  ${session.label} (simulator)`);
+    out(`  ${session.models?.length ?? 0} models`);
+    out();
+    return session;
+  }
+  const width = Math.max(8, ...connections.map((c) => String(c.label).length));
+  for (const c of connections) {
+    const count = (session.models ?? []).filter((m) => m.provider_id === c.id).length;
+    out(`  ${color(ANSI.green, "✓")} ${c.label.padEnd(width + 2)}${count} models`);
+    out(`    ${color(ANSI.dim, c.base_url)}`);
+  }
+  out();
+  out(`  ${session.models?.length ?? 0} models total · baseline ${session.baseline_model ?? "—"}`);
+  out(`  ${color(ANSI.dim, "Add: promptimizer connect <host> --key …")}`);
+  out(`  ${color(ANSI.dim, "Remove: promptimizer disconnect <host>")}`);
+  out();
+  return session;
 }
 
 async function cmdChat(flags, positional) {
@@ -359,15 +470,30 @@ async function cmdModels(flags) {
   const config = readConfig();
   const gatewayURL = gateway(flags, config);
   const { apiKey, sessionId } = authFromConfig(flags, config);
-  const data = await request("/v1/models", { gatewayURL, apiKey, sessionId });
+  const [data, session] = await Promise.all([
+    request("/v1/models", { gatewayURL, apiKey, sessionId }),
+    request("/v1/session", { gatewayURL, apiKey, sessionId }).catch(() => null),
+  ]);
   const models = data.data ?? [];
-  const width = Math.max(8, ...models.map((model) => String(model.tier).length));
+  const labelById = new Map((session?.connections ?? []).map((c) => [c.id, c.label]));
+  const hostWidth = Math.max(
+    4,
+    ...models.map((m) => String(m.provider_label || labelById.get(m.provider_id) || m.provider_id || "—").length),
+  );
+  const tierWidth = Math.max(8, ...models.map((m) => String(m.tier).length));
   out();
   for (const model of models) {
+    const host = model.provider_label || labelById.get(model.provider_id) || model.provider_id || "—";
     const mark = model.id === data.baseline_model ? color(ANSI.yellow, "  baseline") : "";
-    out(`  ${color(ANSI.dim, String(model.tier).padEnd(width + 2))}${model.id}${mark}`);
+    out(
+      `  ${color(ANSI.dim, String(model.tier).padEnd(tierWidth + 2))}${color(ANSI.cyan, String(host).padEnd(hostWidth + 2))}${model.id}${mark}`,
+    );
   }
   out();
+  if (session?.connections?.length) {
+    out(color(ANSI.dim, `  ${session.connections.length} host(s) · ${models.length} models`));
+    out();
+  }
 }
 
 async function cmdSavings(flags) {
@@ -419,13 +545,16 @@ async function interactive(flags) {
 
   const slashHelp = () => {
     out();
-    out(`  ${color(ANSI.bold, "/help")}      this list`);
-    out(`  ${color(ANSI.bold, "/models")}    fleet + tiers`);
-    out(`  ${color(ANSI.bold, "/savings")}   account ledger`);
-    out(`  ${color(ANSI.bold, "/session")}   provider status`);
-    out(`  ${color(ANSI.bold, "/clear")}     clear chat history`);
-    out(`  ${color(ANSI.bold, "/logout")}    remove saved API key and exit`);
-    out(`  ${color(ANSI.bold, "/quit")}      exit`);
+    out(`  ${color(ANSI.bold, "/help")}                          this list`);
+    out(`  ${color(ANSI.bold, "/hosts")}                         connected hosts`);
+    out(`  ${color(ANSI.bold, "/models")}                        fleet + host + tier`);
+    out(`  ${color(ANSI.bold, "/connect <host> --key …")}        add a host (keeps others)`);
+    out(`  ${color(ANSI.bold, "/disconnect <host>")}             remove a host`);
+    out(`  ${color(ANSI.bold, "/savings")}                       account ledger`);
+    out(`  ${color(ANSI.bold, "/session")}                       provider status`);
+    out(`  ${color(ANSI.bold, "/clear")}                         clear chat history`);
+    out(`  ${color(ANSI.bold, "/logout")}                        remove saved API key and exit`);
+    out(`  ${color(ANSI.bold, "/quit")}                          exit`);
     out();
   };
 
@@ -463,10 +592,26 @@ async function interactive(flags) {
         try {
           session = await loadSession(flags, readConfig());
           out();
-          out(`  ${session.label} · ${session.mode}`);
-          out(`  ${session.base_url}`);
+          out(`  ${hostSummary(session)} · ${session.mode}`);
+          if (session.connections?.length) {
+            for (const c of session.connections) {
+              const count = session.models.filter((m) => m.provider_id === c.id).length;
+              out(`  ${color(ANSI.green, "✓")} ${c.label} · ${count} models`);
+            }
+          } else {
+            out(`  ${session.base_url}`);
+          }
           out(`  ${session.models.length} models · baseline ${session.baseline_model}`);
           out();
+        } catch (error) {
+          out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        }
+        continue;
+      }
+
+      if (trimmed === "/hosts" || trimmed === "/providers") {
+        try {
+          session = await cmdHosts(flags);
         } catch (error) {
           out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
         }
@@ -487,6 +632,29 @@ async function interactive(flags) {
           await cmdSavings(flags);
         } catch (error) {
           out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        }
+        continue;
+      }
+
+      if (
+        trimmed.startsWith("/connect") ||
+        trimmed.startsWith("/add ") ||
+        trimmed === "/add" ||
+        trimmed.startsWith("/disconnect") ||
+        trimmed.startsWith("/remove") ||
+        trimmed.startsWith("/rm ")
+      ) {
+        const body = trimmed.replace(/^\/(connect|add|disconnect|remove|rm)\s*/i, "");
+        const { flags: slashFlags, positional } = parseLineArgs(body);
+        const mergedFlags = { ...flags, ...slashFlags };
+        const isDisconnect = /^\/(disconnect|remove|rm)\b/i.test(trimmed);
+        try {
+          session = isDisconnect
+            ? await cmdDisconnect(mergedFlags, positional)
+            : await cmdConnect(mergedFlags, positional);
+        } catch (error) {
+          out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+          out();
         }
         continue;
       }
@@ -550,7 +718,11 @@ async function main() {
     if (command === "login") return await cmdLogin(flags);
     if (command === "logout") return cmdLogout();
     if (command === "providers") return await cmdProviders(flags);
-    if (command === "connect") return await cmdConnect(flags, rest);
+    if (command === "connect" || command === "add") return await cmdConnect(flags, rest);
+    if (command === "disconnect" || command === "remove" || command === "rm") {
+      return await cmdDisconnect(flags, rest);
+    }
+    if (command === "hosts") return await cmdHosts(flags);
     if (command === "chat") return await cmdChat(flags, rest);
     if (command === "models") return await cmdModels(flags);
     if (command === "savings") return await cmdSavings(flags);

@@ -1,21 +1,22 @@
 # promptimizer-cli
 
-Gemini-style interactive routing CLI for Promptimizer.
+Gemini-style interactive routing CLI for Promptimizer. Multi-host fleets: add and remove providers; the router picks across the merged model set.
 
 ```bash
-npm install -g promptimizer-cli@latest
+npm install -g ./packages/cli
+# or after publish: npm install -g promptimizer-cli@latest
 promptimizer
 ```
 
-Requires **≥ 0.1.22** for REPL `/logout`. If `/help` does not list `/logout`, upgrade the global binary.
+Requires **≥ 0.1.23** for `/hosts`, `/connect`, `/disconnect`.
 
 ```text
-  Promptimizer  v0.1.22
-  Type a prompt, or /help  /models  /savings  /clear  /logout  /quit
-› What is 17 * 24?
-✦
-408
-  ↳ model · economy · bootstrap_heuristic · saved $0.0001 · miss
+  Promptimizer  v0.1.23
+  ● Baseten (16) · NVIDIA NIM (74) · 90 models
+  2 hosts merged · router picks across all
+› /hosts
+  ✓ Baseten      16 models
+  ✓ NVIDIA NIM   74 models
 ```
 
 ## Commands
@@ -25,9 +26,18 @@ Requires **≥ 0.1.22** for REPL `/logout`. If `/help` does not list `/logout`, 
 | `promptimizer` | Interactive multi-turn session |
 | `promptimizer login --key pmz_live_…` | Save API key |
 | `promptimizer logout` / REPL `/logout` | Remove `~/.promptimizer/config.json` |
-| `promptimizer connect baseten --key $BASETEN_API_KEY` | Attach provider |
+| `promptimizer connect baseten --key $BASETEN_API_KEY` | **Add** a host (keeps existing) |
+| `promptimizer connect nvidia --key $NVIDIA_API_KEY` | Add another host |
+| `promptimizer disconnect nvidia` | **Remove** a host |
+| `promptimizer hosts` | List connected hosts |
+| `promptimizer models` | List merged fleet (tier · host · id) |
 | `promptimizer chat "…"` | One-shot completion |
-| `promptimizer models` | List fleet |
 | `promptimizer savings` | Account ledger |
+
+Aliases: `add` → connect, `remove` / `rm` → disconnect.
+
+### REPL slash commands
+
+`/hosts` · `/models` · `/connect <host> --key …` · `/disconnect <host>` · `/savings` · `/clear` · `/logout` · `/quit`
 
 Defaults to the hosted gateway. Override with `--url` or `PROMPTIMIZER_URL`.

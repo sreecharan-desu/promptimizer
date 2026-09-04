@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { checkCapabilities } from "./capabilities";
 import { estimateCost } from "./cost";
+import { estimateContextLength, estimatePricingPer1m, extractContextLength } from "./normalize";
 import { buildPricing } from "./pricing";
 import { extractRequirements } from "./requirements";
 import { chooseModel } from "./router";
@@ -102,5 +103,18 @@ describe("optimizer core", () => {
     assert.ok(decision);
     assert.equal(decision!.selected_model_id, "cheap");
     assert.equal(decision!.policy, "quality_profile");
+  });
+
+  it("estimates context and pricing from model ids", () => {
+    assert.equal(estimateContextLength("writer/palmyra-med-70b-32k"), 32_768);
+    assert.equal(estimateContextLength("google/codegemma-7b"), 8_192);
+    const price = estimatePricingPer1m("meta/llama-3.1-8b-instruct");
+    assert.equal(price.input, 0.12);
+    assert.equal(price.output, 0.36);
+  });
+
+  it("extracts nested context_length fields", () => {
+    assert.equal(extractContextLength({ model_spec: { context_length: 4096 } }), 4096);
+    assert.equal(extractContextLength({ max_model_len: 8192 }), 8192);
   });
 });

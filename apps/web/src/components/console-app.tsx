@@ -162,6 +162,23 @@ export function ConsoleApp() {
     }
   }
 
+  async function disconnectHost(providerId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.disconnect({ provider: providerId });
+      writeSessionId(next.session_id);
+      setSession(next);
+      setCompletion(null);
+      setBench(null);
+      setBenchCachedAt(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Disconnect failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function changeTier(id: string, tier: string) {
     if (!session) return;
     const next = await api.patchModels({ overrides: { [id]: tier } });
@@ -262,6 +279,7 @@ export function ConsoleApp() {
           onKey={setApiKey}
           onSimulator={connectSimulator}
           onFetch={connectKey}
+          onDisconnect={disconnectHost}
         />
       ) : null}
 
@@ -316,6 +334,7 @@ function ConnectPane({
   onKey,
   onSimulator,
   onFetch,
+  onDisconnect,
 }: {
   busy: boolean;
   host: (typeof HOSTS)[number];
@@ -331,6 +350,7 @@ function ConnectPane({
   onKey: (v: string) => void;
   onSimulator: () => void;
   onFetch: () => void;
+  onDisconnect: (providerId: string) => void;
 }) {
   return (
     <div className="mt-10 grid gap-4 lg:grid-cols-2">
@@ -420,14 +440,26 @@ function ConnectPane({
           />
         </label>
 
-        <button
-          type="button"
-          onClick={onFetch}
-          disabled={busy || !apiKey.trim() || (host.id === "custom" && !baseUrl.trim())}
-          className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
-        >
-          {busy ? "Fetching…" : connectedIds.has(host.id) ? "Refresh models" : "Fetch models"}
-        </button>
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={onFetch}
+            disabled={busy || !apiKey.trim() || (host.id === "custom" && !baseUrl.trim())}
+            className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
+          >
+            {busy ? "Fetching…" : connectedIds.has(host.id) ? "Refresh models" : "Fetch models"}
+          </button>
+          {connectedIds.has(host.id) ? (
+            <button
+              type="button"
+              onClick={() => onDisconnect(host.id)}
+              disabled={busy}
+              className="inline-flex h-11 items-center justify-center rounded-full border border-primary/15 px-4 text-sm font-medium text-primary disabled:opacity-50"
+            >
+              Remove host
+            </button>
+          ) : null}
+        </div>
       </section>
     </div>
   );
@@ -453,24 +485,58 @@ function FleetPane({
     return counts;
   }, [session.models]);
   const selected = session.models.filter((m) => m.selected).length;
+  const hostCounts = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; count: number }>();
+    for (const m of session.models) {
+      const id = m.provider_id ?? "provider";
+      const label =
+        m.provider_label ||
+        session.connections?.find((c) => c.id === id)?.label ||
+        id;
+      const prev = map.get(id);
+      map.set(id, { id, label, count: (prev?.count ?? 0) + 1 });
+    }
+    if (session.connections?.length) {
+      for (const c of session.connections) {
+        if (!map.has(c.id)) map.set(c.id, { id: c.id, label: c.label, count: 0 });
+      }
+    }
+    return [...map.values()];
+  }, [session.models, session.connections]);
 
   return (
     <div className="mt-10">
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:col-span-2">
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 lg:col-span-2">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-secondary">
                 {session.models.length} chat models · baseline{" "}
-                <span className="font-mono text-primary">{session.baseline_model ?? "—"}</span>
+                <span className="break-all font-mono text-primary">{session.baseline_model ?? "—"}</span>
               </p>
               <p className="mt-1 text-sm text-secondary">Change a tier if the auto-map is wrong.</p>
+              {hostCounts.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {hostCounts.map((h) => (
+                    <span
+                      key={h.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-primary/[0.08] bg-background px-2.5 py-1 text-[11px] text-primary"
+                    >
+                      <span className="text-accent" aria-hidden>
+                        ✓
+                      </span>
+                      {h.label}
+                      <span className="text-secondary">{h.count}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <button
               type="button"
               onClick={onBench}
               disabled={busy}
-              className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+              className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
             >
               {busy ? "Running 15 tasks…" : "Run benchmark"}
             </button>
@@ -502,8 +568,61 @@ function FleetPane({
           </div>
         </div>
       </div>
-      <div className="overflow-hidden rounded-2xl border border-primary/[0.06]">
-        <table className="w-full text-left text-sm">
+
+      {/* Mobile: stacked cards */}
+      <ul className="space-y-3 md:hidden">
+        {session.models.map((model) => {
+          const host =
+            model.provider_label ||
+            session.connections?.find((c) => c.id === model.provider_id)?.label ||
+            model.provider_id ||
+            "—";
+          return (
+            <li
+              key={`${model.provider_id ?? "x"}:${model.id}`}
+              className="rounded-2xl border border-primary/[0.06] bg-card p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="min-w-0 break-all font-mono text-[13px] text-primary">{model.id}</p>
+                <span className="shrink-0 rounded-full bg-primary/[0.06] px-2 py-0.5 text-[11px] text-secondary">
+                  {host}
+                </span>
+              </div>
+              <div className="mt-3">
+                <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} />
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-secondary">
+                <div>
+                  <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Input / 1M</dt>
+                  <dd className="mt-0.5 tabular text-primary">{fmtPer1m(model.input_per_1m)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Output / 1M</dt>
+                  <dd className="mt-0.5 tabular text-primary">{fmtPer1m(model.output_per_1m)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Context</dt>
+                  <dd className="mt-0.5 tabular text-primary">{fmtContext(model.context_length)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Price</dt>
+                  <dd className="mt-0.5 text-primary">{fmtPriceSource(model)}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-[10px] uppercase tracking-wide text-secondary/80">Quality</dt>
+                  <dd className="mt-0.5 tabular text-primary">
+                    {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
+                  </dd>
+                </div>
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Desktop / tablet: scrollable table */}
+      <div className="hidden overflow-x-auto rounded-2xl border border-primary/[0.06] md:block">
+        <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="bg-card text-secondary">
             <tr>
               <th className="px-4 py-3 font-medium">Model</th>
@@ -517,44 +636,90 @@ function FleetPane({
             </tr>
           </thead>
           <tbody>
-            {session.models.map((model) => (
-              <tr key={`${model.provider_id ?? "x"}:${model.id}`} className="border-t border-primary/5">
-                <td className="px-4 py-3 font-mono text-[13px] text-primary">{model.id}</td>
-                <td className="px-4 py-3 text-secondary">{model.provider_id ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <div className="inline-flex rounded-full border border-primary/[0.08] p-0.5">
-                    {(["economy", "standard", "frontier"] as const).map((tier) => (
-                      <button
-                        key={tier}
-                        type="button"
-                        onClick={() => onTier(model.id, tier)}
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
-                          model.tier === tier ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
-                        }`}
-                      >
-                        {tier}
-                      </button>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-secondary tabular">{model.input_per_1m ?? "—"}</td>
-                <td className="px-4 py-3 text-secondary tabular">{model.output_per_1m ?? "—"}</td>
-                <td className="px-4 py-3 text-secondary tabular">
-                  {model.context_length != null ? model.context_length.toLocaleString() : "—"}
-                </td>
-                <td className="px-4 py-3 text-secondary">
-                  {model.pricing_known === false ? "unknown" : model.input_per_1m != null ? "known" : "—"}
-                </td>
-                <td className="px-4 py-3 text-secondary tabular">
-                  {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
-                </td>
-              </tr>
-            ))}
+            {session.models.map((model) => {
+              const host =
+                model.provider_label ||
+                session.connections?.find((c) => c.id === model.provider_id)?.label ||
+                model.provider_id ||
+                "—";
+              return (
+                <tr key={`${model.provider_id ?? "x"}:${model.id}`} className="border-t border-primary/5">
+                  <td className="max-w-[240px] px-4 py-3 font-mono text-[13px] text-primary">
+                    <span className="break-all">{model.id}</span>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary">{host}</td>
+                  <td className="px-4 py-3">
+                    <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
+                    {fmtPer1m(model.input_per_1m)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
+                    {fmtPer1m(model.output_per_1m)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
+                    {fmtContext(model.context_length)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary">{fmtPriceSource(model)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
+                    {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
   );
+}
+
+function TierPicker({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (tier: "economy" | "standard" | "frontier") => void;
+}) {
+  return (
+    <div className="inline-flex max-w-full flex-wrap rounded-full border border-primary/[0.08] p-0.5">
+      {(["economy", "standard", "frontier"] as const).map((tier) => (
+        <button
+          key={tier}
+          type="button"
+          onClick={() => onPick(tier)}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
+            value === tier ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
+          }`}
+        >
+          {tier}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function fmtPer1m(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n < 0.01) return `$${n.toFixed(3)}`;
+  if (n < 10) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(1)}`;
+}
+
+function fmtContext(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n >= 1024) {
+    const k = n / 1024;
+    return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  return n.toLocaleString();
+}
+
+function fmtPriceSource(model: Session["models"][number]) {
+  if (model.pricing_source === "estimate" || model.pricing_known === false) return "est.";
+  if (model.pricing_source === "catalog" || model.pricing_source === "provider") return "known";
+  if (model.input_per_1m != null) return "known";
+  return "—";
 }
 
 function cheapestSelected(session: Session, tier: "economy" | "standard" | "frontier") {
