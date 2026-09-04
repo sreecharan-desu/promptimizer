@@ -21,42 +21,84 @@ Theme is jet chrome with a **gold** accent — savings you can see, not another 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  subgraph Clients
-    Web[Next.js console]
-    CLI[promptimizer CLI]
-    SDK[promptimizer npm]
-    OpenAI[Official OpenAI SDK]
+flowchart TB
+  subgraph clients [Clients]
+    WebUI[Web console and portal]
+    CLI[promptimizer CLI REPL]
+    SDK[promptimizer SDK]
+    OAI[OpenAI-compatible SDK]
   end
 
-  subgraph Promptimizer
-    GW[FastAPI or Vercel /api/v1]
-    C[Classifier L1-L5]
-    Req[Requirements + capabilities]
-    R[Quality-aware cost router]
-    K[Prompt cache]
-    Q[Quality gate]
+  subgraph auth [Auth and tenancy]
+    Signup[Sign up / verify email]
+    Login[Login / Google OAuth]
+    Cookie[pmz_session cookie]
+    Keys[pmz_live_ API keys]
+    PG[(Postgres users sessions keys providers)]
   end
 
-  subgraph Providers
+  subgraph gateway [Gateway apps_web /api/v1]
+    Connect[POST providers/connect]
+    Discover[GET models normalize ModelProfile]
+    Classify[Classify L1-L5 p_small_quality]
+    Reqs[Extract RequestRequirements]
+    Cap[Capability filter]
+    Policy{Quality profiles?}
+    QP[quality_profile cheapest eligible]
+    Boot[bootstrap_heuristic tier pick]
+    Cache[Upstash exact and prefix cache]
+    Invoke[Provider chat completions]
+    Guard[Validate escalate]
+    Ledger[usage_events routing_events]
+    Bench[POST benchmark/run]
+    Profiles[model_quality_profiles]
+    Savings[GET savings]
+  end
+
+  subgraph fleet [BYOK providers]
+    Catalog[App-owned provider catalog]
     Eco[Economy]
     Std[Standard]
-    Fr[Frontier]
+    Fr[Frontier baseline]
   end
 
-  Web --> GW
-  CLI --> GW
-  SDK --> GW
-  OpenAI --> GW
-  GW --> C --> Req --> R
-  R --> K
-  K --> Eco
-  K --> Std
-  K --> Fr
-  Eco --> Q
-  Std --> Q
-  Q -->|degraded| Fr
+  WebUI --> Signup --> PG
+  WebUI --> Login --> Cookie --> PG
+  WebUI --> Keys --> PG
+  CLI -->|login logout /logout| Keys
+  CLI --> gateway
+  SDK --> gateway
+  OAI --> gateway
+  Cookie --> gateway
+  Keys --> gateway
+
+  Connect --> Catalog
+  Connect --> Discover
+  Discover --> PG
+
+  gateway --> Classify --> Reqs --> Cap --> Policy
+  Policy -->|yes| QP
+  Policy -->|no| Boot
+  QP --> Cache
+  Boot --> Cache
+  Cache -->|miss| Invoke
+  Cache -->|hit| Ledger
+  Invoke --> Eco
+  Invoke --> Std
+  Invoke --> Fr
+  Eco --> Guard
+  Std --> Guard
+  Guard -->|degraded| Fr
+  Guard --> Ledger
+  Ledger --> Savings
+  Ledger --> WebUI
+
+  Bench --> Invoke
+  Bench --> Profiles
+  Profiles --> Policy
 ```
+
+End-to-end product flow: **sign in → connect provider (key only) → discover/normalize models → optional benchmark (quality profiles) → chat/completions with cache + escalate → savings portal / CLI `/savings`**. CLI `/logout` clears `~/.promptimizer/config.json` (requires CLI ≥ 0.1.22).
 
 ## Optimizer core integration
 

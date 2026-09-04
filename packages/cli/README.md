@@ -3,19 +3,19 @@
 Gemini-style interactive routing CLI for Promptimizer.
 
 ```bash
-npm install -g promptimizer-cli
+npm install -g promptimizer-cli@latest
 promptimizer
 ```
 
+Requires **≥ 0.1.22** for REPL `/logout`. If `/help` does not list `/logout`, upgrade the global binary.
+
 ```text
-     ██████╗ ███╗   ███╗███████╗
-     …
-  Promptimizer  v0.1.17
-  Type a prompt, or /help  /models  /savings  /clear  /quit
+  Promptimizer  v0.1.22
+  Type a prompt, or /help  /models  /savings  /clear  /logout  /quit
 › What is 17 * 24?
 ✦
 408
-  ↳ thinkingmachines/inkling-small · economy · saved $0.0001
+  ↳ model · economy · bootstrap_heuristic · saved $0.0001 · miss
 ```
 
 ## Commands
@@ -24,6 +24,7 @@ promptimizer
 | --- | --- |
 | `promptimizer` | Interactive multi-turn session |
 | `promptimizer login --key pmz_live_…` | Save API key |
+| `promptimizer logout` / REPL `/logout` | Remove `~/.promptimizer/config.json` |
 | `promptimizer connect baseten --key $BASETEN_API_KEY` | Attach provider |
 | `promptimizer chat "…"` | One-shot completion |
 | `promptimizer models` | List fleet |

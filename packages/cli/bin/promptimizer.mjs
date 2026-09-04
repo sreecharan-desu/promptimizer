@@ -275,8 +275,14 @@ async function cmdLogin(flags) {
 }
 
 function cmdLogout() {
-  rmSync(CONFIG_PATH, { force: true });
-  out(`${color(ANSI.green, "✓")} Forgot saved key.`);
+  try {
+    rmSync(CONFIG_PATH, { force: true });
+  } catch (error) {
+    die(error instanceof Error ? error.message : String(error));
+  }
+  out(`${color(ANSI.green, "✓")} Logged out`);
+  out(color(ANSI.dim, `  Removed ${CONFIG_PATH}`));
+  out(color(ANSI.dim, "  Run: promptimizer login --key pmz_live_…"));
 }
 
 async function cmdProviders(flags) {
@@ -418,7 +424,7 @@ async function interactive(flags) {
     out(`  ${color(ANSI.bold, "/savings")}   account ledger`);
     out(`  ${color(ANSI.bold, "/session")}   provider status`);
     out(`  ${color(ANSI.bold, "/clear")}     clear chat history`);
-    out(`  ${color(ANSI.bold, "/logout")}    remove saved API key`);
+    out(`  ${color(ANSI.bold, "/logout")}    remove saved API key and exit`);
     out(`  ${color(ANSI.bold, "/quit")}      exit`);
     out();
   };
@@ -448,7 +454,7 @@ async function interactive(flags) {
         continue;
       }
 
-      if (trimmed === "/logout") {
+      if (trimmed === "/logout" || trimmed === "/signout") {
         cmdLogout();
         break;
       }
