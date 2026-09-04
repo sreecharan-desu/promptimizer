@@ -13,6 +13,23 @@ export const PRICING: Record<string, { input: number; output: number; tier: stri
   "promptimizer-nano": { input: 0.05, output: 0.1, tier: "economy" },
   "promptimizer-flash": { input: 0.3, output: 0.9, tier: "standard" },
   "promptimizer-frontier": { input: 5, output: 15, tier: "frontier" },
+  // Baseten Inference Model APIs (approx public list rates, $/1M tokens)
+  "thinkingmachines/inkling-small": { input: 0.1, output: 0.4, tier: "economy" },
+  "thinkingmachines/inkling": { input: 0.4, output: 1.6, tier: "standard" },
+  "openai/gpt-oss-120b": { input: 0.15, output: 0.6, tier: "standard" },
+  "zai-org/GLM-4.7": { input: 0.4, output: 1.5, tier: "standard" },
+  "zai-org/GLM-5.2": { input: 0.6, output: 2.2, tier: "standard" },
+  "zai-org/GLM-5.2-Fast": { input: 0.35, output: 1.4, tier: "standard" },
+  "zai-org/GLM-5.3": { input: 0.8, output: 3.2, tier: "frontier" },
+  "zai-org/GLM-5.3-Flash": { input: 0.45, output: 1.8, tier: "standard" },
+  "zai-org/GLM-5.3-Fast": { input: 0.5, output: 2.0, tier: "standard" },
+  "moonshotai/Kimi-K2.6": { input: 0.55, output: 2.2, tier: "standard" },
+  "moonshotai/Kimi-K2.7-Code": { input: 0.55, output: 2.2, tier: "standard" },
+  "moonshotai/Kimi-K3": { input: 0.9, output: 3.5, tier: "frontier" },
+  "deepseek-ai/DeepSeek-V4-Flash-0731": { input: 0.2, output: 0.8, tier: "standard" },
+  "deepseek-ai/DeepSeek-V4-Pro": { input: 0.7, output: 2.8, tier: "standard" },
+  "deepseek-ai/DeepSeek-V4-Pro-0813": { input: 0.7, output: 2.8, tier: "standard" },
+  "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B": { input: 1.2, output: 4.8, tier: "frontier" },
 };
 
 export const BENCHMARK = [

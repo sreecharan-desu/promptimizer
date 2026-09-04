@@ -50,7 +50,19 @@ function inferTier(modelId: string): { tier: Tier; source: string } {
 }
 
 function blend(model: ModelInfo) {
-  return (model.input_per_1m ?? 2) * 0.4 + (model.output_per_1m ?? 6) * 0.6;
+  const inn = model.input_per_1m ?? lookupPrice(model.id)?.input ?? 2;
+  const out = model.output_per_1m ?? lookupPrice(model.id)?.output ?? 6;
+  return inn * 0.4 + out * 0.6;
+}
+
+function enrichModel(model: ModelInfo): ModelInfo {
+  const priced = lookupPrice(model.id);
+  if (!priced) return model;
+  return {
+    ...model,
+    input_per_1m: model.input_per_1m ?? priced.input,
+    output_per_1m: model.output_per_1m ?? priced.output,
+  };
 }
 
 function cheapest(models: ModelInfo[], tier?: Tier) {
@@ -85,7 +97,7 @@ function publicSession(session: Session) {
     mode: session.mode,
     label: session.label,
     base_url: session.base_url,
-    models: session.models,
+    models: session.models.map(enrichModel),
     baseline_model: session.baseline_model,
     stats: session.stats,
     created_at: session.created_at,
@@ -177,10 +189,12 @@ function tokens(text: string) {
 }
 
 function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, completionTokens: number, cachedTokens: number) {
-  const rin = routed.input_per_1m ?? 1;
-  const rout = routed.output_per_1m ?? 3;
-  const bin = baseline.input_per_1m ?? 5;
-  const bout = baseline.output_per_1m ?? 15;
+  const routedP = enrichModel(routed);
+  const baselineP = enrichModel(baseline);
+  const rin = routedP.input_per_1m ?? 1;
+  const rout = routedP.output_per_1m ?? 3;
+  const bin = baselineP.input_per_1m ?? 5;
+  const bout = baselineP.output_per_1m ?? 15;
   const cached = Math.min(cachedTokens, promptTokens);
   const fullRouted = (promptTokens / 1e6) * rin + (completionTokens / 1e6) * rout;
   const actual =
@@ -217,8 +231,16 @@ function pick(session: Session, classification: Classification, hint?: string) {
     if (found) return found;
   }
   const start = TIER_ORDER.indexOf(classification.recommended_tier);
-  for (const tier of TIER_ORDER.slice(start)) {
+  // Prefer recommended tier or anything higher.
+  for (const tier of TIER_ORDER.slice(Math.max(0, start))) {
     const model = cheapest(session.models, tier);
+    if (model) return model;
+  }
+  // If the fleet has no model at/above the recommended tier (common when nothing
+  // is tagged frontier), step down to the strongest available — never dump hard
+  // work onto the cheapest overall model.
+  for (let i = Math.max(0, start) - 1; i >= 0; i -= 1) {
+    const model = cheapest(session.models, TIER_ORDER[i]);
     if (model) return model;
   }
   return cheapest(session.models);
@@ -324,14 +346,24 @@ export async function routeChat(
   }
 
   let escalated = false;
-  const text = payload.choices?.[0]?.message?.content ?? "";
-  if (!exactHit && /i don't know|too complex|as a small model/.test(text.toLowerCase())) {
+  let text = payload.choices?.[0]?.message?.content ?? "";
+  const shouldEscalate =
+    !exactHit &&
+    (!text.trim() ||
+      text.trim().length < 24 ||
+      /i don't know|too complex|as a small model|can't help with that|cannot help with that/i.test(text));
+  if (shouldEscalate) {
     const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed.tier) + 1];
-    const upgrade = nextTier ? cheapest(session.models, nextTier) : undefined;
-    if (upgrade) {
+    const upgrade = nextTier
+      ? cheapest(session.models, nextTier)
+      : cheapest(
+          session.models.filter((m) => TIER_ORDER.indexOf(m.tier) > TIER_ORDER.indexOf(routed.tier)),
+        );
+    if (upgrade && upgrade.id !== routed.id) {
       escalated = true;
       routed = upgrade;
       payload = await complete(session, routed.id, body.messages, classification);
+      text = payload.choices?.[0]?.message?.content ?? "";
     }
   }
 
@@ -615,7 +647,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
       label: saved.label,
       base_url: saved.base_url,
       api_key: saved.api_key,
-      models: saved.models as ModelInfo[],
+      models: (saved.models as ModelInfo[]).map(enrichModel),
       baseline_model: saved.baseline_model,
       created_at: Date.now() / 1000,
       stats: emptyStats(),
