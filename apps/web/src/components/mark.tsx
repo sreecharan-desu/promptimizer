@@ -7,6 +7,19 @@ export const MARK_END = { cx: 24.1, cy: 9.3 };
 export const MARK_STROKE = 2.6;
 export const MARK_DOT = 2.3;
 
+export function markGeometry(size: number) {
+  const k = size / 32;
+  return {
+    size,
+    radius: 8 * k,
+    path: `M${7.85 * k} ${23.2 * k}C${10.7 * k} ${16.15 * k} ${16.05 * k} ${9.3 * k} ${24.1 * k} ${9.3 * k}`,
+    start: { cx: 7.85 * k, cy: 23.2 * k },
+    end: { cx: 24.1 * k, cy: 9.3 * k },
+    stroke: 2.6 * k,
+    dot: 2.3 * k,
+  };
+}
+
 export function MarkArtwork() {
   return (
     <>

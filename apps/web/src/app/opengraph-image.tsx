@@ -1,8 +1,12 @@
 import { ImageResponse } from "next/og";
-import { MARK_BG, MARK_END, MARK_GOLD, MARK_INK, MARK_PATH, MARK_START } from "@/components/mark";
+import { MARK_BG, MARK_GOLD, MARK_INK, markGeometry } from "@/components/mark";
 
+export const alt = "Promptimizer";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+
+const MARK = 112;
+const g = markGeometry(MARK);
 
 export default function OpenGraphImage() {
   return new ImageResponse(
@@ -14,32 +18,38 @@ export default function OpenGraphImage() {
           background: MARK_BG,
           display: "flex",
           flexDirection: "column",
+          alignItems: "center",
           justifyContent: "center",
-          padding: 88,
         }}
       >
-        <svg width="64" height="64" viewBox="0 0 32 32">
-          <rect width="32" height="32" rx="8" fill="#141414" />
+        <svg width={MARK} height={MARK}>
+          <rect width={MARK} height={MARK} rx={g.radius} fill="#161616" />
           <rect
-            x="0.5"
-            y="0.5"
-            width="31"
-            height="31"
-            rx="7.5"
+            x={1}
+            y={1}
+            width={MARK - 2}
+            height={MARK - 2}
+            rx={g.radius - 1}
             fill="none"
-            stroke="#FFFFFF"
-            strokeOpacity="0.16"
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth={1.5}
           />
-          <path d={MARK_PATH} fill="none" stroke={MARK_INK} strokeWidth="2.6" strokeLinecap="round" />
-          <circle cx={MARK_START.cx} cy={MARK_START.cy} r="2.3" fill={MARK_INK} />
-          <circle cx={MARK_END.cx} cy={MARK_END.cy} r="2.3" fill={MARK_GOLD} />
+          <path
+            d={g.path}
+            fill="none"
+            stroke={MARK_INK}
+            strokeWidth={g.stroke}
+            strokeLinecap="round"
+          />
+          <circle cx={g.start.cx} cy={g.start.cy} r={g.dot} fill={MARK_INK} />
+          <circle cx={g.end.cx} cy={g.end.cy} r={g.dot} fill={MARK_GOLD} />
         </svg>
         <div
           style={{
-            marginTop: 32,
-            fontSize: 64,
+            marginTop: 36,
+            fontSize: 56,
             fontWeight: 500,
-            letterSpacing: -1.6,
+            letterSpacing: -1.4,
             color: MARK_INK,
           }}
         >
@@ -48,10 +58,9 @@ export default function OpenGraphImage() {
         <div
           style={{
             marginTop: 14,
-            fontSize: 26,
+            fontSize: 24,
             color: "#8A8A8A",
-            lineHeight: 1.4,
-            maxWidth: 720,
+            letterSpacing: -0.2,
           }}
         >
           Quality-aware LLM routing for OpenAI-compatible APIs.

@@ -1,8 +1,10 @@
 import { ImageResponse } from "next/og";
-import { MARK_BG, MARK_END, MARK_GOLD, MARK_INK, MARK_PATH, MARK_START } from "@/components/mark";
+import { MARK_BG, MARK_GOLD, MARK_INK, markGeometry } from "@/components/mark";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
+
+const g = markGeometry(180);
 
 export default function AppleIcon() {
   return new ImageResponse(
@@ -14,14 +16,18 @@ export default function AppleIcon() {
           background: MARK_BG,
           borderRadius: 40,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
         }}
       >
-        <svg width="180" height="180" viewBox="0 0 32 32">
-          <path d={MARK_PATH} fill="none" stroke={MARK_INK} strokeWidth="2.6" strokeLinecap="round" />
-          <circle cx={MARK_START.cx} cy={MARK_START.cy} r="2.3" fill={MARK_INK} />
-          <circle cx={MARK_END.cx} cy={MARK_END.cy} r="2.3" fill={MARK_GOLD} />
+        <svg width={180} height={180}>
+          <path
+            d={g.path}
+            fill="none"
+            stroke={MARK_INK}
+            strokeWidth={g.stroke}
+            strokeLinecap="round"
+          />
+          <circle cx={g.start.cx} cy={g.start.cy} r={g.dot} fill={MARK_INK} />
+          <circle cx={g.end.cx} cy={g.end.cy} r={g.dot} fill={MARK_GOLD} />
         </svg>
       </div>
     ),
