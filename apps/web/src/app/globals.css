@@ -211,6 +211,12 @@ body {
     font-size: 1.875rem;
     line-height: 2.25rem;
   }
+  .sm\:mt-24 {
+    margin-top: 6rem;
+  }
+  .sm\:pt-10 {
+    padding-top: 2.5rem;
+  }
 }
 @media (min-width: 1024px) {
   .lg\:grid-cols-2 {
@@ -227,5 +233,14 @@ body {
   }
   .lg\:border-t-0 {
     border-top-width: 0;
+  }
+  .lg\:order-1 {
+    order: 1;
+  }
+  .lg\:order-2 {
+    order: 2;
+  }
+  .lg\:gap-12 {
+    gap: 3rem;
   }
 }
