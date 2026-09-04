@@ -152,6 +152,7 @@ function banner(session, version) {
   out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
   out();
   out(`  ${color(ANSI.dim, "Type a prompt, or /help  /models  /savings  /clear  /quit")}`);
+  out(`  ${color(ANSI.dim, "Cache keys on full history — /clear then repeat a prompt to see cache hit")}`);
   out();
 }
 
@@ -242,7 +243,9 @@ function printMeta(result) {
   const saved = result.usage?.cost?.saved_usd;
   const bits = [meta.model || result.model, meta.tier].filter(Boolean);
   if (saved != null) bits.push(`saved ${usd(saved)}`);
-  if (meta.cache_hit) bits.push("cache");
+  if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
+  else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
+  else if ("cache_hit" in meta) bits.push(color(ANSI.gray, "miss"));
   if (meta.escalated) bits.push("escalated");
   if (meta.latency_ms != null) bits.push(`${Math.round(Number(meta.latency_ms))}ms`);
   out(color(ANSI.dim, `  ↳ ${bits.join(" · ")}`));
