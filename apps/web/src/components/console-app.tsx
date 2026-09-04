@@ -1062,7 +1062,7 @@ function PlayPane({
               </p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-secondary">Routed</p>
+              <p className="text-[11px] uppercase tracking-wide text-secondary">API cost</p>
               <p className="mt-1 text-sm font-medium text-primary tabular">{usd(Number(usage?.cost?.actual_usd ?? 0))}</p>
             </div>
             <div>

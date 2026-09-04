@@ -479,8 +479,9 @@ export const DOC_CONTENT: Record<string, DocBody> = {
     content: (
       <>
         <P>
-          <Link href="/portal">/portal</Link> sums every routed completion on the account: routed spend, frontier
-          baseline, routing savings, cache savings. The console playground and the CLI both write receipts.
+          <Link href="/portal">/portal</Link> sums every completion on the account: estimated API spend, frontier
+          baseline, savings from cheaper models, and cache discounts. There is no routing fee — Promptimizer only
+          estimates provider cost. The console playground and the CLI both write receipts.
         </P>
         <P>GET /v1/savings with a pmz_live_ key returns the same totals.</P>
       </>

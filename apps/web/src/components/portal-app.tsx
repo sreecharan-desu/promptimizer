@@ -39,9 +39,9 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
         <div>
           <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Savings</h1>
           <p className="mt-2 max-w-xl text-secondary">
-            Routed spend versus always-frontier
+            Estimated provider spend versus always-frontier
             {user.name || user.email ? ` · ${user.name || user.email}` : ""}. Exact, prefix, and similarity cache —
-            plus a live quality gate.
+            plus a live quality gate. No routing fee — savings come from cheaper models and cache.
           </p>
         </div>
         <Pill tone={savings.requests ? "good" : "neutral"}>
@@ -58,7 +58,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
           <Sparkline values={savedSeries.length > 1 ? savedSeries : [0, savings.saved_usd || 0]} />
         </MetricCard>
 
-        <MetricCard label="Routed spend" value={usd(savings.actual_usd)} hint={`Baseline ${usd(savings.baseline_usd)}`}>
+        <MetricCard label="API spend" value={usd(savings.actual_usd)} hint={`Frontier baseline ${usd(savings.baseline_usd)}`}>
           <MiniBars values={costSeries.length ? costSeries.slice(-16) : [0.01, 0.02, 0.015]} />
         </MetricCard>
 
@@ -115,12 +115,12 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
           </div>
           <div className="mt-6 space-y-5">
             <SplitRow
-              label="Routing"
+              label="Cheaper model"
               value={usd(savings.routing_saved_usd)}
               share={savings.saved_usd ? (savings.routing_saved_usd / savings.saved_usd) * 100 : 0}
             />
             <SplitRow
-              label="Cache"
+              label="Cache discount"
               value={usd(savings.cache_saved_usd)}
               share={savings.saved_usd ? (savings.cache_saved_usd / savings.saved_usd) * 100 : 0}
             />
@@ -201,7 +201,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
                   <th className="px-4 py-3 font-medium">Model</th>
                   <th className="px-4 py-3 font-medium">Tier</th>
                   <th className="px-4 py-3 font-medium">Quality</th>
-                  <th className="px-4 py-3 font-medium">Routed</th>
+                  <th className="px-4 py-3 font-medium">API cost</th>
                   <th className="px-4 py-3 font-medium">Saved</th>
                   <th className="px-4 py-3 font-medium">Flags</th>
                 </tr>
