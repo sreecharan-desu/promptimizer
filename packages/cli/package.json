@@ -1,7 +1,7 @@
 {
   "name": "promptimizer-cli",
-  "version": "0.1.0",
-  "description": "Login, connect a provider, route prompts, and read savings.",
+  "version": "0.1.17",
+  "description": "Interactive Promptimizer CLI — Gemini-style REPL for quality-aware routing.",
   "type": "module",
   "bin": {
     "promptimizer": "./bin/promptimizer.mjs"

@@ -1,18 +1,37 @@
 #!/usr/bin/env node
 
+import { createInterface } from "node:readline/promises";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stdin as input, stdout as output } from "node:process";
 
 const DEFAULT_URL = process.env.PROMPTIMIZER_URL || "https://hackathon-omega-liart.vercel.app/api";
 const CONFIG_PATH = join(homedir(), ".promptimizer", "config.json");
 
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  magenta: "\x1b[35m",
+  gray: "\x1b[90m",
+  blue: "\x1b[34m",
+};
+
+const color = process.stdout.isTTY
+  ? (code, text) => `${code}${text}${ANSI.reset}`
+  : (_code, text) => text;
+
 const COMMANDS = [
+  ["", "Start interactive session (Gemini-style REPL)"],
   ["login", "Save a Promptimizer API key"],
   ["logout", "Remove the saved key"],
   ["connect", "Attach a model provider"],
-  ["chat", "Route a completion"],
+  ["chat", "Route one completion"],
   ["models", "List the connected fleet"],
   ["savings", "Show account savings"],
   ["providers", "List known provider URLs"],
@@ -24,10 +43,6 @@ const COMMAND_HELP = {
     "  promptimizer login --key <pmz_live_...>",
     "",
     "Save a key from /account. Stored in ~/.promptimizer/config.json.",
-    "",
-    "Options",
-    "  --key, -k     Promptimizer API key",
-    "  --url, -u     Gateway URL",
   ],
   logout: ["Usage", "  promptimizer logout", "", "Deletes ~/.promptimizer/config.json."],
   connect: [
@@ -35,54 +50,16 @@ const COMMAND_HELP = {
     "  promptimizer connect <provider> --key <vendor-key>",
     "  promptimizer connect custom --base-url <url> --key <vendor-key>",
     "  promptimizer connect simulator",
-    "",
-    "Attach a provider to the signed-in account. Known hosts do not need --base-url.",
-    "",
-    "Options",
-    "  --key, -k       Provider API key (or $BASETEN_API_KEY, $GROQ_API_KEY, …)",
-    "  --base-url      Required for custom",
-    "  --pmz           Promptimizer key (else the saved login)",
-    "  --url, -u       Gateway URL",
   ],
   chat: [
     "Usage",
-    '  promptimizer chat "<prompt>"',
+    '  promptimizer chat "What is 17 * 24?"',
     "",
-    "Route one completion through the connected provider.",
-    "",
-    "Options",
-    "  --prompt        Prompt text",
-    "  --pmz           Promptimizer key (else the saved login)",
-    "  --url, -u       Gateway URL",
+    "One-shot. Prefer bare `promptimizer` for a multi-turn session.",
   ],
-  models: [
-    "Usage",
-    "  promptimizer models",
-    "",
-    "List chat models on the current session.",
-    "",
-    "Options",
-    "  --url, -u       Gateway URL",
-  ],
-  savings: [
-    "Usage",
-    "  promptimizer savings",
-    "",
-    "Print routed spend versus the frontier baseline.",
-    "",
-    "Options",
-    "  --key, -k       Promptimizer API key",
-    "  --url, -u       Gateway URL",
-  ],
-  providers: [
-    "Usage",
-    "  promptimizer providers",
-    "",
-    "Print known provider ids and base URLs.",
-    "",
-    "Options",
-    "  --url, -u       Gateway URL",
-  ],
+  models: ["Usage", "  promptimizer models"],
+  savings: ["Usage", "  promptimizer savings"],
+  providers: ["Usage", "  promptimizer providers"],
 };
 
 function die(message, code = 1) {
@@ -149,23 +126,55 @@ function usd(value) {
   return Math.abs(n) >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
 }
 
-function help() {
-  const width = Math.max(...COMMANDS.map(([name]) => name.length));
-  out("Usage: promptimizer [--url <gateway>] <command> [options]");
+function printVersion() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(here, "../package.json"), "utf8"));
+  out(pkg.version);
+  return pkg.version;
+}
+
+function banner(session, version) {
+  const label = session?.label || "not connected";
+  const models = session?.models?.length ?? 0;
+  const baseline = session?.baseline_model || "—";
   out();
-  out("Route prompts through Promptimizer. Create a key at /account.");
+  out(color(ANSI.cyan, "     ██████╗ ███╗   ███╗███████╗"));
+  out(color(ANSI.cyan, "     ██╔══██╗████╗ ████║╚══███╔╝"));
+  out(color(ANSI.cyan, "     ██████╔╝██╔████╔██║  ███╔╝ "));
+  out(color(ANSI.cyan, "     ██╔═══╝ ██║╚██╔╝██║ ███╔╝  "));
+  out(color(ANSI.cyan, "     ██║     ██║ ╚═╝ ██║███████╗"));
+  out(color(ANSI.cyan, "     ╚═╝     ╚═╝     ╚═╝╚══════╝"));
+  out();
+  out(`  ${color(ANSI.bold, "Promptimizer")}  ${color(ANSI.dim, `v${version}`)}`);
+  out(`  ${color(ANSI.dim, "Quality-aware routing · OpenAI-compatible")}`);
+  out();
+  out(`  ${color(ANSI.green, "●")} ${label}${models ? ` · ${models} models` : ""}`);
+  out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
+  out();
+  out(`  ${color(ANSI.dim, "Type a prompt, or /help  /models  /savings  /clear  /quit")}`);
+  out();
+}
+
+function help() {
+  out("Usage: promptimizer [--url <gateway>] [command] [options]");
+  out();
+  out("  promptimizer                 Interactive session (REPL)");
+  out('  promptimizer chat "…"        One-shot completion');
   out();
   out("Commands");
-  for (const [name, desc] of COMMANDS) out(`  ${name.padEnd(width + 2)}${desc}`);
+  const width = Math.max(...COMMANDS.map(([name]) => name.length || 1));
+  for (const [name, desc] of COMMANDS) {
+    const label = name || "(default)";
+    out(`  ${label.padEnd(width + 4)}${desc}`);
+  }
   out();
   out("Global options");
   out("  --url, -u     Gateway URL (default: hosted app, or $PROMPTIMIZER_URL)");
   out("  --help, -h    Show help");
   out("  --version, -v Print version");
   out();
-  out("Run `promptimizer <command> --help` for command flags.");
-  out();
   out("Examples");
+  out("  promptimizer");
   out("  promptimizer login --key pmz_live_…");
   out("  promptimizer connect baseten --key $BASETEN_API_KEY");
   out('  promptimizer chat "What is 17 * 24?"');
@@ -197,7 +206,7 @@ async function request(path, { method = "GET", body, apiKey, sessionId, gatewayU
   if (!response.ok) {
     const detail =
       typeof data === "object" && data && "detail" in data ? String(data.detail) : response.statusText;
-    die(detail);
+    throw Object.assign(new Error(detail), { status: response.status });
   }
   return data;
 }
@@ -213,6 +222,44 @@ function requireKey(flags, config) {
   return String(apiKey);
 }
 
+function authFromConfig(flags, config) {
+  const apiKey = flags.pmz || process.env.PROMPTIMIZER_API_KEY || config.apiKey;
+  const sessionId = apiKey ? undefined : config.sessionId;
+  if (!apiKey && !sessionId) {
+    throw new Error("Not signed in. Run promptimizer login --key pmz_live_…");
+  }
+  return { apiKey, sessionId };
+}
+
+async function loadSession(flags, config) {
+  const gatewayURL = gateway(flags, config);
+  const { apiKey, sessionId } = authFromConfig(flags, config);
+  return request("/v1/session", { gatewayURL, apiKey, sessionId });
+}
+
+function printMeta(result) {
+  const meta = result.promptimizer ?? {};
+  const saved = result.usage?.cost?.saved_usd;
+  const bits = [meta.model || result.model, meta.tier].filter(Boolean);
+  if (saved != null) bits.push(`saved ${usd(saved)}`);
+  if (meta.cache_hit) bits.push("cache");
+  if (meta.escalated) bits.push("escalated");
+  if (meta.latency_ms != null) bits.push(`${Math.round(Number(meta.latency_ms))}ms`);
+  out(color(ANSI.dim, `  ↳ ${bits.join(" · ")}`));
+}
+
+async function complete(flags, config, messages) {
+  const gatewayURL = gateway(flags, config);
+  const { apiKey, sessionId } = authFromConfig(flags, config);
+  return request("/v1/chat/completions", {
+    method: "POST",
+    gatewayURL,
+    apiKey,
+    sessionId,
+    body: { messages },
+  });
+}
+
 async function cmdLogin(flags) {
   const apiKey = flags.key || flags.k || process.env.PROMPTIMIZER_API_KEY;
   if (!apiKey) die("Missing --key. Create one at /account.");
@@ -220,12 +267,12 @@ async function cmdLogin(flags) {
   const gatewayURL = gateway(flags, config);
   await request("/v1/session", { apiKey, gatewayURL });
   writeConfig({ ...config, gatewayURL, apiKey });
-  out(`Saved  ${gatewayURL}`);
+  out(`${color(ANSI.green, "✓")} Saved  ${gatewayURL}`);
 }
 
 function cmdLogout() {
   rmSync(CONFIG_PATH, { force: true });
-  out("Forgot saved key.");
+  out(`${color(ANSI.green, "✓")} Forgot saved key.`);
 }
 
 async function cmdProviders(flags) {
@@ -245,7 +292,9 @@ async function cmdConnect(flags, positional) {
   const gatewayURL = gateway(flags, config);
   const provider = String(flags.provider || positional[0] || "").trim();
   const baseURL = flags["base-url"] || flags.baseUrl;
-  if (!provider && !baseURL) die("Usage: promptimizer connect <provider>\n       promptimizer connect custom --base-url https://…");
+  if (!provider && !baseURL) {
+    die("Usage: promptimizer connect <provider>\n       promptimizer connect custom --base-url https://…");
+  }
 
   const mock = provider === "simulator" || provider === "mock";
   let vendorKey = flags.key || flags.k;
@@ -279,53 +328,34 @@ async function cmdConnect(flags, positional) {
   });
 
   writeConfig({ ...config, gatewayURL, apiKey, sessionId: session.session_id });
-  out(`${session.label}  ${session.base_url}`);
-  out(`${session.models.length} models · baseline ${session.baseline_model}`);
+  out(`${color(ANSI.green, "✓")} ${session.label}  ${session.base_url}`);
+  out(`  ${session.models.length} models · baseline ${session.baseline_model}`);
 }
 
 async function cmdChat(flags, positional) {
   const config = readConfig();
   const prompt = String(flags.prompt || positional.join(" ")).trim();
   if (!prompt) die('Usage: promptimizer chat "What is 17 * 24?"');
-  const gatewayURL = gateway(flags, config);
-  const apiKey = flags.pmz || process.env.PROMPTIMIZER_API_KEY || config.apiKey;
-  const sessionId = apiKey ? undefined : config.sessionId;
-  if (!apiKey && !sessionId) die("Run promptimizer login or promptimizer connect first.");
-
-  const result = await request("/v1/chat/completions", {
-    method: "POST",
-    gatewayURL,
-    apiKey,
-    sessionId,
-    body: { messages: [{ role: "user", content: prompt }] },
-  });
+  const result = await complete(flags, config, [{ role: "user", content: prompt }]);
   const text = result.choices?.[0]?.message?.content?.trim() ?? "";
-  const meta = result.promptimizer ?? {};
-  const saved = result.usage?.cost?.saved_usd;
   out();
   out(text);
   out();
-  const bits = [meta.model || result.model, meta.tier].filter(Boolean);
-  if (saved != null) bits.push(`saved ${usd(saved)}`);
-  if (meta.cache_hit) bits.push("cache");
-  if (meta.escalated) bits.push("escalated");
-  out(bits.join("  ·  "));
+  printMeta(result);
   out();
 }
 
 async function cmdModels(flags) {
   const config = readConfig();
   const gatewayURL = gateway(flags, config);
-  const apiKey = process.env.PROMPTIMIZER_API_KEY || config.apiKey;
-  const sessionId = apiKey ? undefined : config.sessionId;
-  if (!apiKey && !sessionId) die("Run promptimizer login or promptimizer connect first.");
+  const { apiKey, sessionId } = authFromConfig(flags, config);
   const data = await request("/v1/models", { gatewayURL, apiKey, sessionId });
   const models = data.data ?? [];
   const width = Math.max(8, ...models.map((model) => String(model.tier).length));
   out();
   for (const model of models) {
-    const mark = model.id === data.baseline_model ? "  baseline" : "";
-    out(`  ${String(model.tier).padEnd(width + 2)}${model.id}${mark}`);
+    const mark = model.id === data.baseline_model ? color(ANSI.yellow, "  baseline") : "";
+    out(`  ${color(ANSI.dim, String(model.tier).padEnd(width + 2))}${model.id}${mark}`);
   }
   out();
 }
@@ -335,7 +365,7 @@ async function cmdSavings(flags) {
   const apiKey = requireKey(flags, config);
   const data = await request("/v1/savings", { gatewayURL: gateway(flags, config), apiKey });
   out();
-  out(`${usd(data.saved_usd)} saved`);
+  out(`${color(ANSI.bold, usd(data.saved_usd))} saved  ${color(ANSI.dim, `(${Number(data.saved_pct || 0).toFixed(1)}%)`)}`);
   out();
   out(`  routed      ${usd(data.actual_usd)}`);
   out(`  baseline    ${usd(data.baseline_usd)}`);
@@ -345,10 +375,137 @@ async function cmdSavings(flags) {
   out();
 }
 
-function printVersion() {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const pkg = JSON.parse(readFileSync(join(here, "../package.json"), "utf8"));
-  out(pkg.version);
+async function interactive(flags) {
+  if (!input.isTTY || !output.isTTY) {
+    help();
+    return;
+  }
+
+  const config = readConfig();
+  const version = (() => {
+    try {
+      const here = dirname(fileURLToPath(import.meta.url));
+      return JSON.parse(readFileSync(join(here, "../package.json"), "utf8")).version;
+    } catch {
+      return "0.0.0";
+    }
+  })();
+
+  let session = null;
+  try {
+    session = await loadSession(flags, config);
+  } catch (error) {
+    banner(null, version);
+    out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+    out(color(ANSI.dim, "  Run: promptimizer login --key pmz_live_…"));
+    out();
+    return;
+  }
+
+  banner(session, version);
+
+  const rl = createInterface({ input, output, terminal: true });
+  const history = [];
+
+  const slashHelp = () => {
+    out();
+    out(`  ${color(ANSI.bold, "/help")}      this list`);
+    out(`  ${color(ANSI.bold, "/models")}    fleet + tiers`);
+    out(`  ${color(ANSI.bold, "/savings")}   account ledger`);
+    out(`  ${color(ANSI.bold, "/session")}   provider status`);
+    out(`  ${color(ANSI.bold, "/clear")}     clear chat history`);
+    out(`  ${color(ANSI.bold, "/quit")}      exit`);
+    out();
+  };
+
+  try {
+    while (true) {
+      let line;
+      try {
+        line = await rl.question(color(ANSI.cyan, "› "));
+      } catch {
+        break;
+      }
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      if (trimmed === "/quit" || trimmed === "/exit" || trimmed === "/q") break;
+
+      if (trimmed === "/help" || trimmed === "/?") {
+        slashHelp();
+        continue;
+      }
+
+      if (trimmed === "/clear") {
+        history.length = 0;
+        out(color(ANSI.dim, "  History cleared."));
+        out();
+        continue;
+      }
+
+      if (trimmed === "/session") {
+        try {
+          session = await loadSession(flags, readConfig());
+          out();
+          out(`  ${session.label} · ${session.mode}`);
+          out(`  ${session.base_url}`);
+          out(`  ${session.models.length} models · baseline ${session.baseline_model}`);
+          out();
+        } catch (error) {
+          out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        }
+        continue;
+      }
+
+      if (trimmed === "/models") {
+        try {
+          await cmdModels(flags);
+        } catch (error) {
+          out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        }
+        continue;
+      }
+
+      if (trimmed === "/savings") {
+        try {
+          await cmdSavings(flags);
+        } catch (error) {
+          out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        }
+        continue;
+      }
+
+      if (trimmed.startsWith("/")) {
+        out(color(ANSI.dim, "  Unknown command. Try /help"));
+        continue;
+      }
+
+      history.push({ role: "user", content: trimmed });
+      process.stdout.write(color(ANSI.dim, "  … routing\r"));
+      try {
+        const result = await complete(flags, readConfig(), history);
+        process.stdout.write("               \r");
+        const text = result.choices?.[0]?.message?.content?.trim() ?? "";
+        history.push({ role: "assistant", content: text });
+        out();
+        out(color(ANSI.magenta, "✦"));
+        out(text);
+        out();
+        printMeta(result);
+        out();
+      } catch (error) {
+        process.stdout.write("               \r");
+        history.pop();
+        out(color(ANSI.yellow, `  ${error instanceof Error ? error.message : String(error)}`));
+        out();
+      }
+    }
+  } finally {
+    rl.close();
+    out();
+    out(color(ANSI.dim, "  bye"));
+    out();
+  }
 }
 
 async function main() {
@@ -362,23 +519,29 @@ async function main() {
     else help();
     return;
   }
-  if (positional.length === 0) {
-    help();
+  if (flags.help || flags.h) {
+    if (positional[0]) commandHelp(positional[0]);
+    else help();
     return;
   }
 
-  const [command, ...rest] = positional;
-  if (flags.help || flags.h) {
-    commandHelp(command);
-    return;
+  if (positional.length === 0) {
+    return interactive(flags);
   }
-  if (command === "login") return cmdLogin(flags);
-  if (command === "logout") return cmdLogout();
-  if (command === "providers") return cmdProviders(flags);
-  if (command === "connect") return cmdConnect(flags, rest);
-  if (command === "chat") return cmdChat(flags, rest);
-  if (command === "models") return cmdModels(flags);
-  if (command === "savings") return cmdSavings(flags);
+
+  const [command, ...rest] = positional;
+  try {
+    if (command === "login") return await cmdLogin(flags);
+    if (command === "logout") return cmdLogout();
+    if (command === "providers") return await cmdProviders(flags);
+    if (command === "connect") return await cmdConnect(flags, rest);
+    if (command === "chat") return await cmdChat(flags, rest);
+    if (command === "models") return await cmdModels(flags);
+    if (command === "savings") return await cmdSavings(flags);
+    if (command === "repl" || command === "i") return await interactive(flags);
+  } catch (error) {
+    die(error instanceof Error ? error.message : String(error));
+  }
   die(`Unknown command "${command}". Run promptimizer --help.`);
 }
 
