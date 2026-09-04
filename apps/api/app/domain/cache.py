@@ -76,53 +76,60 @@ class PromptCache:
         except Exception:
             return None
 
-    def get(self, key: str) -> Any | None:
+    def _ns(self, key: str, owner: str | None = None) -> str:
+        scope = "".join(ch if ch.isalnum() or ch in ":_-" else "_" for ch in (owner or "anon"))[:96]
+        return f"pm:u:{scope or 'anon'}:cache:{key}"
+
+    def get(self, key: str, owner: str | None = None) -> Any | None:
+        full = self._ns(key, owner)
         if self.backend == "upstash":
-            raw = self._upstash("GET", f"pm:cache:{key}")
+            raw = self._upstash("GET", full)
             if raw is None:
                 self._misses += 1
                 return None
             self._hits += 1
             return json.loads(raw) if isinstance(raw, str) else raw
         if self._redis is not None:
-            raw = self._redis.get(f"pm:cache:{key}")
+            raw = self._redis.get(full)
             if raw is None:
                 self._misses += 1
                 return None
             self._hits += 1
             return json.loads(raw)
-        item = self._memory.get(key)
+        item = self._memory.get(full)
         if item is None or item[0] < time.time():
-            self._memory.pop(key, None)
+            self._memory.pop(full, None)
             self._misses += 1
             return None
         self._hits += 1
         return item[1]
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any, owner: str | None = None) -> None:
+        full = self._ns(key, owner)
         if self.backend == "upstash":
-            self._upstash("SET", f"pm:cache:{key}", json.dumps(value), "EX", str(self.ttl))
+            self._upstash("SET", full, json.dumps(value), "EX", str(self.ttl))
             return
         if self._redis is not None:
-            self._redis.setex(f"pm:cache:{key}", self.ttl, json.dumps(value))
+            self._redis.setex(full, self.ttl, json.dumps(value))
             return
-        self._memory[key] = (time.time() + self.ttl, value)
+        self._memory[full] = (time.time() + self.ttl, value)
 
-    def exists(self, key: str) -> bool:
+    def exists(self, key: str, owner: str | None = None) -> bool:
+        full = self._ns(key, owner)
         if self.backend == "upstash":
-            return bool(self._upstash("EXISTS", f"pm:cache:{key}"))
+            return bool(self._upstash("EXISTS", full))
         if self._redis is not None:
-            return bool(self._redis.exists(f"pm:cache:{key}"))
-        item = self._memory.get(key)
+            return bool(self._redis.exists(full))
+        item = self._memory.get(full)
         return bool(item and item[0] >= time.time())
 
-    def remember_prefix(self, digest: str) -> bool:
+    def remember_prefix(self, digest: str, owner: str | None = None) -> bool:
         """True if this system/context prefix has been seen (prompt-cache hit)."""
         key = f"prefix:{digest}"
-        if self.exists(key):
+        if self.exists(key, owner):
             self._hits += 1
             return True
-        self.set(key, {"seen": True})
+        self.set(key, {"seen": True}, owner)
         self._misses += 1
         return False
 

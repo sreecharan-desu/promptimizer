@@ -1,6 +1,6 @@
 import { classifyText, difficultyTier, type Classification } from "promptimizer";
 import { BENCHMARK, PRICING } from "./data";
-import { cacheGet, cacheRemember, cacheSet } from "./upstash";
+import { cacheGet, cacheRemember, cacheSet, userCacheKey } from "./upstash";
 import {
   buildHybridMessages,
   findSimilar,
@@ -727,8 +727,18 @@ export function routeChatStream(
           return;
         }
 
-        const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
-        const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
+        const owner = opts?.cacheOwner ?? session.id;
+        const exactKey = userCacheKey(
+          owner,
+          "exact",
+          JSON.stringify({ m: textMessages, model: routed.id }),
+        );
+        const promptKey = userCacheKey(
+          owner,
+          "prompt",
+          routed.id,
+          userPrompt.trim().toLowerCase().slice(0, 2000),
+        );
         const exactCached = await cacheGet<{
           choices?: Array<{ message?: { content?: string } }>;
           usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
@@ -874,6 +884,8 @@ export async function routeChat(
   },
   opts?: {
     qualityProfiles?: ModelQualityProfile[];
+    /** User id or session id — scopes exact/prompt/prefix/semantic cache per account. */
+    cacheOwner?: string;
     /**
      * Stream path already produced the completion. Skip cache reads so warming
      * keys for this same request does not falsely report exact/prompt hits.
@@ -885,6 +897,7 @@ export async function routeChat(
     };
   },
 ) {
+  const owner = opts?.cacheOwner ?? session.id;
   const textMessages = body.messages.map((m) => ({
     role: m.role,
     content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
@@ -935,7 +948,8 @@ export async function routeChat(
 
   const system = textMessages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
-  const prefixHit = prefixKey.length >= 40 ? await cacheRemember(`pm:prefix:${prefixKey}`) : false;
+  const prefixHit =
+    prefixKey.length >= 40 ? await cacheRemember(userCacheKey(owner, "prefix", prefixKey)) : false;
 
   const userPrompt =
     [...textMessages].reverse().find((m) => m.role === "user")?.content ?? prompt;
@@ -946,9 +960,9 @@ export async function routeChat(
   let promptHit = false;
   let payload: Awaited<ReturnType<typeof complete>> | undefined;
 
-  const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
+  const exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
   // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
-  const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
+  const promptKey = userCacheKey(owner, "prompt", routed.id, userPrompt.trim().toLowerCase().slice(0, 2000));
 
   const seeded = opts?.seededCompletion;
   if (seeded?.payload) {
@@ -965,7 +979,7 @@ export async function routeChat(
     }
 
     if (!payload) {
-      semantic = await findSimilar(userPrompt);
+      semantic = await findSimilar(userPrompt, owner);
       semanticMode = semantic?.mode ?? "miss";
 
       if (semantic?.mode === "full") {
@@ -1146,6 +1160,7 @@ export async function routeChat(
       model: routed.id,
       tier: routed.tier,
       quality: qualityFinal.score,
+      owner,
     });
   }
 

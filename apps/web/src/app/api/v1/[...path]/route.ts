@@ -199,6 +199,7 @@ async function handle(request: NextRequest, path: string[]) {
     if (joined === "chat/completions" && request.method === "POST") {
       const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
       const body = await request.json();
+      const cacheOwner = actor.user?.id ?? session.id;
       if (body.stream) {
         const record = async (result: Awaited<ReturnType<typeof routeChat>>) => {
           if (!actor.user) return;
@@ -246,7 +247,12 @@ async function handle(request: NextRequest, path: string[]) {
             /* receipts should not fail the completion */
           }
         };
-        const stream = routeChatStream(session, body, { qualityProfiles: profiles }, { onComplete: record });
+        const stream = routeChatStream(
+          session,
+          body,
+          { qualityProfiles: profiles, cacheOwner },
+          { onComplete: record },
+        );
         return new Response(stream, {
           headers: {
             "Content-Type": "text/event-stream; charset=utf-8",
@@ -256,7 +262,7 @@ async function handle(request: NextRequest, path: string[]) {
           },
         });
       }
-      const result = await routeChat(session, body, { qualityProfiles: profiles });
+      const result = await routeChat(session, body, { qualityProfiles: profiles, cacheOwner });
       if (actor.user) {
         const cost = result.usage.cost;
         const meta = result.promptimizer;

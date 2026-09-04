@@ -74,9 +74,10 @@ async def route_chat(
         raise RoutingError("No baseline / frontier model configured.")
 
     digest, prefix_tokens, _prefix = prefix_hash(messages)
-    prefix_hit = cache.remember_prefix(digest) if prefix_tokens else False
+    owner = session.id
+    prefix_hit = cache.remember_prefix(digest, owner) if prefix_tokens else False
     exact_key = completion_hash(messages, routed.id)
-    cached_completion = cache.get(f"exact:{exact_key}")
+    cached_completion = cache.get(f"exact:{exact_key}", owner)
 
     escalated = False
     if cached_completion:
@@ -84,7 +85,7 @@ async def route_chat(
         cache_hits = 1
     else:
         provider_payload = await _complete(session, routed.id, messages, classification, extra)
-        cache.set(f"exact:{exact_key}", provider_payload)
+        cache.set(f"exact:{exact_key}", provider_payload, owner)
         cache_hits = 0
 
         if get_settings().quality_guard:
@@ -97,7 +98,11 @@ async def route_chat(
                     provider_payload = await _complete(
                         session, routed.id, messages, classification, extra
                     )
-                    cache.set(f"exact:{completion_hash(messages, routed.id)}", provider_payload)
+                    cache.set(
+                        f"exact:{completion_hash(messages, routed.id)}",
+                        provider_payload,
+                        owner,
+                    )
 
     usage = provider_payload.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or estimate_tokens(str(messages)))

@@ -32,6 +32,17 @@ function ttl() {
   return Number(process.env.CACHE_TTL_SECONDS ?? 3600);
 }
 
+/** Sanitize owner id for Redis key segments (user id or session id). */
+export function cacheScope(owner?: string | null) {
+  const raw = (owner ?? "").trim() || "anon";
+  return raw.replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 96);
+}
+
+/** Per-user / per-session cache key — never share completions across accounts. */
+export function userCacheKey(owner: string | null | undefined, ...parts: string[]) {
+  return ["pm", "u", cacheScope(owner), ...parts].join(":");
+}
+
 export async function cacheGet<T>(key: string): Promise<T | undefined> {
   const remote = rest();
   if (remote) {

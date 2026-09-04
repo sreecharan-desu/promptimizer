@@ -1,4 +1,4 @@
-import { cacheGet, cacheSet } from "./upstash";
+import { cacheGet, cacheSet, userCacheKey } from "./upstash";
 
 export type SemanticEntry = {
   id: string;
@@ -19,8 +19,11 @@ export type SemanticMatch = {
   shared_ratio: number;
 };
 
-const INDEX_KEY = "pm:semantic:index";
 const DIM = 256;
+
+function indexKey(owner?: string | null) {
+  return userCacheKey(owner, "semantic", "index");
+}
 
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
@@ -127,20 +130,20 @@ export function extractNovelParts(prompt: string, cachedPrompt: string): { novel
   };
 }
 
-async function loadIndex(): Promise<SemanticEntry[]> {
-  const rows = (await cacheGet<SemanticEntry[]>(INDEX_KEY)) ?? [];
+async function loadIndex(owner?: string | null): Promise<SemanticEntry[]> {
+  const rows = (await cacheGet<SemanticEntry[]>(indexKey(owner))) ?? [];
   return Array.isArray(rows) ? rows : [];
 }
 
-async function saveIndex(rows: SemanticEntry[]) {
+async function saveIndex(owner: string | null | undefined, rows: SemanticEntry[]) {
   const max = Math.max(32, Number(process.env.SEMANTIC_CACHE_SIZE ?? 200) || 200);
-  await cacheSet(INDEX_KEY, rows.slice(-max));
+  await cacheSet(indexKey(owner), rows.slice(-max));
 }
 
-export async function findSimilar(prompt: string): Promise<SemanticMatch | null> {
+export async function findSimilar(prompt: string, owner?: string | null): Promise<SemanticMatch | null> {
   if (!semanticEnabled()) return null;
   const embedding = embedText(prompt);
-  const index = await loadIndex();
+  const index = await loadIndex(owner);
   if (!index.length) return null;
 
   let best: SemanticEntry | null = null;
@@ -174,6 +177,7 @@ export async function rememberSemantic(input: {
   model: string;
   tier: string;
   quality: number;
+  owner?: string | null;
 }) {
   if (!semanticEnabled()) return;
   if (!input.prompt.trim() || !input.answer.trim()) return;
@@ -187,9 +191,9 @@ export async function rememberSemantic(input: {
     quality: input.quality,
     created_at: Date.now(),
   };
-  const index = await loadIndex();
+  const index = await loadIndex(input.owner);
   index.push(entry);
-  await saveIndex(index);
+  await saveIndex(input.owner, index);
 }
 
 export function buildHybridMessages(
