@@ -452,7 +452,14 @@ function tokens(text: string) {
   return Math.max(1, Math.round(text.length / 4));
 }
 
-function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, completionTokens: number, cachedTokens: number) {
+function costOf(
+  routed: ModelInfo,
+  baseline: ModelInfo,
+  promptTokens: number,
+  completionTokens: number,
+  cachedTokens: number,
+  opts?: { fullReplay?: boolean },
+) {
   const routedP = enrichModel(routed);
   const baselineP = enrichModel(baseline);
   const rin = routedP.input_per_1m ?? 1;
@@ -461,9 +468,27 @@ function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, co
   const bout = baselineP.output_per_1m ?? 15;
   const cached = Math.min(cachedTokens, promptTokens);
   const fullRouted = (promptTokens / 1e6) * rin + (completionTokens / 1e6) * rout;
+  const baselineUsd = (promptTokens / 1e6) * bin + (completionTokens / 1e6) * bout;
+
+  // Exact / prompt / semantic-full hits never call the provider — bill $0 API and
+  // put the avoided model cost in cache_discount (not fake live spend).
+  if (opts?.fullReplay) {
+    const routingSaved = Math.max(0, baselineUsd - fullRouted);
+    return {
+      actual_usd: 0,
+      baseline_usd: baselineUsd,
+      saved_usd: baselineUsd,
+      saved_pct: baselineUsd ? 100 : 0,
+      routing_saved_usd: routingSaved,
+      cache_discount_usd: fullRouted,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      cached_tokens: promptTokens + completionTokens,
+    };
+  }
+
   const actual =
     ((promptTokens - cached) / 1e6) * rin + (cached / 1e6) * rin * 0.5 + (completionTokens / 1e6) * rout;
-  const baselineUsd = (promptTokens / 1e6) * bin + (completionTokens / 1e6) * bout;
   const saved = Math.max(0, baselineUsd - actual);
   return {
     actual_usd: actual,
@@ -1069,7 +1094,11 @@ export async function routeChat(
 
   const promptTokens = payload.usage?.prompt_tokens ?? tokens(prompt);
   const completionTokens = payload.usage?.completion_tokens ?? tokens(text);
-  const cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0);
+  // Full answer reuse (exact / prompt / semantic-full) → $0 API. Hybrid still calls the provider.
+  const fullReplay = exactHit || promptHit || semanticMode === "full";
+  const cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0, {
+    fullReplay,
+  });
   const qualityAfter = runQualityGate({
     answer: text,
     prompt: userPrompt,
@@ -1098,8 +1127,8 @@ export async function routeChat(
   };
 
   const semanticHit = semanticMode === "full" || semanticMode === "hybrid";
-  // Answer reuse only — prefix billing discount is separate (prefix_cache_hit).
-  const anyCacheHit = exactHit || promptHit || semanticMode === "full" || semanticMode === "hybrid";
+  // Answer served from cache (no provider generation for the final text). Hybrid still calls the model.
+  const anyCacheHit = exactHit || promptHit || semanticMode === "full";
 
   session.stats.requests += 1;
   session.stats.actual_usd += cost.actual_usd;
