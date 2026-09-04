@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, recordUsage, saveProvider, savingsForUser, userFromApiKey } from "@/server/account";
+import {
+  getCurrentUser,
+  loadQualityProfiles,
+  recordRoutingEvent,
+  recordUsage,
+  saveProvider,
+  saveQualityProfiles,
+  savingsForUser,
+  userFromApiKey,
+} from "@/server/account";
 import { authConfigured } from "@/server/db";
 import { classifyText, publicCatalog, resolveBaseURL } from "promptimizer";
 import {
@@ -163,7 +172,8 @@ async function handle(request: NextRequest, path: string[]) {
       return NextResponse.json(await savingsForUser(actor.user.id));
     }
     if (joined === "chat/completions" && request.method === "POST") {
-      const result = await routeChat(session, await request.json());
+      const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
+      const result = await routeChat(session, await request.json(), { qualityProfiles: profiles });
       if (actor.user) {
         const cost = result.usage.cost;
         const meta = result.promptimizer;
@@ -184,6 +194,20 @@ async function handle(request: NextRequest, path: string[]) {
                   ? Number((meta.quality as { score: number }).score)
                   : null,
             });
+            await recordRoutingEvent(actor.user.id, {
+              request_id: String(meta.request_id ?? ""),
+              policy: String(meta.routing_policy ?? "bootstrap_heuristic"),
+              selected_model: String(meta.initial_model ?? meta.model ?? ""),
+              final_model: String(meta.final_model ?? meta.model ?? ""),
+              estimated_cost_usd: meta.estimated_cost_usd == null ? null : Number(meta.estimated_cost_usd),
+              actual_cost_usd: cost.actual_usd,
+              estimated_quality: meta.estimated_quality == null ? null : Number(meta.estimated_quality),
+              cache_hit: Boolean(meta.cache_hit),
+              escalated: Boolean(meta.escalated),
+              escalation_reason: meta.escalation_reason ? String(meta.escalation_reason) : null,
+              rejected: meta.rejected,
+              rationale: meta.rationale ? String(meta.rationale) : null,
+            });
           } catch {
             /* receipts should not fail the completion */
           }
@@ -192,7 +216,16 @@ async function handle(request: NextRequest, path: string[]) {
       return NextResponse.json(result);
     }
     if (joined === "benchmark/run" && request.method === "POST") {
-      return NextResponse.json(await runBenchmark(session));
+      const bench = await runBenchmark(session);
+      if (actor.user && Array.isArray(bench.quality_profiles) && bench.quality_profiles.length) {
+        try {
+          await saveQualityProfiles(actor.user.id, bench.quality_profiles, bench.benchmark_id);
+          if (actor.user) await saveProvider(actor.user.id, session);
+        } catch {
+          /* profile persistence is best-effort */
+        }
+      }
+      return NextResponse.json(bench);
     }
     if (joined === "analytics" && request.method === "GET") {
       const stats = session.stats;

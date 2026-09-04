@@ -2,7 +2,7 @@
 
 Quality-aware LLM routing for any OpenAI-compatible key.
 
-Promptimizer sits in front of a cheap model and a frontier model (real providers or the built-in simulator). It classifies each request, routes it to the cheapest adequate tier, caches repeated system/context prefixes, and reports **cost saved versus always-frontier** on a fixed benchmark — together with a **quality score**, so savings that come from silently worse answers are visible.
+Promptimizer sits in front of a cheap model and a frontier model (real providers or the built-in simulator). It classifies each request, extracts capability requirements, filters incompatible models, and — when benchmark-derived **ModelQualityProfile** data exists — picks the **cheapest model that clears the quality threshold**. Otherwise it uses a labeled **bootstrap heuristic** (tier by `P(quality|small)`). It caches repeated system/context prefixes and reports **cost saved versus always-frontier** on a fixed benchmark — together with a **quality score**, so savings that come from silently worse answers are visible.
 
 **BYOK.** Paste a key for a known host (OpenAI, Groq, Baseten, OpenRouter, …). We already have the base URL. Custom is the only case that asks for one. We fetch `/v1/models`, auto-tier them, and route. Savings land on `/portal` and in the CLI.
 
@@ -32,7 +32,8 @@ flowchart LR
   subgraph Promptimizer
     GW[FastAPI or Vercel /api/v1]
     C[Classifier L1-L5]
-    R[Tier router]
+    Req[Requirements + capabilities]
+    R[Quality-aware cost router]
     K[Prompt cache]
     Q[Quality gate]
   end
@@ -47,7 +48,7 @@ flowchart LR
   CLI --> GW
   SDK --> GW
   OpenAI --> GW
-  GW --> C --> R
+  GW --> C --> Req --> R
   R --> K
   K --> Eco
   K --> Std
@@ -57,15 +58,36 @@ flowchart LR
   Q -->|degraded| Fr
 ```
 
+## Optimizer core integration
+
+Domain logic from the LLM Cost Optimizer reference (`references/llm-cost-optimizer/`) was adapted into the existing app — not copied as a second product:
+
+| Concept | Where it lives |
+| --- | --- |
+| ModelProfile, pricing, requirements, capability filter, quality-aware choose | [`apps/web/src/server/optimizer/`](apps/web/src/server/optimizer/) |
+| Live `routeChat` + bootstrap fallback | [`apps/web/src/server/engine.ts`](apps/web/src/server/engine.ts) |
+| Quality profiles + routing events (Postgres) | [`apps/web/src/server/db.ts`](apps/web/src/server/db.ts) schema_v4 |
+| FastAPI twin schemas/router helpers | [`apps/api/app/domain/optimizer/`](apps/api/app/domain/optimizer/) |
+
+**Routing policy**
+
+1. `quality_profile` — after a benchmark run persists per-model scores, live chat selects the cheapest known-price model that passes capability + `MIN_QUALITY`.
+2. `bootstrap_heuristic` — until profiles exist (or no eligible candidate), use the existing tier/`p_small_quality` picker. Meta always labels which policy ran.
+
+**Deferred (not forced into the hot path):** LangGraph, LangChain wrappers, Qdrant semantic cache, Ragas, LangSmith. Exact/prefix cache remains Upstash/Redis.
+
 ## Monorepo
 
 ```
-apps/api          FastAPI gateway, classifier, cache, benchmark
-apps/web          Next.js marketing + console + /docs
+apps/api          FastAPI gateway, classifier, cache, benchmark, optimizer twin
+apps/web          Next.js marketing + console + auth + production /api/v1
 apps/docs         Mintlify source (same IA as /docs)
 packages/sdk      promptimizer npm package
 packages/cli      promptimizer binary (login, connect, chat, savings)
-docs/             Internal notes (architecture, API, SDK)
+docs/             Internal notes (architecture, API, SDK, optimizer)
+references/       Optimizer ZIP + notebook (reference only — not runtime)
+scripts/          Publish helpers
+STRUCTURE.md      Full directory map
 ```
 
 ## Run locally

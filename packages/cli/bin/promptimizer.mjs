@@ -242,11 +242,12 @@ function printMeta(result) {
   const meta = result.promptimizer ?? {};
   const saved = result.usage?.cost?.saved_usd;
   const bits = [meta.model || result.model, meta.tier].filter(Boolean);
+  if (meta.routing_policy) bits.push(String(meta.routing_policy));
   if (saved != null) bits.push(`saved ${usd(saved)}`);
   if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
   else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
   else if ("cache_hit" in meta) bits.push(color(ANSI.gray, "miss"));
-  if (meta.escalated) bits.push("escalated");
+  if (meta.escalated) bits.push(meta.escalation_reason ? `escalated:${meta.escalation_reason}` : "escalated");
   if (meta.latency_ms != null) bits.push(`${Math.round(Number(meta.latency_ms))}ms`);
   out(color(ANSI.dim, `  ↳ ${bits.join(" · ")}`));
 }

@@ -1,0 +1,21 @@
+providers:
+  - provider_id: openai
+    display_name: OpenAI
+    base_url: https://api.openai.com/v1
+    protocol: openai_compatible
+  - provider_id: groq
+    display_name: Groq
+    base_url: https://api.groq.com/openai/v1
+    protocol: openai_compatible
+  - provider_id: together
+    display_name: Together AI
+    base_url: https://api.together.xyz/v1
+    protocol: openai_compatible
+  - provider_id: openrouter
+    display_name: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    protocol: openai_compatible
+  - provider_id: deepseek
+    display_name: DeepSeek
+    base_url: https://api.deepseek.com/v1
+    protocol: openai_compatible

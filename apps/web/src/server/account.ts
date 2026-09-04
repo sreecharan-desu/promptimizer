@@ -394,3 +394,116 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
     recent: recent.map(eventFromRow),
   };
 }
+
+export type StoredQualityProfile = {
+  model_id: string;
+  overall_quality: number;
+  reasoning_quality: number;
+  coding_quality: number;
+  extraction_quality: number;
+  factual_quality: number;
+  source_benchmark_id: string | null;
+  updated_at: string;
+};
+
+export async function saveQualityProfiles(
+  userId: string,
+  profiles: Array<{
+    model_id: string;
+    overall_quality: number;
+    reasoning_quality: number;
+    coding_quality: number;
+    extraction_quality: number;
+    factual_quality: number;
+    source_benchmark_id?: string | null;
+  }>,
+  sourceBenchmarkId?: string,
+) {
+  if (!authConfigured() || !profiles.length) return;
+  await ensureSchema();
+  const sql = getSql();
+  const bench = sourceBenchmarkId ?? profiles[0]?.source_benchmark_id ?? null;
+  for (const p of profiles) {
+    await sql`
+      INSERT INTO model_quality_profiles (
+        id, user_id, model_id, overall_quality, reasoning_quality, coding_quality,
+        extraction_quality, factual_quality, source_benchmark_id, updated_at
+      )
+      VALUES (
+        ${newId("mqp")}, ${userId}, ${p.model_id},
+        ${p.overall_quality}, ${p.reasoning_quality}, ${p.coding_quality},
+        ${p.extraction_quality}, ${p.factual_quality},
+        ${p.source_benchmark_id ?? bench}, now()
+      )
+      ON CONFLICT (user_id, model_id) DO UPDATE SET
+        overall_quality = EXCLUDED.overall_quality,
+        reasoning_quality = EXCLUDED.reasoning_quality,
+        coding_quality = EXCLUDED.coding_quality,
+        extraction_quality = EXCLUDED.extraction_quality,
+        factual_quality = EXCLUDED.factual_quality,
+        source_benchmark_id = EXCLUDED.source_benchmark_id,
+        updated_at = now()
+    `;
+  }
+}
+
+export async function loadQualityProfiles(userId: string): Promise<StoredQualityProfile[]> {
+  if (!authConfigured()) return [];
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT model_id, overall_quality, reasoning_quality, coding_quality,
+           extraction_quality, factual_quality, source_benchmark_id, updated_at
+    FROM model_quality_profiles
+    WHERE user_id = ${userId}
+  `;
+  return rows.map((row) => {
+    const r = asRecord(row);
+    return {
+      model_id: String(r.model_id),
+      overall_quality: num(r.overall_quality),
+      reasoning_quality: num(r.reasoning_quality),
+      coding_quality: num(r.coding_quality),
+      extraction_quality: num(r.extraction_quality),
+      factual_quality: num(r.factual_quality),
+      source_benchmark_id: r.source_benchmark_id == null ? null : String(r.source_benchmark_id),
+      updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+    };
+  });
+}
+
+export async function recordRoutingEvent(
+  userId: string,
+  event: {
+    request_id: string;
+    policy: string;
+    selected_model: string;
+    final_model: string;
+    estimated_cost_usd?: number | null;
+    actual_cost_usd?: number | null;
+    estimated_quality?: number | null;
+    cache_hit: boolean;
+    escalated: boolean;
+    escalation_reason?: string | null;
+    rejected?: unknown;
+    rationale?: string | null;
+  },
+) {
+  if (!authConfigured()) return;
+  await ensureSchema();
+  await getSql()`
+    INSERT INTO routing_events (
+      id, user_id, request_id, policy, selected_model, final_model,
+      estimated_cost_usd, actual_cost_usd, estimated_quality,
+      cache_hit, escalated, escalation_reason, rejected_json, rationale
+    )
+    VALUES (
+      ${newId("rte")}, ${userId}, ${event.request_id}, ${event.policy},
+      ${event.selected_model}, ${event.final_model},
+      ${event.estimated_cost_usd ?? null}, ${event.actual_cost_usd ?? null},
+      ${event.estimated_quality ?? null},
+      ${event.cache_hit}, ${event.escalated}, ${event.escalation_reason ?? null},
+      ${event.rejected ? JSON.stringify(event.rejected) : null},
+      ${event.rationale ?? null}
+    )
+  `;
+}

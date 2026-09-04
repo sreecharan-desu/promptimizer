@@ -9,6 +9,7 @@ from app.domain.cache import cache, completion_hash, prefix_hash
 from app.domain.catalog import Fleet, ModelInfo
 from app.domain.classifier import Classification, classify_messages, complexity_from_override
 from app.domain.costing import compute_cost, estimate_tokens
+from app.domain.optimizer.requirements import extract_requirements
 from app.domain.quality import looks_degraded, score_answer
 from app.providers import openai_compat
 from app.providers.mock import mock_complete
@@ -59,10 +60,13 @@ async def route_chat(
     classification = (
         complexity_from_override(level_override) if level_override else classify_messages(messages)
     )
+    requirements = extract_requirements(messages, extra)
     fleet = session.fleet_obj()
     routed = fleet.by_id(model_hint) if model_hint and model_hint not in {"auto", "promptimizer"} else None
+    routing_policy = "bootstrap_heuristic"
     if routed is None:
         routed = pick_model(fleet, classification)
+    initial_model = routed
     baseline = fleet.frontier()
     if baseline is None:
         raise RoutingError("No baseline / frontier model configured.")
@@ -140,7 +144,11 @@ async def route_chat(
         "uncertainty": classification.uncertainty,
         "tier": routed.tier,
         "model": routed.id,
+        "initial_model": initial_model.id,
+        "final_model": routed.id,
         "baseline_model": baseline.id,
+        "routing_policy": routing_policy,
+        "requirements": requirements.model_dump(),
         "cache_hit": bool(cached_completion) or prefix_hit,
         "prefix_cache_hit": prefix_hit,
         "exact_cache_hit": bool(cached_completion),

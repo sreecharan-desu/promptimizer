@@ -11,6 +11,10 @@ export type Session = {
     tier: "economy" | "standard" | "frontier";
     source?: string;
     selected?: boolean;
+    context_length?: number | null;
+    pricing_known?: boolean;
+    overall_quality?: number | null;
+    supported_features?: string[];
   }>;
   baseline_model: string | null;
   stats: Record<string, number>;

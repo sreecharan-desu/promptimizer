@@ -1,6 +1,16 @@
 import { classifyText, difficultyTier, type Classification } from "promptimizer";
 import { BENCHMARK, PRICING } from "./data";
 import { cacheGet, cacheRemember, cacheSet } from "./upstash";
+import {
+  aggregateQualityProfiles,
+  buildPricing,
+  chooseModel,
+  extractRequirements,
+  normalizeModel,
+  type ModelProfile,
+  type ModelQualityProfile,
+  type RoutingDecision,
+} from "./optimizer";
 
 export type Tier = "economy" | "standard" | "frontier";
 
@@ -12,6 +22,13 @@ export type ModelInfo = {
   tier: Tier;
   source: string;
   selected: boolean;
+  context_length?: number | null;
+  max_completion_tokens?: number | null;
+  pricing_known?: boolean;
+  supported_features?: string[];
+  input_modalities?: string[];
+  description?: string | null;
+  overall_quality?: number | null;
 };
 
 export type Session = {
@@ -70,25 +87,61 @@ function cheapest(models: ModelInfo[], tier?: Tier) {
   return pool.sort((a, b) => blend(a) - blend(b))[0];
 }
 
-function fleetFrom(raw: Array<{ id?: string; name?: string; owned_by?: string }>): ModelInfo[] {
-  return raw
-    .map((item) => item.id ?? item.name ?? "")
-    .filter((mid) => mid && !/(embed|whisper|tts|dall|image|moderation)/i.test(mid))
-    .filter((mid, i, arr) => arr.indexOf(mid) === i)
-    .map((mid) => {
-      const priced = lookupPrice(mid);
-      const { tier, source } = inferTier(mid);
-      return {
-        id: mid,
-        owned_by: "provider",
-        input_per_1m: priced?.input ?? null,
-        output_per_1m: priced?.output ?? null,
-        tier,
-        source,
-        selected: true,
-      };
-    })
-    .sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b));
+function fleetFrom(
+  raw: Array<Record<string, unknown>>,
+  providerId = "provider",
+): ModelInfo[] {
+  const models: ModelInfo[] = [];
+  for (const item of raw) {
+    const mid = String(item.id ?? item.name ?? "");
+    if (!mid || /(embed|whisper|tts|dall|image|moderation)/i.test(mid)) continue;
+    if (models.some((m) => m.id === mid)) continue;
+    const priced = lookupPrice(mid);
+    const { tier, source } = inferTier(mid);
+    const profile = normalizeModel(item as Parameters<typeof normalizeModel>[0], providerId, priced);
+    models.push({
+      id: mid,
+      owned_by: String(item.owned_by ?? providerId),
+      input_per_1m: profile.pricing?.prompt
+        ? profile.pricing.prompt.usd_per_token * 1_000_000
+        : priced?.input ?? null,
+      output_per_1m: profile.pricing?.completion
+        ? profile.pricing.completion.usd_per_token * 1_000_000
+        : priced?.output ?? null,
+      tier,
+      source: profile.pricing?.known && !priced ? "provider" : source,
+      selected: true,
+      context_length: profile.context_length,
+      max_completion_tokens: profile.max_completion_tokens,
+      pricing_known: Boolean(profile.pricing?.known),
+      supported_features: profile.supported_features,
+      input_modalities: profile.input_modalities,
+      description: profile.description,
+      overall_quality: null,
+    });
+  }
+  return models.sort(
+    (a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b),
+  );
+}
+
+function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
+  return {
+    provider_id: providerId,
+    model_id: model.id,
+    display_name: model.id,
+    description: model.description ?? null,
+    context_length: model.context_length ?? null,
+    max_completion_tokens: model.max_completion_tokens ?? null,
+    pricing: buildPricing({
+      prompt_per_1m: model.input_per_1m,
+      completion_per_1m: model.output_per_1m,
+    }),
+    supported_features: model.supported_features ?? [],
+    supported_sampling_parameters: [],
+    input_modalities: model.input_modalities?.length ? model.input_modalities : ["text"],
+    output_modalities: ["text"],
+  };
 }
 
 function publicSession(session: Session) {
@@ -149,8 +202,8 @@ export async function createByokSession(
     throw Object.assign(new Error(`Provider rejected the key (${response.status})`), { status: response.status });
   }
   const payload = await response.json();
-  const raw = Array.isArray(payload) ? payload : payload.data ?? [];
-  const models = fleetFrom(raw);
+  const raw = (Array.isArray(payload) ? payload : payload.data ?? []) as Array<Record<string, unknown>>;
+  const models = fleetFrom(raw, "byok");
   if (!models.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
   const frontier = cheapest(models, "frontier") ?? models[models.length - 1];
   const session: Session = {
@@ -318,9 +371,23 @@ async function complete(
 
 export async function routeChat(
   session: Session,
-  body: { messages: Array<{ role: string; content: string }>; model?: string; level_override?: number },
+  body: {
+    messages: Array<{ role: string; content: unknown }>;
+    model?: string;
+    level_override?: number;
+    tools?: unknown[];
+    functions?: unknown[];
+    response_format?: { type?: string } | null;
+    max_tokens?: number;
+    max_completion_tokens?: number;
+  },
+  opts?: { qualityProfiles?: ModelQualityProfile[] },
 ) {
-  const prompt = body.messages.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
+  const textMessages = body.messages.map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
+  }));
+  const prompt = textMessages.map((m) => m.content).join("\n");
   const started = Date.now();
   const classification = classifyText(prompt);
   if (body.level_override) {
@@ -329,40 +396,88 @@ export async function routeChat(
     classification.p_small_quality = body.level_override <= 2 ? 0.94 : body.level_override === 3 ? 0.8 : 0.45;
   }
 
-  let routed = pick(session, classification, body.model);
+  const requirements = extractRequirements(body);
+  const profiles = opts?.qualityProfiles ?? [];
+  const profileMap = new Map(profiles.map((p) => [p.model_id, p]));
+  const selectedModels = session.models.filter((m) => m.selected).map((m) => toProfile(m));
+
+  let decision: RoutingDecision | null = null;
+  let routed: ModelInfo | undefined;
+  let routingPolicy: RoutingDecision["policy"] | "bootstrap_heuristic" = "bootstrap_heuristic";
+
+  if (body.model && body.model !== "auto" && body.model !== "promptimizer") {
+    routed = session.models.find((m) => m.id === body.model);
+    routingPolicy = "bootstrap_heuristic";
+  } else {
+    decision = chooseModel({
+      models: selectedModels,
+      requirements,
+      qualityProfiles: profileMap,
+      expectedInputTokens: Math.max(64, Math.round(prompt.length / 4)),
+      expectedOutputTokens: Math.max(128, requirements.minimum_output_tokens || 256),
+    });
+    if (decision) {
+      routingPolicy = decision.policy;
+      routed = session.models.find((m) => m.id === decision!.selected_model_id);
+    }
+  }
+
+  if (!routed) {
+    routed = pick(session, classification, body.model);
+    routingPolicy = "bootstrap_heuristic";
+  }
   if (!routed) throw Object.assign(new Error("No selected models."), { status: 400 });
+
+  const initialModel = routed;
   const baseline = session.models.find((m) => m.id === session.baseline_model) ?? routed;
 
-  const system = body.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const system = textMessages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
   const prefixHit = prefixKey.length >= 40 ? await cacheRemember(`pm:prefix:${prefixKey}`) : false;
 
-  const exactKey = `pm:exact:${JSON.stringify({ m: body.messages, model: routed.id })}`;
+  const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
   let payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
   const exactHit = Boolean(payload);
   if (!payload) {
-    payload = await complete(session, routed.id, body.messages, classification);
+    payload = await complete(session, routed.id, textMessages, classification);
     await cacheSet(exactKey, payload);
   }
 
   let escalated = false;
+  let escalationReason: string | null = null;
   let text = payload.choices?.[0]?.message?.content ?? "";
+  const structuredFail =
+    requirements.requires_structured_output &&
+    (() => {
+      try {
+        JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, ""));
+        return false;
+      } catch {
+        return true;
+      }
+    })();
   const shouldEscalate =
     !exactHit &&
     (!text.trim() ||
       text.trim().length < 24 ||
+      structuredFail ||
       /i don't know|too complex|as a small model|can't help with that|cannot help with that/i.test(text));
   if (shouldEscalate) {
-    const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed.tier) + 1];
+    escalationReason = structuredFail
+      ? "structured_output_validation_failed"
+      : !text.trim() || text.trim().length < 24
+        ? "thin_or_empty_answer"
+        : "refusal_or_degraded_heuristic";
+    const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed!.tier) + 1];
     const upgrade = nextTier
       ? cheapest(session.models, nextTier)
       : cheapest(
-          session.models.filter((m) => TIER_ORDER.indexOf(m.tier) > TIER_ORDER.indexOf(routed.tier)),
+          session.models.filter((m) => TIER_ORDER.indexOf(m.tier) > TIER_ORDER.indexOf(routed!.tier)),
         );
     if (upgrade && upgrade.id !== routed.id) {
       escalated = true;
       routed = upgrade;
-      payload = await complete(session, routed.id, body.messages, classification);
+      payload = await complete(session, routed.id, textMessages, classification);
       text = payload.choices?.[0]?.message?.content ?? "";
     }
   }
@@ -380,12 +495,18 @@ export async function routeChat(
   session.stats.escalations += escalated ? 1 : 0;
   session.stats.quality_fails += quality.degraded ? 1 : 0;
 
+  const rationale =
+    decision?.rationale ??
+    `Bootstrap heuristic: complexity L${classification.complexity}, recommended ${classification.recommended_tier}, chose ${initialModel.id}` +
+      (escalated ? ` then escalated to ${routed.id} (${escalationReason}).` : ".");
+
   return {
     ...payload,
     model: routed.id,
     usage: { ...payload.usage, prompt_tokens: promptTokens, completion_tokens: completionTokens, cost },
     promptimizer: {
       session_id: session.id,
+      request_id: `req_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`,
       complexity: classification.complexity,
       category: classification.category,
       confidence: classification.confidence,
@@ -393,15 +514,26 @@ export async function routeChat(
       uncertainty: classification.uncertainty,
       tier: routed.tier,
       model: routed.id,
+      initial_model: initialModel.id,
+      final_model: routed.id,
       baseline_model: baseline.id,
+      routing_policy: routingPolicy,
+      requirements,
+      rejected: decision?.rejected ?? [],
+      quality_ineligible: decision?.quality_ineligible ?? [],
+      pricing_unknown: decision?.pricing_unknown ?? [],
+      estimated_cost_usd: decision?.estimated_cost_usd ?? null,
+      estimated_quality: decision?.estimated_quality ?? null,
       cache_hit: exactHit || prefixHit,
       prefix_cache_hit: prefixHit,
       exact_cache_hit: exactHit,
       escalated,
+      escalation_reason: escalated ? escalationReason : null,
+      escalation_count: escalated ? 1 : 0,
       quality_gate: quality.degraded ? "fail" : "pass",
       quality,
       latency_ms: Date.now() - started,
-      rationale: classification.rationale,
+      rationale,
     },
   };
 }
@@ -471,6 +603,8 @@ export async function runBenchmark(session: Session) {
   };
   const prefixTokens = tokens(POLICY_PREFIX);
   const rows = [];
+  const qualitySamples: Array<{ model_id: string; category: string; score: number }> = [];
+  const benchmarkId = `bench_${Date.now().toString(36)}`;
 
   for (const [index, task] of BENCHMARK.entries()) {
     const clf = classifyText(task.prompt);
@@ -497,12 +631,14 @@ export async function runBenchmark(session: Session) {
         const t0 = Date.now();
         const payload = await complete(session, model.id, messages, clf, { max_tokens: 320 });
         const text = payload.choices?.[0]?.message?.content ?? "";
+        const quality = scoreAnswer(text, task.gold, task.must_include, task.difficulty);
+        qualitySamples.push({ model_id: model.id, category: task.category, score: quality.score });
         byModel.set(model.id, {
           model,
           text,
           tokensIn: payload.usage?.prompt_tokens ?? tokens(task.prompt),
           tokensOut: payload.usage?.completion_tokens ?? tokens(text),
-          quality: scoreAnswer(text, task.gold, task.must_include, task.difficulty),
+          quality,
           latency: Date.now() - t0,
         });
       }),
@@ -598,10 +734,17 @@ export async function runBenchmark(session: Session) {
   const frontierAvg =
     policies.always_frontier.qualities.reduce((a, b) => a + b, 0) / Math.max(1, policies.always_frontier.qualities.length);
   const qualityCache = rollup(policies.quality_cache, n, frontierAvg);
+  const quality_profiles = aggregateQualityProfiles(qualitySamples, benchmarkId);
+  for (const profile of quality_profiles) {
+    const model = session.models.find((m) => m.id === profile.model_id);
+    if (model) model.overall_quality = profile.overall_quality;
+  }
 
   return {
     name: "Promptimizer Fixed Task Set",
     tasks: n,
+    benchmark_id: benchmarkId,
+    evaluator: "deterministic_scoreAnswer",
     policies: {
       always_frontier: rollup(policies.always_frontier, n, frontierAvg),
       difficulty: rollup(policies.difficulty, n, frontierAvg),
@@ -629,6 +772,7 @@ export async function runBenchmark(session: Session) {
       frontier_direct: qualityCache.frontier_direct,
       successful_escalations: qualityCache.successful_escalations,
     },
+    quality_profiles,
     rows,
     session: publicSession(session),
   };
@@ -637,8 +781,20 @@ export async function runBenchmark(session: Session) {
 export async function sessionForUser(userId: string): Promise<Session> {
   const sid = accountSessionId(userId);
   const cached = store.get(sid);
-  if (cached) return cached;
-  const { loadDefaultProvider } = await import("./account");
+  if (cached) {
+    try {
+      const { loadQualityProfiles } = await import("./account");
+      const profiles = await loadQualityProfiles(userId);
+      for (const p of profiles) {
+        const model = cached.models.find((m) => m.id === p.model_id);
+        if (model) model.overall_quality = p.overall_quality;
+      }
+    } catch {
+      /* ignore */
+    }
+    return cached;
+  }
+  const { loadDefaultProvider, loadQualityProfiles } = await import("./account");
   const saved = await loadDefaultProvider(userId);
   if (saved?.mode === "byok" && saved.api_key && Array.isArray(saved.models) && saved.models.length) {
     const session: Session = {
@@ -652,6 +808,15 @@ export async function sessionForUser(userId: string): Promise<Session> {
       created_at: Date.now() / 1000,
       stats: emptyStats(),
     };
+    try {
+      const profiles = await loadQualityProfiles(userId);
+      for (const p of profiles) {
+        const model = session.models.find((m) => m.id === p.model_id);
+        if (model) model.overall_quality = p.overall_quality;
+      }
+    } catch {
+      /* ignore */
+    }
     store.set(sid, session);
     return session;
   }

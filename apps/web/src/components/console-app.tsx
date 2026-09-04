@@ -493,6 +493,9 @@ function FleetPane({
               <th className="px-4 py-3 font-medium">Tier</th>
               <th className="px-4 py-3 font-medium">Input / 1M</th>
               <th className="px-4 py-3 font-medium">Output / 1M</th>
+              <th className="px-4 py-3 font-medium">Context</th>
+              <th className="px-4 py-3 font-medium">Price</th>
+              <th className="px-4 py-3 font-medium">Quality</th>
             </tr>
           </thead>
           <tbody>
@@ -517,6 +520,15 @@ function FleetPane({
                 </td>
                 <td className="px-4 py-3 text-secondary tabular">{model.input_per_1m ?? "—"}</td>
                 <td className="px-4 py-3 text-secondary tabular">{model.output_per_1m ?? "—"}</td>
+                <td className="px-4 py-3 text-secondary tabular">
+                  {model.context_length != null ? model.context_length.toLocaleString() : "—"}
+                </td>
+                <td className="px-4 py-3 text-secondary">
+                  {model.pricing_known === false ? "unknown" : model.input_per_1m != null ? "known" : "—"}
+                </td>
+                <td className="px-4 py-3 text-secondary tabular">
+                  {model.overall_quality != null ? `${Math.round(model.overall_quality * 100)}%` : "—"}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -647,8 +659,10 @@ function PlayPane({
                 }
               />
               <Row k="Cache" v={meta.cache_hit ? "hit" : "miss"} />
+              <Row k="Policy" v={String(meta.routing_policy ?? "bootstrap_heuristic")} />
               <Row k="P(quality|small)" v={meta.p_small_quality != null ? Number(meta.p_small_quality).toFixed(2) : "—"} />
               <Row k="Quality gate" v={String(meta.quality_gate)} />
+              {meta.escalated ? <Row k="Escalation" v={String(meta.escalation_reason ?? "yes")} /> : null}
               {quality != null ? (
                 <div>
                   <div className="flex justify-between text-secondary">

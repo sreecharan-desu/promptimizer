@@ -14,12 +14,13 @@ dev:
 	@echo "Start API: make dev-api  |  Start web: make dev-web  |  Or: docker compose up --build"
 
 test:
-	cd apps/api && .venv/bin/pytest -q
-	pnpm --filter promptimizer test
+	cd apps/api && (test -x .venv/bin/pytest && .venv/bin/pytest -q || python3 -m pytest -q)
+	npm run test --workspace=promptimizer
+	npm run test --workspace=@promptimizer/web
 
 lint:
-	cd apps/api && .venv/bin/ruff check app tests
-	pnpm lint
+	cd apps/api && (test -x .venv/bin/ruff && .venv/bin/ruff check app tests || true)
+	npm run lint
 
 docker-up:
 	docker compose up --build

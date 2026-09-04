@@ -3,7 +3,7 @@ import postgres from "postgres";
 let sql: postgres.Sql | null = null;
 let ready: Promise<void> | null = null;
 
-const SCHEMA_VERSION = "schema_v3_email_auth";
+const SCHEMA_VERSION = "schema_v4_optimizer";
 
 export function authConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.ENCRYPTION_KEY);
@@ -97,6 +97,38 @@ CREATE TABLE IF NOT EXISTS schema_flags (
   key TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS model_quality_profiles (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  model_id TEXT NOT NULL,
+  overall_quality DOUBLE PRECISION NOT NULL,
+  reasoning_quality DOUBLE PRECISION NOT NULL,
+  coding_quality DOUBLE PRECISION NOT NULL,
+  extraction_quality DOUBLE PRECISION NOT NULL,
+  factual_quality DOUBLE PRECISION NOT NULL,
+  source_benchmark_id TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, model_id)
+);
+CREATE INDEX IF NOT EXISTS model_quality_user_idx ON model_quality_profiles(user_id);
+CREATE TABLE IF NOT EXISTS routing_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  policy TEXT NOT NULL DEFAULT 'bootstrap_heuristic',
+  selected_model TEXT NOT NULL DEFAULT '',
+  final_model TEXT NOT NULL DEFAULT '',
+  estimated_cost_usd DOUBLE PRECISION,
+  actual_cost_usd DOUBLE PRECISION,
+  estimated_quality DOUBLE PRECISION,
+  cache_hit BOOLEAN NOT NULL DEFAULT false,
+  escalated BOOLEAN NOT NULL DEFAULT false,
+  escalation_reason TEXT,
+  rejected_json TEXT,
+  rationale TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS routing_events_user_idx ON routing_events(user_id, created_at DESC);
 `;
 
 export function googleAuthConfigured() {

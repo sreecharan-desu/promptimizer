@@ -14,7 +14,7 @@
     "dev:sdk": "npm run dev --workspace=promptimizer",
     "build": "npm run build --workspace=@promptimizer/web",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test --workspace=promptimizer",
+    "test": "npm run test --workspace=promptimizer && npm run test --workspace=@promptimizer/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "docs": "cd apps/docs && npx --yes mintlify@latest dev",
     "publish:sdk": "node scripts/publish-npm.mjs",
