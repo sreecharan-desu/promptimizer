@@ -5,7 +5,10 @@ from typing import Any
 from app.domain.optimizer.schemas import RequestRequirements, TaskType
 
 
-def extract_requirements(messages: list[dict[str, Any]], extra: dict[str, Any] | None = None) -> RequestRequirements:
+def extract_requirements(
+    messages: list[dict[str, Any]],
+    extra: dict[str, Any] | None = None,
+) -> RequestRequirements:
     extra = extra or {}
     parts: list[str] = []
     has_vision = False
@@ -22,7 +25,10 @@ def extract_requirements(messages: list[dict[str, Any]], extra: dict[str, Any] |
                         parts.append(str(block["text"]))
     blob = "\n".join(parts)
     rf = extra.get("response_format") or {}
-    structured = isinstance(rf, dict) and rf.get("type") in {"json_object", "json_schema"}
+    structured = isinstance(rf, dict) and rf.get("type") in {
+        "json_object",
+        "json_schema",
+    }
     tools = bool(extra.get("tools") or extra.get("functions"))
     task = TaskType.FACTUAL_QA
     lower = blob.lower()
@@ -34,11 +40,12 @@ def extract_requirements(messages: list[dict[str, Any]], extra: dict[str, Any] |
         task = TaskType.VISION
     elif "summarize" in lower:
         task = TaskType.SUMMARIZATION
+    max_out = extra.get("max_tokens") or extra.get("max_completion_tokens") or 0
     return RequestRequirements(
         requires_tools=tools,
         requires_reasoning=task == TaskType.REASONING,
         requires_structured_output=structured or "respond with json" in lower,
         requires_vision=has_vision,
         minimum_context_tokens=max(0, len(blob) // 4 + 512),
-        minimum_output_tokens=int(extra.get("max_tokens") or extra.get("max_completion_tokens") or 0),
+        minimum_output_tokens=int(max_out),
     )

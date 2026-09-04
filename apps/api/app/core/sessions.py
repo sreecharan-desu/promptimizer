@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 import time
@@ -9,7 +10,6 @@ from typing import Any
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
 
 from app.core.config import get_settings
 from app.domain.catalog import Fleet, ModelInfo, apply_tier_overrides, mock_fleet

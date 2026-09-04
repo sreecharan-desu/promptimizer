@@ -29,11 +29,13 @@ _CODE_KW = re.compile(
     re.I,
 )
 _MATH = re.compile(
-    r"(\$\$|\\frac|\\sum|prove that|expected value|O\([nN]\)|derivative|integral|\d+\s*[\*\^]\s*\d+)",
+    r"(\$\$|\\frac|\\sum|prove that|expected value|O\([nN]\)|"
+    r"derivative|integral|\d+\s*[\*\^]\s*\d+)",
     re.I,
 )
 _DESIGN = re.compile(
-    r"\b(design|architect|rate limiter|distributed|consistency|shard|failover|1 million QPS|scale to)\b",
+    r"\b(design|architect|rate limiter|distributed|consistency|"
+    r"shard|failover|1 million QPS|scale to)\b",
     re.I,
 )
 _REASON = re.compile(
@@ -92,7 +94,6 @@ def classify_messages(messages: list[dict[str, Any]]) -> Classification:
 
 
 def classify_text(text: str) -> Classification:
-    lowered = text.lower()
     chars = len(text)
     words = len(text.split())
     lines = text.count("\n") + 1

@@ -127,7 +127,8 @@ def fleet_from_provider_models(raw_models: list[dict[str, Any]]) -> Fleet:
         model_id = item.get("id") or item.get("name")
         if not model_id or model_id in seen:
             continue
-        if any(skip in model_id.lower() for skip in ("embed", "whisper", "tts", "dall", "image", "moderation")):
+        skip_tokens = ("embed", "whisper", "tts", "dall", "image", "moderation")
+        if any(skip in model_id.lower() for skip in skip_tokens):
             continue
         seen.add(model_id)
         priced = lookup_pricing(model_id)

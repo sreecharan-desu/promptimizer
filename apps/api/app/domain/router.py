@@ -14,7 +14,6 @@ from app.domain.quality import looks_degraded, score_answer
 from app.providers import openai_compat
 from app.providers.mock import mock_complete
 
-
 TIER_ORDER = ("economy", "standard", "frontier")
 
 
@@ -62,7 +61,10 @@ async def route_chat(
     )
     requirements = extract_requirements(messages, extra)
     fleet = session.fleet_obj()
-    routed = fleet.by_id(model_hint) if model_hint and model_hint not in {"auto", "promptimizer"} else None
+    if model_hint and model_hint not in {"auto", "promptimizer"}:
+        routed = fleet.by_id(model_hint)
+    else:
+        routed = None
     routing_policy = "bootstrap_heuristic"
     if routed is None:
         routed = pick_model(fleet, classification)
@@ -99,7 +101,9 @@ async def route_chat(
 
     usage = provider_payload.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or estimate_tokens(str(messages)))
-    completion_tokens = int(usage.get("completion_tokens") or estimate_tokens(_content(provider_payload)))
+    completion_tokens = int(
+        usage.get("completion_tokens") or estimate_tokens(_content(provider_payload))
+    )
     cached_tokens = prefix_tokens if prefix_hit else 0
 
     cost = compute_cost(

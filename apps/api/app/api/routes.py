@@ -19,11 +19,11 @@ from app.core.sessions import (
 from app.domain.cache import cache
 from app.domain.catalog import fleet_from_provider_models
 from app.domain.classifier import classify_messages, classify_text
+from app.domain.providers import public_catalog, resolve_base_url
 from app.domain.quality import score_answer
 from app.domain.router import RoutingError, route_chat
-from app.providers.openai_compat import ProviderError, list_models
 from app.providers.mock import mock_models
-from app.domain.providers import public_catalog, resolve_base_url
+from app.providers.openai_compat import ProviderError, list_models
 
 router = APIRouter()
 _BENCH = Path(__file__).resolve().parent.parent / "data" / "benchmark.json"
@@ -90,7 +90,10 @@ async def connect(body: ConnectBody) -> dict[str, Any]:
     try:
         raw = await list_models(base_url, api_key)
     except ProviderError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=f"Provider rejected the key: {exc.detail}")
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=f"Provider rejected the key: {exc.detail}",
+        ) from None
     if not raw:
         raw = [{"id": "default", "owned_by": "provider"}]
     fleet = fleet_from_provider_models(raw)
@@ -170,9 +173,9 @@ async def chat_completions(
             extra=extra,
         )
     except RoutingError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     except ProviderError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
 
 
 @router.get("/v1/benchmark")
@@ -269,7 +272,10 @@ async def run_benchmark(
         )
 
     n = max(1, len([r for r in rows if "error" not in r]))
-    saved_pct = (totals["saved_usd"] / totals["baseline_usd"] * 100) if totals["baseline_usd"] else 0
+    if totals["baseline_usd"]:
+        saved_pct = totals["saved_usd"] / totals["baseline_usd"] * 100
+    else:
+        saved_pct = 0
     return {
         "name": spec["name"],
         "tasks": len(spec["tasks"]),

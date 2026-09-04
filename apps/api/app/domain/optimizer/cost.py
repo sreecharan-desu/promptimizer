@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from decimal import Decimal
+
 from app.domain.optimizer.schemas import CostEstimate, ModelProfile
 
 

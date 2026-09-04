@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     FACTUAL_QA = "factual_qa"
     SUMMARIZATION = "summarization"
     EXTRACTION = "extraction"

@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 _TOKEN = re.compile(r"[a-z0-9]+", re.I)
 
 
