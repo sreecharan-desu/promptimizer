@@ -1,12 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { UserAvatar } from "./avatar";
+import { CodePanel } from "./code-panel";
 
 type KeyRow = { id: string; name: string; prefix: string; last_used_at: string | null; created_at: string };
 
-export function AccountApp({ user, keys }: { user: { email: string; name: string }; keys: KeyRow[] }) {
+function when(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function AccountApp({
+  user,
+  keys,
+}: {
+  user: { email: string; name: string; avatarUrl?: string | null };
+  keys: KeyRow[];
+}) {
   const router = useRouter();
   const [name, setName] = useState("Production");
   const [created, setCreated] = useState<string | null>(null);
@@ -41,17 +53,21 @@ export function AccountApp({ user, keys }: { user: { email: string; name: string
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-accent">Account</p>
-      <h1 className="mt-3 font-display text-4xl font-medium tracking-tight text-primary">API keys</h1>
-      <p className="mt-3 text-secondary">
-        Signed in as {user.name || user.email}. Use a key as{" "}
-        <span className="font-mono text-primary">Authorization: Bearer pmz_live_…</span>
-        {" · "}
-        <Link href="/portal" className="text-primary">Savings</Link>
+    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <div className="flex items-center gap-3">
+        <UserAvatar name={user.name} email={user.email} src={user.avatarUrl} size={40} />
+        <div>
+          <h1 className="font-display text-2xl font-medium tracking-tight text-primary">{user.name || "Account"}</h1>
+          <p className="text-sm text-secondary">{user.email}</p>
+        </div>
+      </div>
+
+      <h2 className="mt-12 text-sm font-medium text-primary">API keys</h2>
+      <p className="mt-1 text-sm text-secondary">
+        Send as <span className="font-mono text-primary">Authorization: Bearer pmz_live_…</span>
       </p>
 
-      <form onSubmit={createKey} className="mt-10 flex flex-wrap items-end gap-3">
+      <form onSubmit={createKey} className="mt-6 flex flex-wrap items-end gap-3">
         <label className="min-w-48 flex-1">
           <span className="text-sm text-secondary">Name</span>
           <input
@@ -63,7 +79,7 @@ export function AccountApp({ user, keys }: { user: { email: string; name: string
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background"
+          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-60"
         >
           Create key
         </button>
@@ -71,39 +87,52 @@ export function AccountApp({ user, keys }: { user: { email: string; name: string
 
       {created ? (
         <div className="mt-6 rounded-xl border border-accent/25 bg-accent/[0.06] px-4 py-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Copy this now. It is shown once.</p>
+          <p className="text-xs text-secondary">Copy now. This value is shown once.</p>
           <p className="mt-2 break-all font-mono text-sm text-primary">{created}</p>
         </div>
       ) : null}
       {error ? <p className="mt-4 text-sm text-error">{error}</p> : null}
 
-      <ul className="mt-10 divide-y divide-primary/5 rounded-xl border border-primary/[0.06]">
-        {keys.length === 0 ? (
-          <li className="px-4 py-8 text-sm text-secondary">No keys yet. Create one to call the API from production.</li>
-        ) : (
-          keys.map((key) => (
-            <li key={key.id} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-primary">{key.name}</p>
-                <p className="font-mono text-xs text-secondary">{key.prefix}…</p>
-              </div>
-              <button type="button" onClick={() => revoke(key.id)} className="text-sm text-secondary hover:text-primary">
-                Revoke
-              </button>
-            </li>
-          ))
-        )}
-      </ul>
+      <div className="mt-8 overflow-hidden rounded-xl border border-primary/[0.06]">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-card text-secondary">
+            <tr>
+              <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Key</th>
+              <th className="px-4 py-3 font-medium">Created</th>
+              <th className="px-4 py-3 font-medium">Last used</th>
+              <th className="px-4 py-3 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {keys.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-secondary">
+                  No keys yet.
+                </td>
+              </tr>
+            ) : (
+              keys.map((key) => (
+                <tr key={key.id} className="border-t border-primary/5">
+                  <td className="px-4 py-3 text-primary">{key.name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-secondary">{key.prefix}…</td>
+                  <td className="px-4 py-3 text-secondary">{when(key.created_at)}</td>
+                  <td className="px-4 py-3 text-secondary">{when(key.last_used_at)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button type="button" onClick={() => revoke(key.id)} className="text-sm text-secondary hover:text-primary">
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      <pre className="mt-10 overflow-x-auto rounded-xl border border-primary/[0.08] bg-card p-4 font-mono text-[13px] text-primary/80">{`import { Promptimizer } from "promptimizer";
-
-const client = new Promptimizer({
-  apiKey: process.env.PROMPTIMIZER_API_KEY,
-});
-
-await client.chat.completions.create({
-  messages: [{ role: "user", content: "What is 17 * 24?" }],
-});`}</pre>
+      <h2 className="mt-12 text-sm font-medium text-primary">Use a key</h2>
+      <p className="mt-1 mb-6 text-sm text-secondary">SDK, CLI, or curl against the hosted API.</p>
+      <CodePanel />
     </div>
   );
 }

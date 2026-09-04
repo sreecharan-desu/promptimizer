@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
 );
 CREATE INDEX IF NOT EXISTS usage_user_idx ON usage_events(user_id, created_at DESC);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
 `;
 

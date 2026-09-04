@@ -54,14 +54,11 @@ export function AuthForm({
 
   return (
     <div className="mx-auto max-w-md px-4 py-20 sm:px-6">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-accent">Account</p>
-      <h1 className="mt-3 font-display text-4xl font-medium tracking-tight text-primary">
-        {mode === "signup" ? "Create your account" : "Welcome back"}
+      <h1 className="font-display text-3xl font-medium tracking-tight text-primary">
+        {mode === "signup" ? "Create an account" : "Sign in"}
       </h1>
       <p className="mt-3 text-secondary">
-        {mode === "signup"
-          ? "Then create an API key and route from your own app."
-          : "Sign in to the console, portal, and your API keys."}
+        {mode === "signup" ? "Then create an API key for the SDK or CLI." : "Access the console, keys, and savings."}
       </p>
       {!configured ? (
         <p className="mt-8 rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-3 text-sm text-secondary">

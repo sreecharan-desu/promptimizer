@@ -25,7 +25,7 @@ export type DocBody = {
 export const DOC_CONTENT: Record<string, DocBody> = {
   "/docs": {
     title: "Introduction",
-    description: "Route every prompt to the cheapest model that still gets it right.",
+    description: "BYOK router for OpenAI-compatible APIs.",
     headings: [
       { id: "what-you-get", title: "What you get" },
       { id: "quality", title: "Quality is measured" },
@@ -68,9 +68,8 @@ export const DOC_CONTENT: Record<string, DocBody> = {
         />
         <H2 id="quality">Quality is measured</H2>
         <P>
-          A router that saves money by answering hard questions badly is not cheaper — it is broken. Every request
-          carries a quality gate. The benchmark prints routed quality, frontier quality, and the delta. Dumping
-          everything on a nano model produces a fat savings number and a collapsed quality score.
+          Each request has a quality gate. The benchmark reports routed quality, frontier quality, and the delta so
+          cheap answers that fail are visible.
         </P>
         <H2 id="stack">How it ships</H2>
         <P>
@@ -102,7 +101,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
           Copy it once.
         </P>
         <H2 id="route">3. Route a prompt</H2>
-        <Pre label="bash">{`curl -s http://localhost:3000/api/v1/chat/completions \\\n  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\\n  -H 'content-type: application/json' \\\n  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'`}</Pre>
+          <Pre label="bash">{`curl -s https://hackathon-omega-liart.vercel.app/api/v1/chat/completions \\\n  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\\n  -H 'content-type: application/json' \\\n  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'`}</Pre>
         <P>You should see promptimizer-nano, a Paris answer, and saved_pct versus frontier.</P>
         <H2 id="byok">4. Add your provider</H2>
         <P>
@@ -357,21 +356,22 @@ export const DOC_CONTENT: Record<string, DocBody> = {
   },
   "/docs/sdk": {
     title: "SDK",
-    description: "npm i promptimizer — OpenAI-shaped client plus an offline classifier.",
-    headings: [],
+    description: "TypeScript client for the hosted API.",
+    headings: [{ id: "install", title: "Install" }],
     content: (
       <>
+        <H2 id="install">Install</H2>
         <Pre label="bash">npm install promptimizer</Pre>
-        <P>In this monorepo the package is packages/sdk.</P>
+        <Pre label="ts">{`import { Promptimizer } from "promptimizer";\n\nconst client = new Promptimizer({\n  apiKey: process.env.PROMPTIMIZER_API_KEY,\n});\n\nconst res = await client.chat.completions.create({\n  messages: [{ role: "user", content: "What is 17 * 24?" }],\n});`}</Pre>
         <Cards>
           <Card title="Client" href="/docs/sdk/client">
-            Connect, chat, classify, benchmark against the gateway.
+            Methods mapped to /v1 endpoints.
           </Card>
           <Card title="Classifier" href="/docs/sdk/classifier">
-            Same L1–L5 heuristic, no network.
+            Offline classification, no network.
           </Card>
           <Card title="OpenAI drop-in" href="/docs/sdk/openai">
-            Point the official SDK at Promptimizer.
+            Point the official OpenAI SDK at /api/v1.
           </Card>
         </Cards>
       </>
@@ -417,7 +417,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
     headings: [],
     content: (
       <>
-        <Pre label="ts">{`import OpenAI from "openai";\n\nconst openai = new OpenAI({\n  apiKey: process.env.PROMPTIMIZER_API_KEY,\n  baseURL: "https://your-app.example/api/v1",\n});\n\nawait openai.chat.completions.create({\n  model: "auto",\n  messages: [{ role: "user", content: "Explain REST in two sentences." }],\n});`}</Pre>
+        <Pre label="ts">{`import OpenAI from "openai";\n\nconst openai = new OpenAI({\n  apiKey: process.env.PROMPTIMIZER_API_KEY,\n  baseURL: "https://hackathon-omega-liart.vercel.app/api/v1",\n});\n\nawait openai.chat.completions.create({\n  model: "auto",\n  messages: [{ role: "user", content: "Explain REST in two sentences." }],\n});`}</Pre>
         <P>Works with LangChain, the Vercel AI SDK, and any agent that already speaks OpenAI chat completions. Streaming is not enabled yet.</P>
       </>
     ),
@@ -442,26 +442,31 @@ export const DOC_CONTENT: Record<string, DocBody> = {
             The 15-row table. Gold savings, near-zero quality delta.
           </Step>
         </Steps>
-        <Callout kind="note">Theme toggle lives in the footer: dark → light → system. Gold marks savings on both canvases.</Callout>
+        <Callout kind="note">
+          Sign in first. Connected providers are stored on the account.
+        </Callout>
       </>
     ),
   },
   "/docs/cli": {
     title: "CLI",
-    description: "A small binary. Flags, not wizards.",
+    description: "Install, flags, and common commands.",
     headings: [
       { id: "install", title: "Install" },
+      { id: "help", title: "Help" },
       { id: "commands", title: "Commands" },
     ],
     content: (
       <>
         <H2 id="install">Install</H2>
-        <Pre label="bash">{`node packages/cli/bin/promptimizer.mjs\n# or, from the repo root\nnpm run promptimizer -- help`}</Pre>
+        <Pre label="bash">{`npm install -g promptimizer-cli\n# or\nnpx promptimizer-cli`}</Pre>
+        <H2 id="help">Help</H2>
+        <Pre label="bash">{`promptimizer --help\npromptimizer login --help\npromptimizer connect --help`}</Pre>
         <H2 id="commands">Commands</H2>
-        <Pre label="bash">{`promptimizer login --key pmz_live_…\npromptimizer connect baseten --key $BASETEN_API_KEY\npromptimizer chat "What is 17 * 24?"\npromptimizer savings`}</Pre>
+        <Pre label="bash">{`promptimizer login --key pmz_live_…\npromptimizer connect baseten --key $BASETEN_API_KEY\npromptimizer chat "What is 17 * 24?"\npromptimizer models\npromptimizer savings`}</Pre>
         <P>
-          Known providers never take --base-url. Custom does. Provider keys can also come from the matching env var
-          (BASETEN_API_KEY, GROQ_API_KEY, …).
+          Known providers do not take --base-url. Custom does. Vendor keys may also come from the matching env var
+          (BASETEN_API_KEY, GROQ_API_KEY, …). Override the gateway with --url or PROMPTIMIZER_URL.
         </P>
       </>
     ),
@@ -493,7 +498,8 @@ export const DOC_CONTENT: Record<string, DocBody> = {
         <Table
           headers={["Host", "Base"]}
           rows={[
-            ["Next.js / Vercel", "https://<app>/api"],
+            ["Hosted", "https://hackathon-omega-liart.vercel.app/api"],
+            ["Local Next.js", "http://localhost:3000/api"],
             ["FastAPI", "http://localhost:8000"],
           ]}
         />

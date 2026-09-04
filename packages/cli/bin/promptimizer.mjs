@@ -9,14 +9,81 @@ const DEFAULT_URL = process.env.PROMPTIMIZER_URL || "https://hackathon-omega-lia
 const CONFIG_PATH = join(homedir(), ".promptimizer", "config.json");
 
 const COMMANDS = [
-  ["login", "Store a Promptimizer API key"],
-  ["logout", "Forget the saved key"],
+  ["login", "Save a Promptimizer API key"],
+  ["logout", "Remove the saved key"],
   ["connect", "Attach a model provider"],
   ["chat", "Route a completion"],
-  ["models", "Show the connected fleet"],
-  ["savings", "Account savings so far"],
-  ["providers", "Known base URLs"],
+  ["models", "List the connected fleet"],
+  ["savings", "Show account savings"],
+  ["providers", "List known provider URLs"],
 ];
+
+const COMMAND_HELP = {
+  login: [
+    "Usage",
+    "  promptimizer login --key <pmz_live_...>",
+    "",
+    "Save a key from /account. Stored in ~/.promptimizer/config.json.",
+    "",
+    "Options",
+    "  --key, -k     Promptimizer API key",
+    "  --url, -u     Gateway URL",
+  ],
+  logout: ["Usage", "  promptimizer logout", "", "Deletes ~/.promptimizer/config.json."],
+  connect: [
+    "Usage",
+    "  promptimizer connect <provider> --key <vendor-key>",
+    "  promptimizer connect custom --base-url <url> --key <vendor-key>",
+    "  promptimizer connect simulator",
+    "",
+    "Attach a provider to the signed-in account. Known hosts do not need --base-url.",
+    "",
+    "Options",
+    "  --key, -k       Provider API key (or $BASETEN_API_KEY, $GROQ_API_KEY, …)",
+    "  --base-url      Required for custom",
+    "  --pmz           Promptimizer key (else the saved login)",
+    "  --url, -u       Gateway URL",
+  ],
+  chat: [
+    "Usage",
+    '  promptimizer chat "<prompt>"',
+    "",
+    "Route one completion through the connected provider.",
+    "",
+    "Options",
+    "  --prompt        Prompt text",
+    "  --pmz           Promptimizer key (else the saved login)",
+    "  --url, -u       Gateway URL",
+  ],
+  models: [
+    "Usage",
+    "  promptimizer models",
+    "",
+    "List chat models on the current session.",
+    "",
+    "Options",
+    "  --url, -u       Gateway URL",
+  ],
+  savings: [
+    "Usage",
+    "  promptimizer savings",
+    "",
+    "Print routed spend versus the frontier baseline.",
+    "",
+    "Options",
+    "  --key, -k       Promptimizer API key",
+    "  --url, -u       Gateway URL",
+  ],
+  providers: [
+    "Usage",
+    "  promptimizer providers",
+    "",
+    "Print known provider ids and base URLs.",
+    "",
+    "Options",
+    "  --url, -u       Gateway URL",
+  ],
+};
 
 function die(message, code = 1) {
   process.stderr.write(`${message}\n`);
@@ -84,18 +151,33 @@ function usd(value) {
 
 function help() {
   const width = Math.max(...COMMANDS.map(([name]) => name.length));
+  out("Usage: promptimizer [--url <gateway>] <command> [options]");
   out();
-  out("Usage");
-  out("  promptimizer <command>");
+  out("Route prompts through Promptimizer. Create a key at /account.");
   out();
   out("Commands");
   for (const [name, desc] of COMMANDS) out(`  ${name.padEnd(width + 2)}${desc}`);
+  out();
+  out("Global options");
+  out("  --url, -u     Gateway URL (default: hosted app, or $PROMPTIMIZER_URL)");
+  out("  --help, -h    Show help");
+  out("  --version, -v Print version");
+  out();
+  out("Run `promptimizer <command> --help` for command flags.");
   out();
   out("Examples");
   out("  promptimizer login --key pmz_live_…");
   out("  promptimizer connect baseten --key $BASETEN_API_KEY");
   out('  promptimizer chat "What is 17 * 24?"');
   out("  promptimizer savings");
+  out();
+}
+
+function commandHelp(name) {
+  const lines = COMMAND_HELP[name];
+  if (!lines) die(`Unknown command "${name}". Run promptimizer --help.`);
+  out();
+  for (const line of lines) out(line);
   out();
 }
 
@@ -263,20 +345,33 @@ async function cmdSavings(flags) {
   out();
 }
 
+function printVersion() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(here, "../package.json"), "utf8"));
+  out(pkg.version);
+}
+
 async function main() {
   const { flags, positional } = parse(process.argv.slice(2));
-  if (flags.help || flags.h || positional[0] === "help" || positional.length === 0) {
-    help();
+  if (flags.version || flags.v || positional[0] === "version") {
+    printVersion();
     return;
   }
-  if (flags.version || flags.v || positional[0] === "version") {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const pkg = JSON.parse(readFileSync(join(here, "../package.json"), "utf8"));
-    out(pkg.version);
+  if (positional[0] === "help") {
+    if (positional[1]) commandHelp(positional[1]);
+    else help();
+    return;
+  }
+  if (positional.length === 0) {
+    help();
     return;
   }
 
   const [command, ...rest] = positional;
+  if (flags.help || flags.h) {
+    commandHelp(command);
+    return;
+  }
   if (command === "login") return cmdLogin(flags);
   if (command === "logout") return cmdLogout();
   if (command === "providers") return cmdProviders(flags);
@@ -284,7 +379,7 @@ async function main() {
   if (command === "chat") return cmdChat(flags, rest);
   if (command === "models") return cmdModels(flags);
   if (command === "savings") return cmdSavings(flags);
-  die(`Unknown command "${command}".`);
+  die(`Unknown command "${command}". Run promptimizer --help.`);
 }
 
 main().catch((error) => die(error instanceof Error ? error.message : String(error)));

@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 
+const HOST = "https://hackathon-omega-liart.vercel.app";
+
 const SAMPLES: Record<string, string> = {
   TypeScript: `import { Promptimizer } from "promptimizer";
 
 const client = new Promptimizer({
-  gatewayURL: process.env.PROMPTIMIZER_URL,
   apiKey: process.env.PROMPTIMIZER_API_KEY,
 });
 
@@ -14,17 +15,13 @@ const res = await client.chat.completions.create({
   messages: [{ role: "user", content: "What is 17 * 24?" }],
 });
 
-console.log(res.model, res.usage.cost?.saved_pct);`,
-  Python: `import httpx
-
-r = httpx.post(
-    "https://your-host/api/v1/chat/completions",
-    headers={"Authorization": f"Bearer {PROMPTIMIZER_API_KEY}"},
-    json={"messages": [{"role": "user", "content": "What is 17 * 24?"}]},
-).json()
-
-print(r["promptimizer"]["tier"], r["usage"]["cost"]["saved_pct"])`,
-  cURL: `curl -s https://your-host/api/v1/chat/completions \\
+console.log(res.choices[0].message.content);
+console.log(res.usage.cost);`,
+  CLI: `npx promptimizer-cli login --key pmz_live_…
+npx promptimizer-cli connect baseten --key "$BASETEN_API_KEY"
+npx promptimizer-cli chat "What is 17 * 24?"
+npx promptimizer-cli savings`,
+  cURL: `curl -s ${HOST}/api/v1/chat/completions \\
   -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\
   -H 'content-type: application/json' \\
   -d '{"messages":[{"role":"user","content":"What is 17 * 24?"}]}'`,

@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
     email?: string;
     email_verified?: boolean;
     name?: string;
+    picture?: string;
   };
   if (!profile.sub || !profile.email || profile.email_verified === false) return fail(request, "google");
 
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
     email: profile.email,
     name: profile.name ?? "",
     sub: profile.sub,
+    picture: profile.picture,
   });
   await writeSessionCookie(user.id);
   const response = NextResponse.redirect(new URL(safeNext(saved.next), request.url));

@@ -34,10 +34,7 @@ export default async function DocsPage({ params }: { params: Promise<Params> }) 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_180px] lg:gap-12">
       <article className="max-w-2xl pb-16">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-accent">
-          {href.startsWith("/docs/api") ? "API reference" : "Documentation"}
-        </p>
-        <h1 className="mt-3 font-display text-4xl font-medium leading-[1.05] tracking-tight text-primary text-balance">
+        <h1 className="font-display text-3xl font-medium leading-[1.05] tracking-tight text-primary text-balance">
           {page.title}
         </h1>
         <p className="mt-4 text-lg leading-relaxed text-secondary">{page.description}</p>

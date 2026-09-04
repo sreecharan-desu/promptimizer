@@ -4,7 +4,7 @@ import { decryptText, encryptText, hashPassword, hashToken, newApiKey, newId, ne
 
 export const COOKIE = "pmz_session";
 
-export type User = { id: string; email: string; name: string };
+export type User = { id: string; email: string; name: string; avatarUrl?: string | null };
 
 export type SavedProvider = {
   id: string;
@@ -32,7 +32,12 @@ function asRecord(row: unknown) {
 
 function publicUser(row: unknown): User {
   const r = asRecord(row);
-  return { id: String(r.id), email: String(r.email), name: String(r.name) };
+  return {
+    id: String(r.id),
+    email: String(r.email),
+    name: String(r.name),
+    avatarUrl: r.avatar_url ? String(r.avatar_url) : null,
+  };
 }
 
 export async function createUser(input: { email: string; password: string; name: string }) {
@@ -54,7 +59,7 @@ export async function createUser(input: { email: string; password: string; name:
 
 export async function loginUser(email: string, password: string) {
   await ensureSchema();
-  const rows = await getSql()`SELECT id, email, name, password_hash FROM users WHERE email = ${email.trim().toLowerCase()}`;
+  const rows = await getSql()`SELECT id, email, name, password_hash, avatar_url FROM users WHERE email = ${email.trim().toLowerCase()}`;
   const row = rows[0];
   const hash = row ? String(asRecord(row).password_hash ?? "") : "";
   if (row && !hash) {
@@ -66,13 +71,14 @@ export async function loginUser(email: string, password: string) {
   return publicUser(row);
 }
 
-export async function upsertGoogleUser(input: { email: string; name: string; sub: string }) {
+export async function upsertGoogleUser(input: { email: string; name: string; sub: string; picture?: string }) {
   await ensureSchema();
   const email = input.email.trim().toLowerCase();
   const name = input.name.trim() || email.split("@")[0];
+  const picture = input.picture?.trim() || null;
   const sql = getSql();
   const existing = await sql`
-    SELECT id, email, name, google_sub FROM users
+    SELECT id, email, name, google_sub, avatar_url FROM users
     WHERE google_sub = ${input.sub} OR email = ${email}
     ORDER BY CASE WHEN google_sub = ${input.sub} THEN 0 ELSE 1 END
     LIMIT 1
@@ -82,15 +88,21 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
     await sql`
       UPDATE users
       SET google_sub = ${input.sub},
-          name = CASE WHEN name = '' THEN ${name} ELSE name END
+          name = CASE WHEN name = '' THEN ${name} ELSE name END,
+          avatar_url = COALESCE(${picture}, avatar_url)
       WHERE id = ${String(row.id)}
     `;
-    return publicUser({ ...row, name: String(row.name) || name, email: String(row.email) });
+    return publicUser({
+      ...row,
+      name: String(row.name) || name,
+      email: String(row.email),
+      avatar_url: picture ?? row.avatar_url,
+    });
   }
-  const user = { id: newId("usr"), email, name, password_hash: "", google_sub: input.sub };
+  const user = { id: newId("usr"), email, name, password_hash: "", google_sub: input.sub, avatar_url: picture };
   await sql`
-    INSERT INTO users (id, email, name, password_hash, google_sub)
-    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.google_sub})
+    INSERT INTO users (id, email, name, password_hash, google_sub, avatar_url)
+    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.google_sub}, ${user.avatar_url})
   `;
   return publicUser(user);
 }
@@ -125,7 +137,7 @@ export async function getCurrentUser(): Promise<User | null> {
   if (!token) return null;
   await ensureSchema();
   const rows = await getSql()`
-    SELECT u.id, u.email, u.name
+    SELECT u.id, u.email, u.name, u.avatar_url
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${hashToken(token)} AND s.expires_at > now()

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
@@ -25,20 +25,44 @@ const mono = IBM_Plex_Mono({
   display: "swap",
 });
 
+const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, "")}`
+  : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
+    : (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000");
+
+const description = "Quality-aware LLM router for OpenAI-compatible APIs. Bring your own key.";
+
 export const metadata: Metadata = {
   title: {
-    default: "Promptimizer — route cheap, keep quality",
+    default: "Promptimizer",
     template: "%s · Promptimizer",
   },
-  description:
-    "BYOK OpenAI-compatible LLM router. Classify difficulty, cache repeated context, and measure cost saved against an always-frontier baseline without silently dropping quality.",
-  metadataBase: new URL(
-    process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, "")}`
-      : process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
-        : (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  ),
+  description,
+  metadataBase: new URL(siteUrl),
+  applicationName: "Promptimizer",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
+  },
+  openGraph: {
+    title: "Promptimizer",
+    description,
+    type: "website",
+    siteName: "Promptimizer",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Promptimizer",
+    description,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FFFFFF" },
+    { media: "(prefers-color-scheme: dark)", color: "#0A0A0A" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

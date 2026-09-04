@@ -1,11 +1,9 @@
 # promptimizer-cli
 
-Login with a `pmz_live_` key, connect a provider, route prompts, and read savings.
-
 ```bash
 npm install -g promptimizer-cli
-# or
-npx promptimizer-cli
+npx promptimizer-cli --help
+npx promptimizer-cli login --help
 ```
 
 ```bash

@@ -115,4 +115,48 @@ body {
   .sm\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .sm\:inline {
+    display: inline;
+  }
+}
+
+.size-8 {
+  width: 2rem;
+  height: 2rem;
+}
+.size-10 {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+.absolute {
+  position: absolute;
+}
+.right-0 {
+  right: 0;
+}
+.top-full {
+  top: 100%;
+}
+.z-\[90\] {
+  z-index: 90;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.object-cover {
+  object-fit: cover;
+}
+.max-w-\[10rem\] {
+  max-width: 10rem;
+}
+.first\:border-t-0:first-child {
+  border-top-width: 0;
+}
+.text-right {
+  text-align: right;
+}
+.break-all {
+  word-break: break-all;
 }

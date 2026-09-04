@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type PolicySummary, type Session } from "@/lib/api";
-import { EmptySpot } from "@/components/spot";
 
 const PRESETS = [
   { id: "simulator", label: "Simulator", mode: "mock" as const, base_url: "", hint: "" },
@@ -111,15 +110,9 @@ export function ConsoleApp() {
   }, [completion]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
-      <p className="text-xs font-medium tracking-wide text-accent">CONSOLE</p>
-      <h1 className="mt-3 font-display text-4xl font-medium tracking-tight text-primary sm:text-5xl">
-        Bring a key. Watch the route.
-      </h1>
-      <p className="mt-4 max-w-xl text-lg text-secondary">
-        Simulator needs nothing. BYOK fetches every chat model from your OpenAI-compatible endpoint and tiers them
-        for cost.
-      </p>
+    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
+      <p className="mt-2 text-secondary">Connect a provider, review the fleet, and route a prompt.</p>
 
       <div className="mt-8 flex flex-wrap gap-2">
         {(
@@ -146,12 +139,8 @@ export function ConsoleApp() {
       {error ? <p className="mt-6 text-sm text-error">{error}</p> : null}
 
       {tab === "connect" ? (
-        <div className="mt-10 grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
-          <div>
-            <EmptySpot />
-            <p className="text-center text-sm text-secondary">Keys never hit localStorage. Sessions expire.</p>
-          </div>
-          <div className="rounded-2xl border border-primary/[0.06] bg-card p-6">
+        <div className="mt-10">
+          <div className="rounded-xl border border-primary/[0.06] bg-card p-6">
             <div className="flex flex-wrap gap-2">
               {PRESETS.map((item) => (
                 <button
@@ -198,9 +187,8 @@ export function ConsoleApp() {
                 </label>
               </div>
             ) : (
-              <p className="mt-6 text-sm leading-relaxed text-secondary">
-                Three mocked tiers: nano, flash, frontier. Hard questions fail on cheap models on purpose — so the
-                quality gate has something real to measure.
+              <p className="mt-6 text-sm text-secondary">
+                Uses three mocked models (nano, flash, frontier). No vendor key required.
               </p>
             )}
             <button
@@ -277,7 +265,7 @@ export function ConsoleApp() {
               disabled={busy}
               className="mt-4 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
             >
-              {busy ? "Routing…" : "Route this prompt"}
+              {busy ? "Sending…" : "Send"}
             </button>
             {answer ? (
               <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5 text-sm leading-relaxed text-primary">
@@ -433,7 +421,7 @@ function PolicyBoard({ policies }: { policies: Record<string, PolicySummary> }) 
             return <circle key={order[i]} cx={x} cy={y} r="5" className={i === 3 ? "fill-accent" : "fill-primary/70"} />;
           })}
         </svg>
-        <p className="text-xs text-secondary">Gold is quality-aware + cache. Left is cheaper. Up is higher quality.</p>
+        <p className="text-xs text-secondary">Accent is quality-aware + cache. Left is cheaper. Up is higher quality.</p>
       </div>
     </div>
   );
