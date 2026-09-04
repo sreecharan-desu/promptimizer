@@ -74,7 +74,13 @@ CREATE TABLE IF NOT EXISTS usage_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS usage_user_idx ON usage_events(user_id, created_at DESC);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
 `;
+
+export function googleAuthConfigured() {
+  return Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim());
+}
 
 export async function ensureSchema() {
   if (!ready) {

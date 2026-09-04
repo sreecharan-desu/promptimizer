@@ -56,10 +56,43 @@ export async function loginUser(email: string, password: string) {
   await ensureSchema();
   const rows = await getSql()`SELECT id, email, name, password_hash FROM users WHERE email = ${email.trim().toLowerCase()}`;
   const row = rows[0];
-  if (!row || !verifyPassword(password, String(asRecord(row).password_hash))) {
+  const hash = row ? String(asRecord(row).password_hash ?? "") : "";
+  if (row && !hash) {
+    throw Object.assign(new Error("This account uses Google. Continue with Google."), { status: 401 });
+  }
+  if (!row || !verifyPassword(password, hash)) {
     throw Object.assign(new Error("Email or password is wrong."), { status: 401 });
   }
   return publicUser(row);
+}
+
+export async function upsertGoogleUser(input: { email: string; name: string; sub: string }) {
+  await ensureSchema();
+  const email = input.email.trim().toLowerCase();
+  const name = input.name.trim() || email.split("@")[0];
+  const sql = getSql();
+  const existing = await sql`
+    SELECT id, email, name, google_sub FROM users
+    WHERE google_sub = ${input.sub} OR email = ${email}
+    ORDER BY CASE WHEN google_sub = ${input.sub} THEN 0 ELSE 1 END
+    LIMIT 1
+  `;
+  if (existing[0]) {
+    const row = asRecord(existing[0]);
+    await sql`
+      UPDATE users
+      SET google_sub = ${input.sub},
+          name = CASE WHEN name = '' THEN ${name} ELSE name END
+      WHERE id = ${String(row.id)}
+    `;
+    return publicUser({ ...row, name: String(row.name) || name, email: String(row.email) });
+  }
+  const user = { id: newId("usr"), email, name, password_hash: "", google_sub: input.sub };
+  await sql`
+    INSERT INTO users (id, email, name, password_hash, google_sub)
+    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.google_sub})
+  `;
+  return publicUser(user);
 }
 
 export async function writeSessionCookie(userId: string) {
