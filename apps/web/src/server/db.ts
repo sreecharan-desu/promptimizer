@@ -3,7 +3,7 @@ import postgres from "postgres";
 let sql: postgres.Sql | null = null;
 let ready: Promise<void> | null = null;
 
-const SCHEMA_VERSION = "schema_v4_optimizer";
+const SCHEMA_VERSION = "schema_v5_semantic_quality";
 
 export function authConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.ENCRYPTION_KEY);
@@ -76,9 +76,19 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cache_hit BOOLEAN NOT NULL DEFAULT false,
   escalated BOOLEAN NOT NULL DEFAULT false,
   quality DOUBLE PRECISION,
+  semantic_hit BOOLEAN NOT NULL DEFAULT false,
+  semantic_similarity DOUBLE PRECISION,
+  quality_gate TEXT NOT NULL DEFAULT '',
+  quality_audit BOOLEAN NOT NULL DEFAULT false,
+  quality_audit_pass BOOLEAN,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS usage_user_idx ON usage_events(user_id, created_at DESC);
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS semantic_hit BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS semantic_similarity DOUBLE PRECISION;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS quality_gate TEXT NOT NULL DEFAULT '';
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS quality_audit BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS quality_audit_pass BOOLEAN;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;

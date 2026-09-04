@@ -217,6 +217,13 @@ async function handle(request: NextRequest, path: string[]) {
                 typeof meta.quality === "object" && meta.quality && "score" in meta.quality
                   ? Number((meta.quality as { score: number }).score)
                   : null,
+              semantic_hit: Boolean(meta.semantic_cache_hit),
+              semantic_similarity:
+                meta.semantic_similarity == null ? null : Number(meta.semantic_similarity),
+              quality_gate: meta.quality_gate ? String(meta.quality_gate) : "",
+              quality_audit: Boolean(meta.quality_audit),
+              quality_audit_pass:
+                meta.quality_audit_pass == null ? null : Boolean(meta.quality_audit_pass),
             });
             await recordRoutingEvent(actor.user.id, {
               request_id: String(meta.request_id ?? ""),

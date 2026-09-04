@@ -842,10 +842,34 @@ function PlayPane({
                   Number(meta.complexity) >= 4 ? "Hard" : Number(meta.complexity) >= 3 ? "Medium" : "Easy"
                 }
               />
-              <Row k="Cache" v={meta.cache_hit ? "hit" : "miss"} />
+              <Row
+                k="Cache"
+                v={
+                  meta.exact_cache_hit
+                    ? "exact"
+                    : meta.semantic_cache_hit
+                      ? `similar ${meta.semantic_cache_mode ?? ""}${
+                          meta.semantic_similarity != null
+                            ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%`
+                            : ""
+                        }`.trim()
+                      : meta.prefix_cache_hit
+                        ? "prefix"
+                        : meta.cache_hit
+                          ? "hit"
+                          : "miss"
+                }
+              />
               <Row k="Policy" v={String(meta.routing_policy ?? "bootstrap_heuristic")} />
               <Row k="P(quality|small)" v={meta.p_small_quality != null ? Number(meta.p_small_quality).toFixed(2) : "—"} />
-              <Row k="Quality gate" v={String(meta.quality_gate)} />
+              <Row
+                k="Quality gate"
+                v={
+                  meta.quality_audit
+                    ? `${meta.quality_gate}${meta.quality_audit_pass === false ? " · audit fail" : " · audited"}`
+                    : String(meta.quality_gate)
+                }
+              />
               {meta.escalated ? <Row k="Escalation" v={String(meta.escalation_reason ?? "yes")} /> : null}
               {quality != null ? (
                 <div>

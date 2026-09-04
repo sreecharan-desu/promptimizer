@@ -2,6 +2,14 @@ import { classifyText, difficultyTier, type Classification } from "promptimizer"
 import { BENCHMARK, PRICING } from "./data";
 import { cacheGet, cacheRemember, cacheSet } from "./upstash";
 import {
+  buildHybridMessages,
+  findSimilar,
+  rememberSemantic,
+  type SemanticMatch,
+} from "./semantic-cache";
+import { qualityGuardEnabled, nextRequestOrdinal, runQualityGate, shouldRunAccuracyAudit } from "./quality-gate";
+import { scoreAnswerLike } from "./quality-gate-score";
+import {
   aggregateQualityProfiles,
   buildPricing,
   chooseModel,
@@ -424,14 +432,7 @@ function costOf(routed: ModelInfo, baseline: ModelInfo, promptTokens: number, co
 }
 
 function scoreAnswer(pred: string, gold: string, must: string[], difficulty: number) {
-  const blob = pred.toLowerCase();
-  const coverage = must.length ? must.filter((n) => blob.includes(n.toLowerCase())).length / must.length : 1;
-  const thin = difficulty >= 4 && pred.trim().length < 80;
-  const refusal = /i don't know|too complex|as a small model/.test(blob);
-  const structure = pred.length > 80 ? 0.8 : 0.4;
-  const score = 0.55 * coverage + 0.45 * structure;
-  const degraded = thin || refusal || score < 0.62;
-  return { score, coverage, structure, degraded, notes: degraded ? ["below quality bar"] : [] };
+  return scoreAnswerLike(pred, gold || "", difficulty, Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62), must);
 }
 
 function pick(session: Session, classification: Classification, hint?: string) {
@@ -600,14 +601,76 @@ export async function routeChat(
   const prefixKey = system.slice(0, 800);
   const prefixHit = prefixKey.length >= 40 ? await cacheRemember(`pm:prefix:${prefixKey}`) : false;
 
+  const userPrompt =
+    [...textMessages].reverse().find((m) => m.role === "user")?.content ?? prompt;
+
+  let semantic: SemanticMatch | null = null;
+  let semanticMode: "full" | "hybrid" | "miss" | "off" = "off";
+  let exactHit = false;
+  let payload: Awaited<ReturnType<typeof complete>> | undefined;
+
   const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
-  let payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
-  const exactHit = Boolean(payload);
+  payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
+  exactHit = Boolean(payload);
+
   if (!payload) {
-    payload = await complete(session, routed.id, textMessages, classification, {
-      provider_id: routed.provider_id,
-    });
-    await cacheSet(exactKey, payload);
+    semantic = await findSimilar(userPrompt);
+    semanticMode = semantic?.mode ?? "miss";
+
+    if (semantic?.mode === "full") {
+      // High similarity → replay cached answer path (no provider call).
+      payload = {
+        id: `chatcmpl-semantic-${Date.now()}`,
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: routed.id,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: semantic.entry.answer },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: tokens(prompt),
+          completion_tokens: tokens(semantic.entry.answer),
+          total_tokens: tokens(prompt) + tokens(semantic.entry.answer),
+        },
+      };
+    } else if (semantic?.mode === "hybrid") {
+      // Similar shared path from cache; novel parts drive model selection + completion.
+      const novelComplexity = Math.min(
+        5,
+        Math.max(
+          classification.complexity,
+          semantic.novel.length > 280 ? classification.complexity + 1 : classification.complexity,
+        ),
+      );
+      // Prefer a capable model for novel/dissimilar work when the delta looks hard.
+      if (novelComplexity >= 4 || semantic.shared_ratio < 0.35) {
+        const stronger =
+          cheapest(session.models, "frontier") ??
+          cheapest(session.models, "standard") ??
+          routed;
+        if (TIER_ORDER.indexOf(stronger.tier) > TIER_ORDER.indexOf(routed.tier)) {
+          routed = stronger;
+        }
+      } else if (semantic.shared_ratio > 0.7 && novelComplexity <= 2) {
+        const cheaper = cheapest(session.models, "economy") ?? routed;
+        routed = cheaper;
+      }
+
+      const hybridMessages = buildHybridMessages(textMessages, semantic);
+      payload = await complete(session, routed.id, hybridMessages, classification, {
+        provider_id: routed.provider_id,
+      });
+      await cacheSet(exactKey, payload);
+    } else {
+      payload = await complete(session, routed.id, textMessages, classification, {
+        provider_id: routed.provider_id,
+      });
+      await cacheSet(exactKey, payload);
+    }
   }
 
   let escalated = false;
@@ -623,18 +686,37 @@ export async function routeChat(
         return true;
       }
     })();
+
+  const requestOrdinal = nextRequestOrdinal(session.id);
+  const runAudit = shouldRunAccuracyAudit(requestOrdinal);
+
+  const qualityLive = runQualityGate({
+    answer: text,
+    prompt: userPrompt,
+    complexity: classification.complexity,
+    audit: runAudit,
+  });
+
+  const cacheSkipEscalate = exactHit || semanticMode === "full";
   const shouldEscalate =
-    !exactHit &&
+    qualityGuardEnabled() &&
+    !cacheSkipEscalate &&
     (!text.trim() ||
       text.trim().length < 24 ||
       structuredFail ||
+      qualityLive.gate === "fail" ||
       /i don't know|too complex|as a small model|can't help with that|cannot help with that/i.test(text));
+
   if (shouldEscalate) {
     escalationReason = structuredFail
       ? "structured_output_validation_failed"
-      : !text.trim() || text.trim().length < 24
-        ? "thin_or_empty_answer"
-        : "refusal_or_degraded_heuristic";
+      : qualityLive.audit_pass === false
+        ? "quality_audit_failed"
+        : qualityLive.gate === "fail"
+          ? "quality_gate_failed"
+          : !text.trim() || text.trim().length < 24
+            ? "thin_or_empty_answer"
+            : "refusal_or_degraded_heuristic";
     const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed!.tier) + 1];
     const upgrade = nextTier
       ? cheapest(session.models, nextTier)
@@ -648,25 +730,70 @@ export async function routeChat(
         provider_id: routed.provider_id,
       });
       text = payload.choices?.[0]?.message?.content ?? "";
+      await cacheSet(exactKey, payload);
     }
   }
 
   const promptTokens = payload.usage?.prompt_tokens ?? tokens(prompt);
   const completionTokens = payload.usage?.completion_tokens ?? tokens(text);
   const cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0);
-  const quality = scoreAnswer(payload.choices?.[0]?.message?.content ?? "", "", [], classification.complexity);
+  const qualityAfter = runQualityGate({
+    answer: text,
+    prompt: userPrompt,
+    complexity: classification.complexity,
+    audit: false,
+  });
+  const qualityFinal = {
+    score: qualityAfter.score,
+    coverage: qualityAfter.coverage,
+    structure: qualityAfter.structure,
+    degraded: qualityAfter.degraded,
+    notes: qualityAfter.notes,
+    gate:
+      qualityAfter.gate === "fail" || (qualityLive.audit_pass === false && !escalated)
+        ? ("fail" as const)
+        : qualityAfter.degraded
+          ? ("fail" as const)
+          : ("pass" as const),
+    audit: qualityLive.audit,
+    audit_pass: escalated
+      ? qualityAfter.gate === "pass"
+        ? true
+        : qualityLive.audit_pass
+      : qualityLive.audit_pass,
+    audit_notes: qualityLive.audit_notes,
+  };
+
+  const semanticHit = semanticMode === "full" || semanticMode === "hybrid";
+  const anyCacheHit = exactHit || prefixHit || semanticMode === "full";
 
   session.stats.requests += 1;
   session.stats.actual_usd += cost.actual_usd;
   session.stats.baseline_usd += cost.baseline_usd;
   session.stats.saved_usd += cost.saved_usd;
-  session.stats.cache_hits += exactHit || prefixHit ? 1 : 0;
+  session.stats.cache_hits += anyCacheHit || semanticMode === "hybrid" ? 1 : 0;
   session.stats.escalations += escalated ? 1 : 0;
-  session.stats.quality_fails += quality.degraded ? 1 : 0;
+  session.stats.quality_fails += qualityFinal.degraded || qualityFinal.gate === "fail" ? 1 : 0;
+
+  // Store vectorized prompt→answer for future similarity lookups (skip empty / failed).
+  if (!exactHit && qualityFinal.gate === "pass" && text.trim().length >= 24) {
+    await rememberSemantic({
+      prompt: userPrompt,
+      answer: text,
+      model: routed.id,
+      tier: routed.tier,
+      quality: qualityFinal.score,
+    });
+  }
 
   const rationale =
     decision?.rationale ??
     `Bootstrap heuristic: complexity L${classification.complexity}, recommended ${classification.recommended_tier}, chose ${initialModel.id}` +
+      (semanticMode === "hybrid"
+        ? ` via semantic hybrid (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
+        : semanticMode === "full"
+          ? ` via semantic full hit (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
+          : "") +
       (escalated ? ` then escalated to ${routed.id} (${escalationReason}).` : ".");
 
   return {
@@ -683,6 +810,7 @@ export async function routeChat(
       uncertainty: classification.uncertainty,
       tier: routed.tier,
       model: routed.id,
+      provider_id: routed.provider_id,
       initial_model: initialModel.id,
       final_model: routed.id,
       baseline_model: baseline.id,
@@ -693,14 +821,26 @@ export async function routeChat(
       pricing_unknown: decision?.pricing_unknown ?? [],
       estimated_cost_usd: decision?.estimated_cost_usd ?? null,
       estimated_quality: decision?.estimated_quality ?? null,
-      cache_hit: exactHit || prefixHit,
+      cache_hit: anyCacheHit || semanticHit,
       prefix_cache_hit: prefixHit,
       exact_cache_hit: exactHit,
+      semantic_cache_hit: semanticHit,
+      semantic_cache_mode: semanticMode,
+      semantic_similarity: semantic?.similarity ?? null,
+      semantic_shared_ratio: semantic?.shared_ratio ?? null,
       escalated,
       escalation_reason: escalated ? escalationReason : null,
       escalation_count: escalated ? 1 : 0,
-      quality_gate: quality.degraded ? "fail" : "pass",
-      quality,
+      quality_gate: qualityFinal.gate,
+      quality_audit: qualityFinal.audit,
+      quality_audit_pass: qualityFinal.audit_pass,
+      quality: {
+        score: qualityFinal.score,
+        coverage: qualityFinal.coverage,
+        structure: qualityFinal.structure,
+        degraded: qualityFinal.degraded,
+        notes: [...qualityFinal.notes, ...qualityFinal.audit_notes],
+      },
       latency_ms: Date.now() - started,
       rationale,
     },

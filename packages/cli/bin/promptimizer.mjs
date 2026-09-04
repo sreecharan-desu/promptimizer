@@ -302,8 +302,17 @@ function printMeta(result) {
   if (meta.provider_id || meta.host) bits.push(String(meta.provider_id || meta.host));
   if (saved != null) bits.push(`saved ${usd(saved)}`);
   if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
-  else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
+  else if (meta.semantic_cache_hit) {
+    const mode = meta.semantic_cache_mode === "full" ? "semantic full" : "semantic hybrid";
+    const sim =
+      meta.semantic_similarity != null ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%` : "";
+    bits.push(color(ANSI.green, `${mode}${sim}`));
+  } else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
   else if ("cache_hit" in meta) bits.push(color(ANSI.gray, "miss"));
+  if (meta.quality_gate) bits.push(`gate:${meta.quality_gate}`);
+  if (meta.quality_audit) {
+    bits.push(meta.quality_audit_pass === false ? color(ANSI.yellow, "audit fail") : "audit ok");
+  }
   if (meta.escalated) bits.push(meta.escalation_reason ? `escalated:${meta.escalation_reason}` : "escalated");
   if (meta.latency_ms != null) bits.push(`${Math.round(Number(meta.latency_ms))}ms`);
   out(color(ANSI.dim, `  ↳ ${bits.join(" · ")}`));

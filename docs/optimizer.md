@@ -19,4 +19,4 @@ Production gateway: Next.js [`apps/web/src/server/engine.ts`](../apps/web/src/se
 
 ## Deferred
 
-LangGraph orchestration, Qdrant semantic cache, Ragas, LangSmith — see `references/llm-cost-optimizer/`.
+LangGraph orchestration, external Qdrant/OpenAI embedding providers, Ragas, LangSmith — see `references/llm-cost-optimizer/`. Live similarity cache uses local hashed vectors in Redis/memory (`SEMANTIC_THRESHOLD`, default 0.5).

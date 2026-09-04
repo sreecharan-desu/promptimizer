@@ -28,6 +28,10 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
   const tierTotal = Object.values(tierCounts).reduce((a, b) => a + b, 0) || 1;
 
   const cacheMiss = Math.max(0, savings.requests - savings.cache_hits);
+  const semanticHits = savings.semantic_hits ?? 0;
+  const gateRate = savings.quality_gate_pass_rate;
+  const audits = savings.quality_audits ?? 0;
+  const auditPasses = savings.quality_audit_passes ?? 0;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
@@ -36,7 +40,8 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
           <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Savings</h1>
           <p className="mt-2 max-w-xl text-secondary">
             Routed spend versus always-frontier
-            {user.name || user.email ? ` · ${user.name || user.email}` : ""}.
+            {user.name || user.email ? ` · ${user.name || user.email}` : ""}. Exact, prefix, and similarity cache —
+            plus a live quality gate.
           </p>
         </div>
         <Pill tone={savings.requests ? "good" : "neutral"}>
@@ -60,7 +65,11 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
         <MetricCard
           label="Quality"
           value={savings.avg_quality == null ? "—" : pct(savings.avg_quality * 100, 0)}
-          hint="Average gate score on routed answers"
+          hint={
+            gateRate == null
+              ? "Average gate score on routed answers"
+              : `Gate pass ${pct(gateRate * 100, 0)} · audits ${auditPasses}/${audits || 0}`
+          }
         >
           <Sparkline
             values={qualitySeries.length > 1 ? qualitySeries : [70, 73, 76]}
@@ -120,18 +129,24 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
               value={`${savings.requests ? Math.round((savings.cache_hits / savings.requests) * 100) : 0}%`}
               share={savings.requests ? (savings.cache_hits / savings.requests) * 100 : 0}
             />
+            <SplitRow
+              label="Similarity reuse"
+              value={`${savings.requests ? Math.round((semanticHits / savings.requests) * 100) : 0}%`}
+              share={savings.requests ? (semanticHits / savings.requests) * 100 : 0}
+            />
           </div>
         </div>
 
         <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Cache</p>
-          <p className="mt-1 font-display text-xl font-medium text-primary">Hits vs misses</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Cache & gate</p>
+          <p className="mt-1 font-display text-xl font-medium text-primary">Hits · similarity · audits</p>
           <div className="mt-5 flex items-center gap-4">
             <Donut
               size={96}
               thickness={14}
               slices={[
                 { label: "hits", value: savings.cache_hits, color: "hsl(var(--accent))" },
+                { label: "semantic", value: semanticHits, color: "hsl(var(--primary) / 0.45)" },
                 { label: "misses", value: cacheMiss, color: "hsl(var(--primary) / 0.12)" },
               ]}
               center={
@@ -142,13 +157,23 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
             />
             <ul className="space-y-2 text-sm text-secondary">
               <li>
-                Hits <span className="text-primary">{savings.cache_hits}</span>
+                Exact/prefix <span className="text-primary">{savings.cache_hits}</span>
               </li>
               <li>
-                Misses <span className="text-primary">{cacheMiss}</span>
+                Similarity <span className="text-primary">{semanticHits}</span>
+                {savings.avg_semantic_similarity != null ? (
+                  <span className="text-secondary"> · avg {pct(savings.avg_semantic_similarity * 100, 0)}</span>
+                ) : null}
               </li>
               <li>
                 Escalations <span className="text-primary">{savings.escalations}</span>
+              </li>
+              <li>
+                Gate pass{" "}
+                <span className="text-primary">{gateRate == null ? "—" : pct(gateRate * 100, 0)}</span>
+              </li>
+              <li>
+                Audits <span className="text-primary">{auditPasses}/{audits || 0}</span>
               </li>
             </ul>
           </div>
@@ -206,8 +231,21 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {row.cache_hit ? <Pill tone="good">cache</Pill> : null}
+                        {row.semantic_hit ? <Pill tone="accent">similar</Pill> : null}
+                        {row.quality_gate === "fail" ? <Pill tone="warn">gate</Pill> : null}
+                        {row.quality_audit ? (
+                          <Pill tone={row.quality_audit_pass ? "good" : "warn"}>
+                            {row.quality_audit_pass ? "audit ok" : "audit"}
+                          </Pill>
+                        ) : null}
                         {row.escalated ? <Pill tone="warn">escalated</Pill> : null}
-                        {!row.cache_hit && !row.escalated ? <span className="text-secondary">—</span> : null}
+                        {!row.cache_hit &&
+                        !row.escalated &&
+                        !row.semantic_hit &&
+                        row.quality_gate !== "fail" &&
+                        !row.quality_audit ? (
+                          <span className="text-secondary">—</span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

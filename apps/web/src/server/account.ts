@@ -350,6 +350,11 @@ export type UsageEvent = {
   cache_hit: boolean;
   escalated: boolean;
   quality: number | null;
+  semantic_hit: boolean;
+  semantic_similarity: number | null;
+  quality_gate: string;
+  quality_audit: boolean;
+  quality_audit_pass: boolean | null;
   created_at: string;
 };
 
@@ -362,8 +367,13 @@ export type SavingsSummary = {
   routing_saved_usd: number;
   cache_saved_usd: number;
   cache_hits: number;
+  semantic_hits: number;
+  avg_semantic_similarity: number | null;
   escalations: number;
   avg_quality: number | null;
+  quality_gate_pass_rate: number | null;
+  quality_audits: number;
+  quality_audit_passes: number;
   recent: UsageEvent[];
 };
 
@@ -385,6 +395,11 @@ export async function recordUsage(
     cache_hit: boolean;
     escalated: boolean;
     quality?: number | null;
+    semantic_hit?: boolean;
+    semantic_similarity?: number | null;
+    quality_gate?: string;
+    quality_audit?: boolean;
+    quality_audit_pass?: boolean | null;
   },
 ) {
   if (!authConfigured()) return;
@@ -392,13 +407,17 @@ export async function recordUsage(
   await getSql()`
     INSERT INTO usage_events (
       id, user_id, model, tier, actual_usd, baseline_usd, saved_usd,
-      routing_saved_usd, cache_saved_usd, cache_hit, escalated, quality
+      routing_saved_usd, cache_saved_usd, cache_hit, escalated, quality,
+      semantic_hit, semantic_similarity, quality_gate, quality_audit, quality_audit_pass
     )
     VALUES (
       ${newId("evt")}, ${userId}, ${event.model}, ${event.tier},
       ${event.actual_usd}, ${event.baseline_usd}, ${event.saved_usd},
       ${event.routing_saved_usd}, ${event.cache_saved_usd},
-      ${event.cache_hit}, ${event.escalated}, ${event.quality ?? null}
+      ${event.cache_hit}, ${event.escalated}, ${event.quality ?? null},
+      ${Boolean(event.semantic_hit)}, ${event.semantic_similarity ?? null},
+      ${event.quality_gate ?? ""}, ${Boolean(event.quality_audit)},
+      ${event.quality_audit_pass ?? null}
     )
   `;
 }
@@ -417,6 +436,11 @@ function eventFromRow(row: unknown): UsageEvent {
     cache_hit: Boolean(r.cache_hit),
     escalated: Boolean(r.escalated),
     quality: r.quality == null ? null : num(r.quality),
+    semantic_hit: Boolean(r.semantic_hit),
+    semantic_similarity: r.semantic_similarity == null ? null : num(r.semantic_similarity),
+    quality_gate: r.quality_gate ? String(r.quality_gate) : "",
+    quality_audit: Boolean(r.quality_audit),
+    quality_audit_pass: r.quality_audit_pass == null ? null : Boolean(r.quality_audit_pass),
     created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   };
 }
@@ -433,14 +457,21 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
       coalesce(sum(routing_saved_usd), 0) AS routing_saved_usd,
       coalesce(sum(cache_saved_usd), 0) AS cache_saved_usd,
       coalesce(sum(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0)::int AS cache_hits,
+      coalesce(sum(CASE WHEN semantic_hit THEN 1 ELSE 0 END), 0)::int AS semantic_hits,
+      avg(semantic_similarity) FILTER (WHERE semantic_similarity IS NOT NULL) AS avg_semantic_similarity,
       coalesce(sum(CASE WHEN escalated THEN 1 ELSE 0 END), 0)::int AS escalations,
-      avg(quality) FILTER (WHERE quality IS NOT NULL) AS avg_quality
+      avg(quality) FILTER (WHERE quality IS NOT NULL) AS avg_quality,
+      coalesce(sum(CASE WHEN quality_gate = 'pass' THEN 1 ELSE 0 END), 0)::int AS quality_passes,
+      coalesce(sum(CASE WHEN quality_gate = 'fail' THEN 1 ELSE 0 END), 0)::int AS quality_fails,
+      coalesce(sum(CASE WHEN quality_audit THEN 1 ELSE 0 END), 0)::int AS quality_audits,
+      coalesce(sum(CASE WHEN quality_audit_pass IS TRUE THEN 1 ELSE 0 END), 0)::int AS quality_audit_passes
     FROM usage_events
     WHERE user_id = ${userId}
   `;
   const recent = await sql`
     SELECT id, model, tier, actual_usd, baseline_usd, saved_usd, routing_saved_usd,
-           cache_saved_usd, cache_hit, escalated, quality, created_at
+           cache_saved_usd, cache_hit, escalated, quality, semantic_hit, semantic_similarity,
+           quality_gate, quality_audit, quality_audit_pass, created_at
     FROM usage_events
     WHERE user_id = ${userId}
     ORDER BY created_at DESC
@@ -449,6 +480,7 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
   const t = asRecord(totals[0] ?? {});
   const baseline = num(t.baseline_usd);
   const saved = num(t.saved_usd);
+  const gated = num(t.quality_passes) + num(t.quality_fails);
   return {
     requests: num(t.requests),
     actual_usd: num(t.actual_usd),
@@ -458,8 +490,13 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
     routing_saved_usd: num(t.routing_saved_usd),
     cache_saved_usd: num(t.cache_saved_usd),
     cache_hits: num(t.cache_hits),
+    semantic_hits: num(t.semantic_hits),
+    avg_semantic_similarity: t.avg_semantic_similarity == null ? null : num(t.avg_semantic_similarity),
     escalations: num(t.escalations),
     avg_quality: t.avg_quality == null ? null : num(t.avg_quality),
+    quality_gate_pass_rate: gated ? num(t.quality_passes) / gated : null,
+    quality_audits: num(t.quality_audits),
+    quality_audit_passes: num(t.quality_audit_passes),
     recent: recent.map(eventFromRow),
   };
 }

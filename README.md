@@ -116,7 +116,7 @@ Domain logic from the LLM Cost Optimizer reference (`references/llm-cost-optimiz
 1. `quality_profile` — after a benchmark run persists per-model scores, live chat selects the cheapest known-price model that passes capability + `MIN_QUALITY`.
 2. `bootstrap_heuristic` — until profiles exist (or no eligible candidate), use the existing tier/`p_small_quality` picker. Meta always labels which policy ran.
 
-**Deferred (not forced into the hot path):** LangGraph, LangChain wrappers, Qdrant semantic cache, Ragas, LangSmith. Exact/prefix cache remains Upstash/Redis.
+**Deferred (optional later):** LangGraph, LangChain wrappers, external Qdrant/OpenAI embeddings (local hashed vectors power similarity cache today), Ragas, LangSmith. Exact/prefix/semantic cache remains Upstash/Redis (or in-memory fallback).
 
 ## Monorepo
 
