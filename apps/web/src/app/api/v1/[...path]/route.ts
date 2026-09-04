@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getCurrentUser,
   loadQualityProfiles,
+  persistMultiProviderSession,
   recordRoutingEvent,
   recordUsage,
   saveProvider,
@@ -68,6 +69,7 @@ function connectPayload(body: {
     label: body.label || provider?.label || "BYOK",
     base_url: baseURL,
     api_key: apiKey,
+    provider: provider?.id,
   };
 }
 
@@ -128,7 +130,22 @@ async function handle(request: NextRequest, path: string[]) {
           : await createByokSession(payload, sid);
       if (user) {
         const session = getSession(accountSessionId(user.id));
-        if (session) await saveProvider(user.id, session);
+        if (session && session.mode === "byok") {
+          const conn =
+            session.connections.find((c) => c.base_url === session.base_url) ??
+            session.connections[session.connections.length - 1];
+          if (conn) {
+            await saveProvider(user.id, {
+              label: conn.label,
+              mode: "byok",
+              base_url: conn.base_url,
+              api_key: conn.api_key,
+              baseline_model: session.baseline_model,
+              models: session.models.filter((m) => m.provider_id === conn.id),
+              provider_key: conn.id,
+            });
+          }
+        }
       }
       return NextResponse.json(published);
     }
@@ -162,7 +179,7 @@ async function handle(request: NextRequest, path: string[]) {
     }
     if (joined === "models" && request.method === "PATCH") {
       const next = patchFleet(session, await request.json());
-      if (actor.user) await saveProvider(actor.user.id, session);
+      if (actor.user && session.mode === "byok") await persistMultiProviderSession(actor.user.id, session);
       return NextResponse.json(next);
     }
     if (joined === "savings" && request.method === "GET") {
@@ -220,7 +237,7 @@ async function handle(request: NextRequest, path: string[]) {
       if (actor.user && Array.isArray(bench.quality_profiles) && bench.quality_profiles.length) {
         try {
           await saveQualityProfiles(actor.user.id, bench.quality_profiles, bench.benchmark_id);
-          if (actor.user) await saveProvider(actor.user.id, session);
+          if (session.mode === "byok") await persistMultiProviderSession(actor.user.id, session);
         } catch {
           /* profile persistence is best-effort */
         }

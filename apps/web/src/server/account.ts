@@ -21,6 +21,7 @@ export type SavedProvider = {
   api_key: string;
   baseline_model: string | null;
   models: unknown[];
+  provider_key?: string | null;
 };
 
 export type PersistableSession = {
@@ -30,6 +31,7 @@ export type PersistableSession = {
   api_key: string;
   baseline_model: string | null;
   models: unknown[];
+  provider_key?: string;
 };
 
 function asRecord(row: unknown) {
@@ -233,40 +235,100 @@ export async function userFromApiKey(raw: string) {
 }
 
 export async function saveProvider(userId: string, session: PersistableSession) {
+  await upsertProviderConnection(userId, session);
+}
+
+/** Persist every BYOK host on a multi-provider session. */
+export async function persistMultiProviderSession(
+  userId: string,
+  session: {
+    baseline_model: string | null;
+    connections: Array<{ id: string; label: string; base_url: string; api_key: string }>;
+    models: Array<{ provider_id?: string } & Record<string, unknown>>;
+  },
+) {
+  for (const conn of session.connections) {
+    await upsertProviderConnection(userId, {
+      label: conn.label,
+      mode: "byok",
+      base_url: conn.base_url,
+      api_key: conn.api_key,
+      baseline_model: session.baseline_model,
+      models: session.models.filter((m) => m.provider_id === conn.id),
+      provider_key: conn.id,
+    });
+  }
+}
+
+/** Upsert one host connection; other hosts stay connected. */
+export async function upsertProviderConnection(userId: string, session: PersistableSession) {
   await ensureSchema();
   const sql = getSql();
+  const base = session.base_url.replace(/\/$/, "");
   await sql`UPDATE providers SET is_default = false WHERE user_id = ${userId}`;
+  const existing = await sql`
+    SELECT id FROM providers WHERE user_id = ${userId} AND base_url = ${base} LIMIT 1
+  `;
+  const fleet = JSON.stringify(session.models);
+  const keyEnc = encryptText(session.api_key);
+  if (existing[0]) {
+    const id = String(asRecord(existing[0]).id);
+    await sql`
+      UPDATE providers SET
+        label = ${session.label},
+        mode = ${session.mode},
+        api_key_encrypted = ${keyEnc},
+        baseline_model = ${session.baseline_model},
+        fleet_json = ${fleet},
+        is_default = true
+      WHERE id = ${id}
+    `;
+    return;
+  }
   const id = newId("prv");
   await sql`
     INSERT INTO providers (id, user_id, label, mode, base_url, api_key_encrypted, baseline_model, fleet_json, is_default)
     VALUES (
-      ${id}, ${userId}, ${session.label}, ${session.mode}, ${session.base_url},
-      ${encryptText(session.api_key)}, ${session.baseline_model},
-      ${JSON.stringify(session.models)}, true
+      ${id}, ${userId}, ${session.label}, ${session.mode}, ${base},
+      ${keyEnc}, ${session.baseline_model}, ${fleet}, true
     )
   `;
 }
 
 export async function loadDefaultProvider(userId: string): Promise<SavedProvider | null> {
+  const all = await loadAllProviderConnections(userId);
+  return all.find((p) => p.mode === "byok") ?? all[0] ?? null;
+}
+
+export async function loadAllProviderConnections(userId: string): Promise<SavedProvider[]> {
   await ensureSchema();
   const rows = await getSql()`
     SELECT id, user_id, label, mode, base_url, api_key_encrypted, baseline_model, fleet_json
-    FROM providers WHERE user_id = ${userId} AND is_default = true
-    ORDER BY created_at DESC LIMIT 1
+    FROM providers WHERE user_id = ${userId}
+    ORDER BY created_at ASC
   `;
-  const row = rows[0];
-  if (!row) return null;
-  const r = asRecord(row);
-  return {
-    id: String(r.id),
-    user_id: String(r.user_id),
-    label: String(r.label),
-    mode: r.mode === "byok" ? "byok" : "mock",
-    base_url: String(r.base_url),
-    api_key: decryptText(r.api_key_encrypted ? String(r.api_key_encrypted) : ""),
-    baseline_model: r.baseline_model ? String(r.baseline_model) : null,
-    models: r.fleet_json ? JSON.parse(String(r.fleet_json)) : [],
-  };
+  return rows.map((row) => {
+    const r = asRecord(row);
+    const base = String(r.base_url);
+    const label = String(r.label);
+    return {
+      id: String(r.id),
+      user_id: String(r.user_id),
+      label,
+      mode: r.mode === "byok" ? "byok" : "mock",
+      base_url: base,
+      api_key: decryptText(r.api_key_encrypted ? String(r.api_key_encrypted) : ""),
+      baseline_model: r.baseline_model ? String(r.baseline_model) : null,
+      models: r.fleet_json ? JSON.parse(String(r.fleet_json)) : [],
+      provider_key: (() => {
+        const models = r.fleet_json ? (JSON.parse(String(r.fleet_json)) as Array<{ provider_id?: string }>) : [];
+        const fromModel = models[0]?.provider_id;
+        if (fromModel) return fromModel;
+        const slug = label.toLowerCase().replace(/\s+/g, "");
+        return slug || null;
+      })(),
+    };
+  });
 }
 
 export type UsageEvent = {

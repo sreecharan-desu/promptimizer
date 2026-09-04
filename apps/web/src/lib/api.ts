@@ -3,6 +3,7 @@ export type Session = {
   mode: string;
   label: string;
   base_url: string;
+  connections?: Array<{ id: string; label: string; base_url: string }>;
   models: Array<{
     id: string;
     owned_by?: string;
@@ -11,6 +12,7 @@ export type Session = {
     tier: "economy" | "standard" | "frontier";
     source?: string;
     selected?: boolean;
+    provider_id?: string;
     context_length?: number | null;
     pricing_known?: boolean;
     overall_quality?: number | null;

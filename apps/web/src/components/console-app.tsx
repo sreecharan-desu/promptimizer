@@ -149,11 +149,11 @@ export function ConsoleApp() {
         api_key: apiKey,
       });
       writeSessionId(next.session_id);
-      clearConsoleCache();
       setSession(next);
       setCompletion(null);
       setBench(null);
       setBenchCachedAt(null);
+      setApiKey("");
       setTab("fleet");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connect failed");
@@ -166,7 +166,6 @@ export function ConsoleApp() {
     if (!session) return;
     const next = await api.patchModels({ overrides: { [id]: tier } });
     setSession(next);
-    // Fleet changed — prior benchmark is no longer valid for this mix.
     setBench(null);
     setBenchCachedAt(null);
   }
@@ -248,6 +247,12 @@ export function ConsoleApp() {
           query={query}
           baseUrl={baseUrl}
           apiKey={apiKey}
+          connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
+          fleetSummary={
+            session?.mode === "byok"
+              ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
+              : null
+          }
           onQuery={setQuery}
           onPick={(item) => {
             setHostId(item.id);
@@ -303,6 +308,8 @@ function ConnectPane({
   query,
   baseUrl,
   apiKey,
+  connectedIds,
+  fleetSummary,
   onQuery,
   onPick,
   onBaseUrl,
@@ -316,6 +323,8 @@ function ConnectPane({
   query: string;
   baseUrl: string;
   apiKey: string;
+  connectedIds: Set<string>;
+  fleetSummary: string | null;
   onQuery: (v: string) => void;
   onPick: (item: (typeof HOSTS)[number]) => void;
   onBaseUrl: (v: string) => void;
@@ -353,25 +362,33 @@ function ConnectPane({
 
       <section className="flex flex-col rounded-2xl border border-primary/[0.06] bg-card p-6">
         <KeySpot />
-        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Your key</h2>
-        <p className="mt-2 text-sm text-secondary">Pick a host, paste the key. Custom is the only one that asks for a URL.</p>
+        <h2 className="mt-5 font-display text-2xl font-medium tracking-tight text-primary">Your keys</h2>
+        <p className="mt-2 text-sm text-secondary">
+          Connect one host at a time. Checkmarks stay on connected hosts — fetch another to add its models to the same
+          fleet. Routing picks across all of them.
+        </p>
+        {fleetSummary ? <p className="mt-3 text-sm text-primary">{fleetSummary}</p> : null}
 
         <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Filter hosts" className={FIELD} />
 
         <div className="mt-3 flex flex-wrap gap-2">
           {hosts.map((item) => {
             const active = item.id === host.id;
+            const connected = connectedIds.has(item.id);
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => onPick(item)}
-                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
                   active
                     ? "bg-primary text-background"
-                    : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:text-primary"
+                    : connected
+                      ? "text-primary shadow-[inset_0_0_0_1px_hsl(var(--accent)/0.45)]"
+                      : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:text-primary"
                 }`}
               >
+                {connected ? <span aria-hidden="true">✓</span> : null}
                 {item.label}
               </button>
             );
@@ -393,7 +410,7 @@ function ConnectPane({
         )}
 
         <label className="mt-4 block text-sm text-secondary">
-          API key
+          API key{connectedIds.has(host.id) ? " (reconnect to refresh models)" : ""}
           <input
             type="password"
             value={apiKey}
@@ -409,7 +426,7 @@ function ConnectPane({
           disabled={busy || !apiKey.trim() || (host.id === "custom" && !baseUrl.trim())}
           className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
         >
-          {busy ? "Fetching…" : "Fetch models"}
+          {busy ? "Fetching…" : connectedIds.has(host.id) ? "Refresh models" : "Fetch models"}
         </button>
       </section>
     </div>
@@ -490,6 +507,7 @@ function FleetPane({
           <thead className="bg-card text-secondary">
             <tr>
               <th className="px-4 py-3 font-medium">Model</th>
+              <th className="px-4 py-3 font-medium">Host</th>
               <th className="px-4 py-3 font-medium">Tier</th>
               <th className="px-4 py-3 font-medium">Input / 1M</th>
               <th className="px-4 py-3 font-medium">Output / 1M</th>
@@ -500,8 +518,9 @@ function FleetPane({
           </thead>
           <tbody>
             {session.models.map((model) => (
-              <tr key={model.id} className="border-t border-primary/5">
+              <tr key={`${model.provider_id ?? "x"}:${model.id}`} className="border-t border-primary/5">
                 <td className="px-4 py-3 font-mono text-[13px] text-primary">{model.id}</td>
+                <td className="px-4 py-3 text-secondary">{model.provider_id ?? "—"}</td>
                 <td className="px-4 py-3">
                   <div className="inline-flex rounded-full border border-primary/[0.08] p-0.5">
                     {(["economy", "standard", "frontier"] as const).map((tier) => (

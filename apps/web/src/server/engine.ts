@@ -14,6 +14,13 @@ import {
 
 export type Tier = "economy" | "standard" | "frontier";
 
+export type ProviderConnection = {
+  id: string;
+  label: string;
+  base_url: string;
+  api_key: string;
+};
+
 export type ModelInfo = {
   id: string;
   owned_by: string;
@@ -22,6 +29,7 @@ export type ModelInfo = {
   tier: Tier;
   source: string;
   selected: boolean;
+  provider_id: string;
   context_length?: number | null;
   max_completion_tokens?: number | null;
   pricing_known?: boolean;
@@ -37,6 +45,7 @@ export type Session = {
   label: string;
   base_url: string;
   api_key: string;
+  connections: ProviderConnection[];
   models: ModelInfo[];
   baseline_model: string | null;
   created_at: number;
@@ -74,11 +83,15 @@ function blend(model: ModelInfo) {
 
 function enrichModel(model: ModelInfo): ModelInfo {
   const priced = lookupPrice(model.id);
-  if (!priced) return model;
-  return {
+  const withProvider: ModelInfo = {
     ...model,
-    input_per_1m: model.input_per_1m ?? priced.input,
-    output_per_1m: model.output_per_1m ?? priced.output,
+    provider_id: model.provider_id || "provider",
+  };
+  if (!priced) return withProvider;
+  return {
+    ...withProvider,
+    input_per_1m: withProvider.input_per_1m ?? priced.input,
+    output_per_1m: withProvider.output_per_1m ?? priced.output,
   };
 }
 
@@ -111,6 +124,7 @@ function fleetFrom(
       tier,
       source: profile.pricing?.known && !priced ? "provider" : source,
       selected: true,
+      provider_id: providerId,
       context_length: profile.context_length,
       max_completion_tokens: profile.max_completion_tokens,
       pricing_known: Boolean(profile.pricing?.known),
@@ -127,7 +141,7 @@ function fleetFrom(
 
 function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
   return {
-    provider_id: providerId,
+    provider_id: model.provider_id || providerId,
     model_id: model.id,
     display_name: model.id,
     description: model.description ?? null,
@@ -144,12 +158,40 @@ function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
   };
 }
 
+function connectionIdFor(baseUrl: string, providerKey?: string) {
+  if (providerKey?.trim()) return providerKey.trim().toLowerCase();
+  return baseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+}
+
+function refreshSessionLabel(session: Session) {
+  if (session.mode === "mock") {
+    session.label = "Promptimizer simulator";
+    return;
+  }
+  const labels = session.connections.map((c) => c.label);
+  session.label = labels.length ? labels.join(" + ") : "BYOK";
+  const primary = session.connections[0];
+  if (primary) {
+    session.base_url = primary.base_url;
+    session.api_key = primary.api_key;
+  }
+}
+
+function pickBaseline(models: ModelInfo[]) {
+  return cheapest(models, "frontier") ?? models[models.length - 1] ?? null;
+}
+
 function publicSession(session: Session) {
   return {
     session_id: session.id,
     mode: session.mode,
     label: session.label,
     base_url: session.base_url,
+    connections: session.connections.map((c) => ({
+      id: c.id,
+      label: c.label,
+      base_url: c.base_url,
+    })),
     models: session.models.map(enrichModel),
     baseline_model: session.baseline_model,
     stats: session.stats,
@@ -171,17 +213,17 @@ export function accountSessionId(userId: string) {
 }
 
 export function createMockSession(label = "Promptimizer simulator", sessionId?: string) {
-  const models = fleetFrom([
-    { id: "promptimizer-nano" },
-    { id: "promptimizer-flash" },
-    { id: "promptimizer-frontier" },
-  ]);
+  const models = fleetFrom(
+    [{ id: "promptimizer-nano" }, { id: "promptimizer-flash" }, { id: "promptimizer-frontier" }],
+    "simulator",
+  );
   const session: Session = {
     id: sessionId ?? id(),
     mode: "mock",
     label,
     base_url: "mock://promptimizer",
     api_key: "",
+    connections: [],
     models,
     baseline_model: "promptimizer-frontier",
     created_at: Date.now() / 1000,
@@ -192,10 +234,12 @@ export function createMockSession(label = "Promptimizer simulator", sessionId?: 
 }
 
 export async function createByokSession(
-  input: { label?: string; base_url: string; api_key: string },
+  input: { label?: string; base_url: string; api_key: string; provider?: string },
   sessionId?: string,
 ) {
-  const response = await fetch(`${input.base_url.replace(/\/$/, "")}/models`, {
+  const base = input.base_url.replace(/\/$/, "");
+  const connId = connectionIdFor(base, input.provider);
+  const response = await fetch(`${base}/models`, {
     headers: { Authorization: `Bearer ${input.api_key}` },
   });
   if (!response.ok) {
@@ -203,22 +247,46 @@ export async function createByokSession(
   }
   const payload = await response.json();
   const raw = (Array.isArray(payload) ? payload : payload.data ?? []) as Array<Record<string, unknown>>;
-  const models = fleetFrom(raw, "byok");
-  if (!models.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
-  const frontier = cheapest(models, "frontier") ?? models[models.length - 1];
-  const session: Session = {
-    id: sessionId ?? id(),
-    mode: "byok",
-    label: input.label ?? "BYOK",
-    base_url: input.base_url.replace(/\/$/, ""),
+  const incoming = fleetFrom(raw, connId);
+  if (!incoming.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
+
+  const existing = sessionId ? store.get(sessionId) : undefined;
+  const mergeInto =
+    existing && existing.mode === "byok"
+      ? existing
+      : ({
+          id: sessionId ?? id(),
+          mode: "byok" as const,
+          label: input.label ?? "BYOK",
+          base_url: base,
+          api_key: input.api_key,
+          connections: [] as ProviderConnection[],
+          models: [] as ModelInfo[],
+          baseline_model: null as string | null,
+          created_at: Date.now() / 1000,
+          stats: emptyStats(),
+        } satisfies Session);
+
+  const connection: ProviderConnection = {
+    id: connId,
+    label: input.label ?? connId,
+    base_url: base,
     api_key: input.api_key,
-    models,
-    baseline_model: frontier.id,
-    created_at: Date.now() / 1000,
-    stats: emptyStats(),
   };
-  store.set(session.id, session);
-  return publicSession(session);
+  mergeInto.connections = [
+    ...mergeInto.connections.filter((c) => c.id !== connId && c.base_url !== base),
+    connection,
+  ];
+  mergeInto.models = [
+    ...mergeInto.models.filter((m) => m.provider_id !== connId),
+    ...incoming,
+  ].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b));
+  mergeInto.mode = "byok";
+  refreshSessionLabel(mergeInto);
+  const baseline = pickBaseline(mergeInto.models);
+  mergeInto.baseline_model = baseline?.id ?? null;
+  store.set(mergeInto.id, mergeInto);
+  return publicSession(mergeInto);
 }
 
 export function patchFleet(
@@ -333,7 +401,7 @@ async function complete(
   model: string,
   messages: Array<{ role: string; content: string }>,
   classification: Classification,
-  opts?: { max_tokens?: number },
+  opts?: { max_tokens?: number; provider_id?: string },
 ) {
   const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (session.mode === "mock") {
@@ -351,10 +419,19 @@ async function complete(
       },
     };
   }
-  const response = await fetch(`${session.base_url}/chat/completions`, {
+  const modelInfo =
+    (opts?.provider_id
+      ? session.models.find((m) => m.id === model && m.provider_id === opts.provider_id)
+      : undefined) ?? session.models.find((m) => m.id === model);
+  const conn =
+    session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
+    session.connections[0];
+  const baseUrl = conn?.base_url || session.base_url;
+  const apiKey = conn?.api_key || session.api_key;
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${session.api_key}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -439,7 +516,9 @@ export async function routeChat(
   let payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
   const exactHit = Boolean(payload);
   if (!payload) {
-    payload = await complete(session, routed.id, textMessages, classification);
+    payload = await complete(session, routed.id, textMessages, classification, {
+      provider_id: routed.provider_id,
+    });
     await cacheSet(exactKey, payload);
   }
 
@@ -477,7 +556,9 @@ export async function routeChat(
     if (upgrade && upgrade.id !== routed.id) {
       escalated = true;
       routed = upgrade;
-      payload = await complete(session, routed.id, textMessages, classification);
+      payload = await complete(session, routed.id, textMessages, classification, {
+        provider_id: routed.provider_id,
+      });
       text = payload.choices?.[0]?.message?.content ?? "";
     }
   }
@@ -629,7 +710,10 @@ export async function runBenchmark(session: Session) {
     await Promise.all(
       [...unique.values()].map(async (model) => {
         const t0 = Date.now();
-        const payload = await complete(session, model.id, messages, clf, { max_tokens: 320 });
+        const payload = await complete(session, model.id, messages, clf, {
+          max_tokens: 320,
+          provider_id: model.provider_id,
+        });
         const text = payload.choices?.[0]?.message?.content ?? "";
         const quality = scoreAnswer(text, task.gold, task.must_include, task.difficulty);
         qualitySamples.push({ model_id: model.id, category: task.category, score: quality.score });
@@ -794,17 +878,40 @@ export async function sessionForUser(userId: string): Promise<Session> {
     }
     return cached;
   }
-  const { loadDefaultProvider, loadQualityProfiles } = await import("./account");
-  const saved = await loadDefaultProvider(userId);
-  if (saved?.mode === "byok" && saved.api_key && Array.isArray(saved.models) && saved.models.length) {
+  const { loadAllProviderConnections, loadQualityProfiles } = await import("./account");
+  const savedList = await loadAllProviderConnections(userId);
+  const byok = savedList.filter((s) => s.mode === "byok" && s.api_key && Array.isArray(s.models) && s.models.length);
+  if (byok.length) {
+    const connections: ProviderConnection[] = [];
+    const models: ModelInfo[] = [];
+    for (const saved of byok) {
+      const cid = connectionIdFor(saved.base_url, saved.provider_key ?? undefined);
+      connections.push({
+        id: cid,
+        label: saved.label,
+        base_url: saved.base_url,
+        api_key: saved.api_key,
+      });
+      for (const raw of saved.models as ModelInfo[]) {
+        models.push(
+          enrichModel({
+            ...raw,
+            provider_id: raw.provider_id || cid,
+            selected: raw.selected !== false,
+          }),
+        );
+      }
+    }
+    models.sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b));
     const session: Session = {
       id: sid,
       mode: "byok",
-      label: saved.label,
-      base_url: saved.base_url,
-      api_key: saved.api_key,
-      models: (saved.models as ModelInfo[]).map(enrichModel),
-      baseline_model: saved.baseline_model,
+      label: connections.map((c) => c.label).join(" + "),
+      base_url: connections[0].base_url,
+      api_key: connections[0].api_key,
+      connections,
+      models,
+      baseline_model: pickBaseline(models)?.id ?? null,
       created_at: Date.now() / 1000,
       stats: emptyStats(),
     };
@@ -820,7 +927,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
     store.set(sid, session);
     return session;
   }
-  createMockSession(saved?.label ?? "Promptimizer simulator", sid);
+  createMockSession("Promptimizer simulator", sid);
   return store.get(sid)!;
 }
 
