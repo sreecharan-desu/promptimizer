@@ -704,9 +704,25 @@ export function routeChatStream(
 
         const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
         const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
-        let cached =
-          (await cacheGet<{ choices?: Array<{ message?: { content?: string } }> }>(exactKey)) ??
-          (await cacheGet<{ choices?: Array<{ message?: { content?: string } }> }>(promptKey));
+        const exactCached = await cacheGet<{
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+          id?: string;
+          object?: string;
+          created?: number;
+          model?: string;
+        }>(exactKey);
+        const promptCached = exactCached
+          ? undefined
+          : await cacheGet<{
+              choices?: Array<{ message?: { content?: string } }>;
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+              id?: string;
+              object?: string;
+              created?: number;
+              model?: string;
+            }>(promptKey);
+        const cached = exactCached ?? promptCached;
         let text = "";
         let fromCache = false;
 
@@ -742,26 +758,61 @@ export function routeChatStream(
           text = next.value || text;
         }
 
-        // Finalize through the normal path so cache / quality / receipts stay consistent.
-        // Rebuild a completion-shaped body and let routeChat re-hit prompt/exact cache we just warm.
+        // Seed routeChat with the stream result — do NOT warm-then-re-read, or every live
+        // stream falsely reports exact_cache_hit after writing the keys we just created.
+        const seededPayload = fromCache && cached
+          ? {
+              id: cached.id ?? `chatcmpl-stream-${Date.now()}`,
+              object: cached.object ?? "chat.completion",
+              created: cached.created ?? Math.floor(Date.now() / 1000),
+              model: cached.model ?? routed.id,
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant" as const, content: text },
+                  finish_reason: "stop" as const,
+                },
+              ],
+              usage: {
+                prompt_tokens: cached.usage?.prompt_tokens ?? tokens(JSON.stringify(textMessages)),
+                completion_tokens: cached.usage?.completion_tokens ?? tokens(text),
+                total_tokens:
+                  cached.usage?.total_tokens ??
+                  tokens(JSON.stringify(textMessages)) + tokens(text),
+              },
+            }
+          : {
+              id: `chatcmpl-stream-${Date.now()}`,
+              object: "chat.completion",
+              created: Math.floor(Date.now() / 1000),
+              model: routed.id,
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant" as const, content: text },
+                  finish_reason: "stop" as const,
+                },
+              ],
+              usage: {
+                prompt_tokens: tokens(JSON.stringify(textMessages)),
+                completion_tokens: tokens(text),
+                total_tokens: tokens(JSON.stringify(textMessages)) + tokens(text),
+              },
+            };
+
         if (!fromCache && text) {
-          const warm = {
-            id: `chatcmpl-stream-${Date.now()}`,
-            object: "chat.completion",
-            created: Math.floor(Date.now() / 1000),
-            model: routed.id,
-            choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
-            usage: {
-              prompt_tokens: tokens(JSON.stringify(textMessages)),
-              completion_tokens: tokens(text),
-              total_tokens: tokens(JSON.stringify(textMessages)) + tokens(text),
-            },
-          };
-          await cacheSet(exactKey, warm);
-          await cacheSet(promptKey, warm);
+          await cacheSet(exactKey, seededPayload);
+          await cacheSet(promptKey, seededPayload);
         }
 
-        const final = await routeChat(session, { ...body, model: routed.id }, opts);
+        const final = await routeChat(session, { ...body, model: routed.id }, {
+          ...opts,
+          seededCompletion: {
+            payload: seededPayload,
+            exactHit: fromCache && Boolean(exactCached),
+            promptHit: fromCache && Boolean(promptCached),
+          },
+        });
         if (hooks?.onComplete) await hooks.onComplete(final);
         push({
           id: final.id ?? `chatcmpl-stream-${Date.now()}`,
@@ -796,7 +847,18 @@ export async function routeChat(
     max_tokens?: number;
     max_completion_tokens?: number;
   },
-  opts?: { qualityProfiles?: ModelQualityProfile[] },
+  opts?: {
+    qualityProfiles?: ModelQualityProfile[];
+    /**
+     * Stream path already produced the completion. Skip cache reads so warming
+     * keys for this same request does not falsely report exact/prompt hits.
+     */
+    seededCompletion?: {
+      payload: Awaited<ReturnType<typeof complete>>;
+      exactHit?: boolean;
+      promptHit?: boolean;
+    };
+  },
 ) {
   const textMessages = body.messages.map((m) => ({
     role: m.role,
@@ -856,82 +918,91 @@ export async function routeChat(
   let semantic: SemanticMatch | null = null;
   let semanticMode: "full" | "hybrid" | "miss" | "off" = "off";
   let exactHit = false;
+  let promptHit = false;
   let payload: Awaited<ReturnType<typeof complete>> | undefined;
 
   const exactKey = `pm:exact:${JSON.stringify({ m: textMessages, model: routed.id })}`;
   // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
   const promptKey = `pm:prompt:${routed.id}:${userPrompt.trim().toLowerCase().slice(0, 2000)}`;
-  payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
-  exactHit = Boolean(payload);
-  let promptHit = false;
-  if (!payload) {
-    payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(promptKey);
-    promptHit = Boolean(payload);
-  }
 
-  if (!payload) {
-    semantic = await findSimilar(userPrompt);
-    semanticMode = semantic?.mode ?? "miss";
-
-    if (semantic?.mode === "full") {
-      // High similarity → replay cached answer path (no provider call).
-      payload = {
-        id: `chatcmpl-semantic-${Date.now()}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: routed.id,
-        choices: [
-          {
-            index: 0,
-            message: { role: "assistant", content: semantic.entry.answer },
-            finish_reason: "stop",
-          },
-        ],
-        usage: {
-          prompt_tokens: tokens(prompt),
-          completion_tokens: tokens(semantic.entry.answer),
-          total_tokens: tokens(prompt) + tokens(semantic.entry.answer),
-        },
-      };
-    } else if (semantic?.mode === "hybrid") {
-      // Similar shared path from cache; novel parts drive model selection + completion.
-      const novelComplexity = Math.min(
-        5,
-        Math.max(
-          classification.complexity,
-          semantic.novel.length > 280 ? classification.complexity + 1 : classification.complexity,
-        ),
-      );
-      // Prefer a capable model for novel/dissimilar work when the delta looks hard.
-      if (novelComplexity >= 4 || semantic.shared_ratio < 0.35) {
-        const stronger =
-          cheapest(session.models, "frontier") ??
-          cheapest(session.models, "standard") ??
-          routed;
-        if (TIER_ORDER.indexOf(stronger.tier) > TIER_ORDER.indexOf(routed.tier)) {
-          routed = stronger;
-        }
-      } else if (semantic.shared_ratio > 0.7 && novelComplexity <= 2) {
-        const cheaper = cheapest(session.models, "economy") ?? routed;
-        routed = cheaper;
-      }
-
-      const hybridMessages = buildHybridMessages(textMessages, semantic);
-      payload = await complete(session, routed.id, hybridMessages, classification, {
-        provider_id: routed.provider_id,
-      });
-      await cacheSet(exactKey, payload);
-      await cacheSet(promptKey, payload);
-    } else {
-      payload = await complete(session, routed.id, textMessages, classification, {
-        provider_id: routed.provider_id,
-      });
-      await cacheSet(exactKey, payload);
-      await cacheSet(promptKey, payload);
+  const seeded = opts?.seededCompletion;
+  if (seeded?.payload) {
+    payload = seeded.payload;
+    exactHit = Boolean(seeded.exactHit);
+    promptHit = Boolean(seeded.promptHit) && !exactHit;
+    if (promptHit) semanticMode = "full";
+  } else {
+    payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
+    exactHit = Boolean(payload);
+    if (!payload) {
+      payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(promptKey);
+      promptHit = Boolean(payload);
     }
-  } else if (promptHit && !exactHit) {
-    // Count as prompt-level cache hit (same last user text).
-    semanticMode = "full";
+
+    if (!payload) {
+      semantic = await findSimilar(userPrompt);
+      semanticMode = semantic?.mode ?? "miss";
+
+      if (semantic?.mode === "full") {
+        // High similarity → replay cached answer path (no provider call).
+        payload = {
+          id: `chatcmpl-semantic-${Date.now()}`,
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model: routed.id,
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: semantic.entry.answer },
+              finish_reason: "stop",
+            },
+          ],
+          usage: {
+            prompt_tokens: tokens(prompt),
+            completion_tokens: tokens(semantic.entry.answer),
+            total_tokens: tokens(prompt) + tokens(semantic.entry.answer),
+          },
+        };
+      } else if (semantic?.mode === "hybrid") {
+        // Similar shared path from cache; novel parts drive model selection + completion.
+        const novelComplexity = Math.min(
+          5,
+          Math.max(
+            classification.complexity,
+            semantic.novel.length > 280 ? classification.complexity + 1 : classification.complexity,
+          ),
+        );
+        // Prefer a capable model for novel/dissimilar work when the delta looks hard.
+        if (novelComplexity >= 4 || semantic.shared_ratio < 0.35) {
+          const stronger =
+            cheapest(session.models, "frontier") ??
+            cheapest(session.models, "standard") ??
+            routed;
+          if (TIER_ORDER.indexOf(stronger.tier) > TIER_ORDER.indexOf(routed.tier)) {
+            routed = stronger;
+          }
+        } else if (semantic.shared_ratio > 0.7 && novelComplexity <= 2) {
+          const cheaper = cheapest(session.models, "economy") ?? routed;
+          routed = cheaper;
+        }
+
+        const hybridMessages = buildHybridMessages(textMessages, semantic);
+        payload = await complete(session, routed.id, hybridMessages, classification, {
+          provider_id: routed.provider_id,
+        });
+        await cacheSet(exactKey, payload);
+        await cacheSet(promptKey, payload);
+      } else {
+        payload = await complete(session, routed.id, textMessages, classification, {
+          provider_id: routed.provider_id,
+        });
+        await cacheSet(exactKey, payload);
+        await cacheSet(promptKey, payload);
+      }
+    } else if (promptHit && !exactHit) {
+      // Count as prompt-level cache hit (same last user text).
+      semanticMode = "full";
+    }
   }
 
   let escalated = false;
@@ -1027,13 +1098,14 @@ export async function routeChat(
   };
 
   const semanticHit = semanticMode === "full" || semanticMode === "hybrid";
-  const anyCacheHit = exactHit || promptHit || prefixHit || semanticMode === "full";
+  // Answer reuse only — prefix billing discount is separate (prefix_cache_hit).
+  const anyCacheHit = exactHit || promptHit || semanticMode === "full" || semanticMode === "hybrid";
 
   session.stats.requests += 1;
   session.stats.actual_usd += cost.actual_usd;
   session.stats.baseline_usd += cost.baseline_usd;
   session.stats.saved_usd += cost.saved_usd;
-  session.stats.cache_hits += anyCacheHit || semanticMode === "hybrid" ? 1 : 0;
+  session.stats.cache_hits += anyCacheHit ? 1 : 0;
   session.stats.escalations += escalated ? 1 : 0;
   session.stats.quality_fails += qualityFinal.degraded || qualityFinal.gate === "fail" ? 1 : 0;
 
@@ -1083,7 +1155,7 @@ export async function routeChat(
       pricing_unknown: decision?.pricing_unknown ?? [],
       estimated_cost_usd: decision?.estimated_cost_usd ?? null,
       estimated_quality: decision?.estimated_quality ?? null,
-      cache_hit: anyCacheHit || semanticHit,
+      cache_hit: anyCacheHit,
       prefix_cache_hit: prefixHit,
       exact_cache_hit: exactHit,
       prompt_cache_hit: promptHit,

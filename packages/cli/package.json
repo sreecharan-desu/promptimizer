@@ -1,6 +1,6 @@
 {
   "name": "promptimizer-cli",
-  "version": "0.1.25",
+  "version": "0.1.28",
   "description": "Interactive Promptimizer CLI — Gemini-style REPL for quality-aware routing.",
   "type": "module",
   "bin": {

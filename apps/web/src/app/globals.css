@@ -302,6 +302,39 @@ body {
     animation: none;
   }
 }
+
+/* Console floating dock + stage */
+.console-shell {
+  background:
+    radial-gradient(ellipse 55% 40% at 0% 35%, hsl(var(--accent) / 0.07), transparent 55%),
+    radial-gradient(ellipse 45% 35% at 100% 0%, hsl(var(--primary) / 0.04), transparent 50%);
+}
+.console-dock {
+  animation: console-dock-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes console-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.console-rise {
+  animation: home-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.console-rise-delay {
+  animation-delay: 0.08s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .console-dock,
+  .console-rise {
+    animation: none;
+  }
+}
+
 @media (min-width: 640px) {
   .sm\:p-10 {
     padding: 2.5rem;

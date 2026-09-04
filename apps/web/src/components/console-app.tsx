@@ -240,101 +240,163 @@ export function ConsoleApp() {
     return choices?.[0]?.message?.content ?? "";
   }, [completion]);
 
+  const tabMeta = session
+    ? `${session.label} · ${session.models.length} models`
+    : "Connect a host or start the simulator.";
+  const tabLabel = TABS.find(([id]) => id === tab)?.[1] ?? "Console";
+
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-7xl flex-col lg:flex-row">
-      {/* Side dock */}
-      <aside className="shrink-0 border-b border-primary/[0.06] bg-card lg:w-56 lg:border-b-0 lg:border-r lg:border-primary/[0.06]">
-        <div className="sticky top-16 flex flex-col gap-1 px-3 py-5 lg:min-h-[calc(100vh-5rem)] lg:px-4 lg:py-8">
-          <div className="mb-4 px-2">
-            <p className="font-display text-lg font-medium tracking-tight text-primary">Console</p>
-            <p className="mt-1 line-clamp-3 text-[12px] leading-snug text-secondary">
-              {session
-                ? `${session.label} · ${session.models.length} models`
-                : "Connect a host or start the simulator."}
-            </p>
-          </div>
-          <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-            {TABS.map(([id, label]) => (
+    <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
+      {/* Floating side dock — not a full-height sidebar */}
+      <aside
+        className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 lg:bottom-auto lg:left-4 lg:top-[calc(50%+0.5rem)] lg:translate-x-0 lg:-translate-y-1/2"
+        aria-label="Console"
+      >
+        <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-[1.85rem] border border-primary/[0.07] bg-card/95 p-1.5 shadow-[0_22px_60px_-32px_rgba(0,0,0,0.55)] backdrop-blur-md lg:flex-col lg:gap-1.5 lg:p-2">
+          {TABS.map(([id, label]) => {
+            const active = tab === id;
+            return (
               <button
                 key={id}
                 type="button"
+                title={label}
+                aria-label={label}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setTab(id)}
-                className={`shrink-0 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
-                  tab === id
-                    ? "bg-primary text-background"
-                    : "text-primary/55 hover:bg-primary/[0.04] hover:text-primary"
+                className={`group relative flex size-11 items-center justify-center rounded-[1.15rem] transition-all duration-200 ease-out ${
+                  active
+                    ? "bg-primary text-background shadow-[0_8px_20px_-12px_rgba(0,0,0,0.55)]"
+                    : "text-primary/40 hover:bg-primary/[0.05] hover:text-primary"
                 }`}
               >
-                {label}
+                <DockIcon tab={id} className={`size-5 transition-transform duration-200 ${active ? "scale-100" : "group-hover:scale-105"}`} />
+                <span className="sr-only">{label}</span>
+                <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
+                  {label}
+                </span>
               </button>
-            ))}
-          </nav>
-          {session?.baseline_model ? (
-            <div className="mt-auto hidden pt-8 lg:block">
-              <p className="px-2 text-[10px] font-medium uppercase tracking-wide text-secondary">Baseline</p>
-              <p className="mt-1 break-all px-2 font-mono text-[11px] text-primary/70">{session.baseline_model}</p>
-            </div>
-          ) : null}
-        </div>
+            );
+          })}
+        </nav>
       </aside>
 
-      {/* Main stage */}
-      <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        {error ? <p className="mb-4 text-sm text-error">{error}</p> : null}
+      {/* Main stage — offset for the floating dock */}
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+        <header className="console-rise mb-7 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Console</h1>
+              <span className="rounded-full bg-primary/[0.06] px-2.5 py-0.5 text-[12px] font-medium text-primary/70">
+                {tabLabel}
+              </span>
+            </div>
+            <p className="mt-1.5 max-w-xl text-sm text-secondary">{tabMeta}</p>
+          </div>
+          {session?.baseline_model ? (
+            <div className="max-w-sm rounded-2xl border border-primary/[0.06] bg-card/80 px-3.5 py-2.5 text-right backdrop-blur-sm">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-secondary">Baseline</p>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-primary/75">{session.baseline_model}</p>
+            </div>
+          ) : null}
+        </header>
 
-        {tab === "connect" ? (
-          <ConnectPane
-            busy={busy}
-            host={host}
-            hosts={hosts}
-            query={query}
-            baseUrl={baseUrl}
-            apiKey={apiKey}
-            connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
-            fleetSummary={
-              session?.mode === "byok"
-                ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
-                : null
-            }
-            onQuery={setQuery}
-            onPick={(item) => {
-              setHostId(item.id);
-              setBaseUrl(item.base_url);
-            }}
-            onBaseUrl={setBaseUrl}
-            onKey={setApiKey}
-            onSimulator={connectSimulator}
-            onFetch={connectKey}
-            onDisconnect={disconnectHost}
-          />
+        {error ? (
+          <p className="mb-4 rounded-xl border border-error/20 bg-error/[0.06] px-3 py-2 text-sm text-error">{error}</p>
         ) : null}
 
-        {tab === "fleet" ? (
-          session ? (
-            <FleetPane session={session} busy={busy} onTier={changeTier} onBench={runBench} />
-          ) : (
-            <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
-          )
-        ) : null}
-
-        {tab === "play" ? (
-          session ? (
-            <PlayPane
-              session={session}
-              prompt={prompt}
-              answer={answer}
-              meta={meta}
-              usage={usage}
+        <div key={tab} className="console-rise console-rise-delay">
+          {tab === "connect" ? (
+            <ConnectPane
               busy={busy}
-              onPrompt={setPrompt}
-              onSend={send}
+              host={host}
+              hosts={hosts}
+              query={query}
+              baseUrl={baseUrl}
+              apiKey={apiKey}
+              connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
+              fleetSummary={
+                session?.mode === "byok"
+                  ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
+                  : null
+              }
+              onQuery={setQuery}
+              onPick={(item) => {
+                setHostId(item.id);
+                setBaseUrl(item.base_url);
+              }}
+              onBaseUrl={setBaseUrl}
+              onKey={setApiKey}
+              onSimulator={connectSimulator}
+              onFetch={connectKey}
+              onDisconnect={disconnectHost}
             />
-          ) : (
-            <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
-          )
-        ) : null}
+          ) : null}
+
+          {tab === "fleet" ? (
+            session ? (
+              <FleetPane session={session} busy={busy} onTier={changeTier} onBench={runBench} />
+            ) : (
+              <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+            )
+          ) : null}
+
+          {tab === "play" ? (
+            session ? (
+              <PlayPane
+                session={session}
+                prompt={prompt}
+                answer={answer}
+                meta={meta}
+                usage={usage}
+                busy={busy}
+                onPrompt={setPrompt}
+                onSend={send}
+              />
+            ) : (
+              <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+            )
+          ) : null}
+        </div>
       </div>
     </div>
+  );
+}
+
+function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
+  const common = {
+    className,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.75,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
+  if (tab === "connect") {
+    return (
+      <svg {...common}>
+        <path d="M8 12h8" />
+        <path d="M10 8H7a3 3 0 0 0 0 8h3" />
+        <path d="M14 8h3a3 3 0 0 1 0 8h-3" />
+      </svg>
+    );
+  }
+  if (tab === "fleet") {
+    return (
+      <svg {...common}>
+        <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+        <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+        <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+        <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M4.5 18.5V7.2A2.2 2.2 0 0 1 6.7 5h7.1A2.2 2.2 0 0 1 16 7.2v6.1a2.2 2.2 0 0 1-2.2 2.2H8.2L4.5 18.5z" />
+      <path d="M9 10h4.5M9 13h2.5" />
+    </svg>
   );
 }
 
@@ -373,10 +435,11 @@ function ConnectPane({
 }) {
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:p-6">
+      <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="font-display text-xl font-medium tracking-tight text-primary">Your keys</h2>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Step 01</p>
+            <h2 className="mt-1 font-display text-xl font-medium tracking-tight text-primary">Your keys</h2>
             <p className="mt-1 max-w-xl text-sm text-secondary">
               Connect hosts one at a time. Checkmarks stay — fetch another to merge fleets. Routing picks across all.
             </p>
@@ -460,10 +523,11 @@ function ConnectPane({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-primary/[0.06] bg-card p-5 sm:p-6">
+      <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="font-display text-xl font-medium tracking-tight text-primary">Simulator</h2>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Step 02</p>
+            <h2 className="mt-1 font-display text-xl font-medium tracking-tight text-primary">Simulator</h2>
             <p className="mt-1 text-sm text-secondary">Three mocked models. No vendor key.</p>
             <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] text-secondary">
               <li>nano · economy</li>
@@ -527,7 +591,7 @@ function FleetPane({
   return (
     <div>
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 lg:col-span-2">
+        <div className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] lg:col-span-2">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm text-secondary">
@@ -570,7 +634,7 @@ function FleetPane({
             </p>
           ) : null}
         </div>
-        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
+        <div className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)]">
           <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Selected mix</p>
           <div className="mt-3 flex items-center gap-4">
             <Donut
@@ -885,16 +949,16 @@ function PlayPane({
                 v={
                   meta.exact_cache_hit
                     ? "exact"
-                    : meta.semantic_cache_hit
-                      ? `similar ${meta.semantic_cache_mode ?? ""}${
-                          meta.semantic_similarity != null
-                            ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%`
-                            : ""
-                        }`.trim()
-                      : meta.prefix_cache_hit
-                        ? "prefix"
-                        : meta.cache_hit
-                          ? "hit"
+                    : meta.prompt_cache_hit
+                      ? "prompt"
+                      : meta.semantic_cache_hit
+                        ? `similar ${meta.semantic_cache_mode ?? ""}${
+                            meta.semantic_similarity != null
+                              ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%`
+                              : ""
+                          }`.trim()
+                        : meta.prefix_cache_hit
+                          ? "prefix"
                           : "miss"
                 }
               />

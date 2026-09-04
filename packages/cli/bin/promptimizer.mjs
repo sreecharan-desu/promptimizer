@@ -191,7 +191,7 @@ function banner(session, version) {
   out(`  ${color(ANSI.dim, `baseline ${baseline}`)}`);
   out();
   out(`  ${color(ANSI.dim, "Type a prompt, or /help  /hosts  /models  /connect  /disconnect  /clear  /quit")}`);
-  out(`  ${color(ANSI.dim, "Repeating the same last message hits prompt cache; /clear resets the chat thread")}`);
+  out(`  ${color(ANSI.dim, "Same last message → prompt cache; identical thread → exact cache; /clear resets the thread")}`);
   out();
 }
 
@@ -299,15 +299,22 @@ function printMeta(result) {
   if (meta.routing_policy) bits.push(String(meta.routing_policy));
   if (meta.provider_id || meta.host) bits.push(String(meta.provider_id || meta.host));
   if (saved != null) bits.push(`saved ${usd(saved)}`);
-  if (meta.exact_cache_hit) bits.push(color(ANSI.green, "cache hit"));
+  if (meta.exact_cache_hit) bits.push(color(ANSI.green, "exact cache"));
   else if (meta.prompt_cache_hit) bits.push(color(ANSI.green, "prompt cache"));
   else if (meta.semantic_cache_hit) {
-    const mode = meta.semantic_cache_mode === "full" ? "semantic full" : meta.semantic_cache_mode === "prompt" ? "prompt cache" : "semantic hybrid";
+    const mode =
+      meta.semantic_cache_mode === "full"
+        ? "semantic full"
+        : meta.semantic_cache_mode === "prompt"
+          ? "prompt cache"
+          : meta.semantic_cache_mode === "hybrid"
+            ? "semantic hybrid"
+            : "semantic cache";
     const sim =
       meta.semantic_similarity != null ? ` ${Math.round(Number(meta.semantic_similarity) * 100)}%` : "";
     bits.push(color(ANSI.green, `${mode}${sim}`));
-  } else if (meta.prefix_cache_hit) bits.push(color(ANSI.green, "prefix cache"));
-  else if ("cache_hit" in meta) bits.push(color(ANSI.gray, "miss"));
+  } else if (meta.prefix_cache_hit) bits.push(color(ANSI.dim, "prefix cache"));
+  else bits.push(color(ANSI.gray, "miss"));
   if (meta.quality_gate) bits.push(`gate:${meta.quality_gate}`);
   if (meta.quality_audit) {
     bits.push(meta.quality_audit_pass === false ? color(ANSI.yellow, "audit fail") : "audit ok");
