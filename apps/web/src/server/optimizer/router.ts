@@ -68,6 +68,7 @@ export function chooseModel(input: {
     const cost = estimatePlanningCost(model, expectedIn, expectedOut);
     candidates.push({
       model_id: model.model_id,
+      provider_id: model.provider_id,
       estimated_quality: q,
       estimated_cost_usd: cost,
       pricing_known: true,
@@ -84,6 +85,7 @@ export function chooseModel(input: {
   return {
     policy: "quality_profile",
     selected_model_id: best.model_id,
+    selected_provider_id: best.provider_id,
     estimated_quality: best.estimated_quality,
     estimated_cost_usd: best.estimated_cost_usd,
     minimum_quality: minQ,

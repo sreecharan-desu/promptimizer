@@ -81,6 +81,7 @@ export type ModelQualityProfile = {
 
 export type RoutingCandidate = {
   model_id: string;
+  provider_id: string;
   estimated_quality: number;
   estimated_cost_usd: number;
   pricing_known: boolean;
@@ -90,6 +91,7 @@ export type RoutingCandidate = {
 export type RoutingDecision = {
   policy: RoutingPolicy;
   selected_model_id: string;
+  selected_provider_id: string;
   estimated_quality: number;
   estimated_cost_usd: number;
   minimum_quality: number;

@@ -148,6 +148,16 @@ function cheapest(models: ModelInfo[], tier?: Tier) {
   return pool.sort((a, b) => blend(a) - blend(b))[0];
 }
 
+function isUuidModelId(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id.trim());
+}
+
+function isNonChatModelId(id: string) {
+  return /(embed|whisper|tts|dall|image|moderation|reward|rerank|ranking|classifier|guardrail|\.guard\b|safety-model)/i.test(
+    id,
+  );
+}
+
 function fleetFrom(
   raw: Array<Record<string, unknown>>,
   providerId = "provider",
@@ -156,7 +166,10 @@ function fleetFrom(
   const models: ModelInfo[] = [];
   for (const item of raw) {
     const mid = String(item.id ?? item.name ?? "");
-    if (!mid || /(embed|whisper|tts|dall|image|moderation)/i.test(mid)) continue;
+    if (!mid) continue;
+    // Baseten /models mixes Model API slugs with per-account deployment UUIDs.
+    // Calling chat/completions with a stale UUID returns "Function … Not found".
+    if (isUuidModelId(mid) || isNonChatModelId(mid)) continue;
     if (models.some((m) => m.id === mid)) continue;
     const priced = lookupPrice(mid);
     const { tier, source } = inferTier(mid);
@@ -545,9 +558,42 @@ function scoreAnswer(pred: string, gold: string, must: string[], difficulty: num
   return scoreAnswerLike(pred, gold || "", difficulty, Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62), must);
 }
 
+function findModel(session: Session, modelId: string, providerId?: string | null) {
+  if (providerId) {
+    const exact = session.models.find((m) => m.id === modelId && m.provider_id === providerId);
+    if (exact) return exact;
+  }
+  return session.models.find((m) => m.id === modelId);
+}
+
+function parseProviderError(status: number, body: string): string {
+  const raw = body.trim();
+  try {
+    const j = JSON.parse(raw) as {
+      detail?: unknown;
+      title?: string;
+      message?: string;
+      error?: { message?: string };
+    };
+    const detail =
+      typeof j.detail === "string"
+        ? j.detail
+        : j.detail != null
+          ? JSON.stringify(j.detail)
+          : j.error?.message || j.message || "";
+    if (/function ['"]?[0-9a-f-]{36}/i.test(detail) || /not found for account/i.test(detail)) {
+      return `Model unavailable on this host (${status}): ${detail}. Refresh models — stale Baseten deployment ids are skipped automatically.`;
+    }
+    if (detail) return j.title ? `${j.title}: ${detail}` : detail;
+  } catch {
+    /* plain text */
+  }
+  return raw.slice(0, 600) || `Provider error ${status}`;
+}
+
 function pick(session: Session, classification: Classification, hint?: string) {
   if (hint && hint !== "auto" && hint !== "promptimizer") {
-    const found = session.models.find((m) => m.id === hint);
+    const found = findModel(session, hint);
     if (found) return found;
   }
   const start = TIER_ORDER.indexOf(classification.recommended_tier);
@@ -566,6 +612,18 @@ function pick(session: Session, classification: Classification, hint?: string) {
   return cheapest(session.models);
 }
 
+function nextFailoverModel(session: Session, failed: ModelInfo, tried: Set<string>) {
+  const key = (m: ModelInfo) => `${m.provider_id}::${m.id}`;
+  const pool = session.models
+    .filter((m) => m.selected && !tried.has(key(m)))
+    .sort(
+      (a, b) =>
+        TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b),
+    );
+  // Prefer same tier first, then any remaining.
+  return pool.find((m) => m.tier === failed.tier) ?? pool[0] ?? null;
+}
+
 async function complete(
   session: Session,
   model: string,
@@ -576,19 +634,17 @@ async function complete(
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
-  const modelInfo =
-    (opts?.provider_id
-      ? session.models.find((m) => m.id === model && m.provider_id === opts.provider_id)
-      : undefined) ?? session.models.find((m) => m.id === model);
+  const modelInfo = findModel(session, model, opts?.provider_id);
   const conn =
     session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
     session.connections[0];
-  const baseUrl = conn?.base_url || session.base_url;
-  const apiKey = conn?.api_key || session.api_key;
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  if (!conn?.base_url || !conn.api_key) {
+    throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
+  }
+  const response = await fetch(`${conn.base_url}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${conn.api_key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -599,9 +655,49 @@ async function complete(
     }),
   });
   if (!response.ok) {
-    throw Object.assign(new Error(await response.text()), { status: response.status });
+    const text = await response.text();
+    throw Object.assign(new Error(parseProviderError(response.status, text)), {
+      status: response.status,
+      provider_error: true,
+      retryable_404: response.status === 404,
+    });
   }
   return response.json();
+}
+
+async function completeOrFailover(
+  session: Session,
+  start: ModelInfo,
+  messages: Array<{ role: string; content: string }>,
+  classification: Classification,
+  opts?: { max_tokens?: number; temperature?: number },
+) {
+  const tried = new Set<string>([`${start.provider_id}::${start.id}`]);
+  let current = start;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const payload = await complete(session, current.id, messages, classification, {
+        ...opts,
+        provider_id: current.provider_id,
+      });
+      return { payload, routed: current };
+    } catch (err) {
+      lastError = err;
+      const retryable =
+        typeof err === "object" &&
+        err &&
+        "retryable_404" in err &&
+        Boolean((err as { retryable_404?: boolean }).retryable_404);
+      if (!retryable) throw err;
+      current.selected = false;
+      const next = nextFailoverModel(session, current, tried);
+      if (!next) throw err;
+      tried.add(`${next.provider_id}::${next.id}`);
+      current = next;
+    }
+  }
+  throw lastError;
 }
 
 /** Stream tokens from the provider. Yields text deltas; resolves with full text. */
@@ -615,19 +711,17 @@ async function* completeStreaming(
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
-  const modelInfo =
-    (opts?.provider_id
-      ? session.models.find((m) => m.id === model && m.provider_id === opts.provider_id)
-      : undefined) ?? session.models.find((m) => m.id === model);
+  const modelInfo = findModel(session, model, opts?.provider_id);
   const conn =
     session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
     session.connections[0];
-  const baseUrl = conn?.base_url || session.base_url;
-  const apiKey = conn?.api_key || session.api_key;
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  if (!conn?.base_url || !conn.api_key) {
+    throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
+  }
+  const response = await fetch(`${conn.base_url}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${conn.api_key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -638,7 +732,12 @@ async function* completeStreaming(
     }),
   });
   if (!response.ok) {
-    throw Object.assign(new Error(await response.text()), { status: response.status });
+    const text = await response.text();
+    throw Object.assign(new Error(parseProviderError(response.status, text)), {
+      status: response.status,
+      provider_error: true,
+      retryable_404: response.status === 404,
+    });
   }
   if (!response.body) {
     const json = await response.json();
@@ -912,7 +1011,7 @@ export async function routeChat(
   let routingPolicy: RoutingDecision["policy"] | "bootstrap_heuristic" = "bootstrap_heuristic";
 
   if (body.model && body.model !== "auto" && body.model !== "promptimizer") {
-    routed = session.models.find((m) => m.id === body.model);
+    routed = findModel(session, body.model);
     routingPolicy = "bootstrap_heuristic";
   } else {
     decision = chooseModel({
@@ -924,7 +1023,7 @@ export async function routeChat(
     });
     if (decision) {
       routingPolicy = decision.policy;
-      routed = session.models.find((m) => m.id === decision!.selected_model_id);
+      routed = findModel(session, decision.selected_model_id, decision.selected_provider_id);
     }
   }
 
@@ -935,7 +1034,10 @@ export async function routeChat(
   if (!routed) throw Object.assign(new Error("No selected models."), { status: 400 });
 
   const initialModel = routed;
-  const baseline = session.models.find((m) => m.id === session.baseline_model) ?? routed;
+  const baseline =
+    findModel(session, session.baseline_model ?? "") ??
+    session.models.find((m) => m.id === session.baseline_model) ??
+    routed;
 
   const system = textMessages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
@@ -1022,15 +1124,15 @@ export async function routeChat(
         }
 
         const hybridMessages = buildHybridMessages(textMessages, semantic);
-        payload = await complete(session, routed.id, hybridMessages, classification, {
-          provider_id: routed.provider_id,
-        });
+        const hybrid = await completeOrFailover(session, routed, hybridMessages, classification);
+        routed = hybrid.routed;
+        payload = hybrid.payload;
         await cacheSet(exactKey, payload);
         await cacheSet(promptKey, payload);
       } else {
-        payload = await complete(session, routed.id, textMessages, classification, {
-          provider_id: routed.provider_id,
-        });
+        const live = await completeOrFailover(session, routed, textMessages, classification);
+        routed = live.routed;
+        payload = live.payload;
         await cacheSet(exactKey, payload);
         await cacheSet(promptKey, payload);
       }
@@ -1674,6 +1776,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
   const sid = accountSessionId(userId);
   const cached = store.get(sid);
   if (cached) {
+    cached.models = cached.models.filter((m) => m?.id && !isUuidModelId(m.id) && !isNonChatModelId(m.id));
     dedupeFleet(cached);
     try {
       const { loadQualityProfiles } = await import("./account");
@@ -1706,6 +1809,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
         api_key: saved.api_key,
       });
       for (const raw of saved.models as ModelInfo[]) {
+        if (!raw?.id || isUuidModelId(raw.id) || isNonChatModelId(raw.id)) continue;
         models.push(
           enrichModel({
             ...raw,
