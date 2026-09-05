@@ -213,9 +213,14 @@ function settlePendingRelease(name) {
     setDistTag(name, pending, "latest");
     return { name, version: pending, skipped: true, ok: true, promoted: true };
   }
-  // Ghost / stuck metadata: point release back at healthy latest, then allow a fresh bump.
+  // CDN may have caught up during the wait window — prefer promote over stacking.
+  if (installable(name, pending)) {
+    console.log(`${name}@${pending} became installable — promoting instead of publishing again`);
+    setDistTag(name, pending, "latest");
+    return { name, version: pending, skipped: true, ok: true, promoted: true };
+  }
   const safe = ensureLatestInstallable(name);
-  if (safe) {
+  if (safe && safe !== pending) {
     console.warn(`Abandoning unsettled ${name}@${pending}; ${RELEASE_TAG} → ${safe}`);
     try {
       setDistTag(name, safe, RELEASE_TAG);
