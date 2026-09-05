@@ -161,14 +161,6 @@ export function ConsoleApp() {
     }
   }
 
-  async function changeTier(id: string, tier: string) {
-    if (!session) return;
-    const next = await api.patchModels({ overrides: { [id]: tier } });
-    setSession(next);
-    setBench(null);
-    setBenchCachedAt(null);
-  }
-
   async function send() {
     if (!prompt.trim()) return;
     setBusy(true);
@@ -288,7 +280,7 @@ export function ConsoleApp() {
 
           {tab === "fleet" ? (
             hasFleet ? (
-              <FleetPane session={session!} onTier={changeTier} />
+              <FleetPane session={session!} />
             ) : (
               <NeedSession onConnect={() => setTab("connect")} />
             )
@@ -659,10 +651,8 @@ function ConnectPane({
 
 function FleetPane({
   session,
-  onTier,
 }: {
   session: Session;
-  onTier: (id: string, tier: string) => void;
 }) {
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(0);
@@ -734,8 +724,8 @@ function FleetPane({
                 <span className="break-all font-mono text-primary">{session.baseline_model ?? "—"}</span>
               </p>
               <p className="mt-1 text-sm text-secondary">
-                Change a tier if the auto-map is wrong. Quality shows ~estimates; measured scores appear for models that
-                have been scored.
+                Tiers are assigned automatically from price and model name. Quality shows ~estimates; measured scores
+                appear for models that have been scored.
               </p>
               {hostCounts.length ? (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -796,7 +786,7 @@ function FleetPane({
                 </span>
               </div>
               <div className="mt-3">
-                <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} variant="wide" />
+                <TierBadge tier={model.tier} />
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-secondary">
                 <div>
@@ -860,7 +850,7 @@ function FleetPane({
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
-                    <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} variant="compact" />
+                    <TierBadge tier={model.tier} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
                     {fmtPer1m(model.input_per_1m)}
@@ -922,63 +912,27 @@ function FleetPane({
   );
 }
 
-const TIER_OPTIONS = [
-  { id: "economy", short: "Eco", label: "Economy" },
-  { id: "standard", short: "Std", label: "Standard" },
-  { id: "frontier", short: "Front", label: "Frontier" },
-] as const;
+const TIER_LABEL: Record<string, string> = {
+  economy: "Economy",
+  standard: "Standard",
+  frontier: "Frontier",
+};
 
-function TierPicker({
-  value,
-  onPick,
-  variant = "compact",
-}: {
-  value: string;
-  onPick: (tier: "economy" | "standard" | "frontier") => void;
-  /** compact = single-row for tables; wide = equal 3-col for mobile cards */
-  variant?: "compact" | "wide";
-}) {
-  const wide = variant === "wide";
+function TierBadge({ tier }: { tier: string }) {
+  const label = TIER_LABEL[tier] ?? tier;
+  const tone =
+    tier === "economy"
+      ? "bg-accent/15 text-primary"
+      : tier === "frontier"
+        ? "bg-primary text-background"
+        : "bg-primary/[0.08] text-primary";
   return (
-    <div
-      role="radiogroup"
-      aria-label="Model tier"
-      className={
-        wide
-          ? "grid w-full grid-cols-3 gap-1 rounded-xl border border-primary/[0.08] bg-background/60 p-1"
-          : "inline-flex max-w-full flex-nowrap items-center rounded-full border border-primary/[0.08] bg-background/40 p-0.5"
-      }
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium tracking-tight ${tone}`}
+      title={`Auto-assigned tier: ${label}`}
     >
-      {TIER_OPTIONS.map((tier) => {
-        const selected = value === tier.id;
-        return (
-          <button
-            key={tier.id}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            title={tier.label}
-            onClick={() => onPick(tier.id)}
-            className={
-              wide
-                ? `rounded-lg px-2 py-2 text-center text-[12px] font-medium transition-colors duration-150 ${
-                    selected
-                      ? "bg-primary text-background shadow-sm"
-                      : "text-primary/55 hover:bg-primary/[0.04] hover:text-primary"
-                  }`
-                : `shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-tight transition-colors duration-150 ${
-                    selected
-                      ? "bg-primary text-background"
-                      : "text-primary/45 hover:text-primary"
-                  }`
-            }
-          >
-            <span className={wide ? "sm:hidden" : ""}>{tier.short}</span>
-            {wide ? <span className="hidden sm:inline">{tier.label}</span> : null}
-          </button>
-        );
-      })}
-    </div>
+      {label}
+    </span>
   );
 }
 
