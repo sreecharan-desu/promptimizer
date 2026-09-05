@@ -135,7 +135,20 @@ function setLatest(name, version) {
 function ensureLatestInstallable(name) {
   const latest = publishedVersion(name);
   if (!latest) return null;
-  if (installable(name, latest)) return latest;
+  if (installable(name, latest)) {
+    // Prefer the newest installable version (skip ghost newer releases).
+    const versions = listVersions(name);
+    for (let i = versions.length - 1; i >= 0; i -= 1) {
+      const v = versions[i];
+      if (!tarballOk(name, v)) continue;
+      if (v !== latest) {
+        console.log(`Promoting ${name}@latest ${latest} → ${v} (newer installable)`);
+        setLatest(name, v);
+      }
+      return v;
+    }
+    return latest;
+  }
   if (waitUntilInstallable(name, latest, { attempts: 4, label: "latest-quick" })) return latest;
 
   const fallback = lastInstallableVersion(name, latest);
