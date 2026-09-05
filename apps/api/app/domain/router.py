@@ -11,6 +11,11 @@ from app.domain.classifier import Classification, classify_messages, complexity_
 from app.domain.costing import compute_cost, estimate_tokens
 from app.domain.optimizer.requirements import extract_requirements
 from app.domain.quality import looks_degraded, score_answer
+from app.domain.semantic_cache import (
+    build_hybrid_messages,
+    find_similar,
+    remember_semantic,
+)
 from app.providers import openai_compat
 
 
@@ -79,30 +84,71 @@ async def route_chat(
     exact_key = completion_hash(messages, routed.id)
     cached_completion = cache.get(f"exact:{exact_key}", owner)
 
+    user_prompt = ""
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            content = message.get("content")
+            user_prompt = content if isinstance(content, str) else str(content or "")
+            break
+    if not user_prompt:
+        user_prompt = "\n".join(str(m.get("content") or "") for m in messages)
+
+    semantic = None
+    semantic_mode = "off"
+    outbound_messages = messages
+
     escalated = False
     if cached_completion:
         provider_payload = cached_completion
         cache_hits = 1
     else:
-        provider_payload = await _complete(session, routed.id, messages, classification, extra)
-        cache.set(f"exact:{exact_key}", provider_payload, owner)
-        cache_hits = 0
+        semantic = await find_similar(user_prompt, owner)
+        semantic_mode = semantic.mode if semantic else "miss"
+        if semantic and semantic.mode == "full":
+            provider_payload = {
+                "id": f"chatcmpl-semantic-{int(time.time() * 1000)}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": semantic.entry.model or routed.id,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": semantic.entry.answer},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": estimate_tokens(user_prompt),
+                    "completion_tokens": estimate_tokens(semantic.entry.answer),
+                    "total_tokens": estimate_tokens(user_prompt)
+                    + estimate_tokens(semantic.entry.answer),
+                },
+            }
+            cache_hits = 1
+        else:
+            if semantic and semantic.mode == "hybrid":
+                outbound_messages = build_hybrid_messages(messages, semantic)
+            provider_payload = await _complete(
+                session, routed.id, outbound_messages, classification, extra
+            )
+            cache.set(f"exact:{exact_key}", provider_payload, owner)
+            cache_hits = 0
 
-        if get_settings().quality_guard:
-            text = _content(provider_payload)
-            if looks_degraded(text, classification.complexity):
-                upgrade = next_tier_model(fleet, routed)
-                if upgrade:
-                    escalated = True
-                    routed = upgrade
-                    provider_payload = await _complete(
-                        session, routed.id, messages, classification, extra
-                    )
-                    cache.set(
-                        f"exact:{completion_hash(messages, routed.id)}",
-                        provider_payload,
-                        owner,
-                    )
+            if get_settings().quality_guard:
+                text = _content(provider_payload)
+                if looks_degraded(text, classification.complexity):
+                    upgrade = next_tier_model(fleet, routed)
+                    if upgrade:
+                        escalated = True
+                        routed = upgrade
+                        provider_payload = await _complete(
+                            session, routed.id, outbound_messages, classification, extra
+                        )
+                        cache.set(
+                            f"exact:{completion_hash(messages, routed.id)}",
+                            provider_payload,
+                            owner,
+                        )
 
     usage = provider_payload.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or estimate_tokens(str(messages)))
@@ -123,6 +169,18 @@ async def route_chat(
         difficulty=classification.complexity,
         threshold=get_settings().quality_escalate_threshold,
     )
+
+    if not cached_completion and semantic_mode != "full":
+        answer_text = _content(provider_payload)
+        if answer_text.strip() and not quality.degraded:
+            await remember_semantic(
+                prompt=user_prompt,
+                answer=answer_text,
+                model=routed.id,
+                tier=routed.tier,
+                quality=float(getattr(quality, "score", 0.0) or 0.0),
+                owner=owner,
+            )
 
     touch_stats(
         session,
@@ -158,9 +216,12 @@ async def route_chat(
         "baseline_model": baseline.id,
         "routing_policy": routing_policy,
         "requirements": requirements.model_dump(),
-        "cache_hit": bool(cached_completion) or prefix_hit,
+        "cache_hit": bool(cached_completion) or prefix_hit or semantic_mode == "full",
         "prefix_cache_hit": prefix_hit,
         "exact_cache_hit": bool(cached_completion),
+        "semantic_cache_hit": semantic_mode in {"full", "hybrid"},
+        "semantic_cache_mode": semantic_mode,
+        "semantic_similarity": None if not semantic else round(semantic.similarity, 4),
         "escalated": escalated,
         "quality_gate": "fail" if quality.degraded else "pass",
         "quality": quality.as_dict(),

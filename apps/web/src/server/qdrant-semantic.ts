@@ -17,11 +17,14 @@ let client: QdrantClient | null = null;
 let ensured = false;
 
 export function qdrantConfigured() {
+  // Semantic Qdrant lives in the Python API when SEMANTIC_BACKEND=python.
+  const backend = (process.env.SEMANTIC_BACKEND ?? "").trim().toLowerCase();
+  if (backend === "python") return false;
   return Boolean(process.env.QDRANT_URL?.trim());
 }
 
 export function qdrantCollection() {
-  return process.env.QDRANT_COLLECTION?.trim() || "promptimizer_semantic";
+  return process.env.QDRANT_COLLECTION?.trim() || "promptimizer_semantic_2048";
 }
 
 function qdrantUrl() {

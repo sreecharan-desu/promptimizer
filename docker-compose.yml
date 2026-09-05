@@ -15,6 +15,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       APP_ENV: production
       CACHE_BACKEND: redis
@@ -22,9 +24,20 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
       QUALITY_GUARD: "true"
+      SEMANTIC_BACKEND: python
+      SEMANTIC_CACHE: "true"
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-promptimizer_semantic_2048}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b}
+      EMBEDDING_DIM: "2048"
     depends_on:
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 10s
@@ -39,6 +52,7 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      SEMANTIC_BACKEND: python
     depends_on:
       api:
         condition: service_healthy

@@ -32,6 +32,21 @@ class Settings(BaseSettings):
     quality_guard: bool = True
     quality_escalate_threshold: float = 0.62
 
+    # Semantic / Qdrant (NVIDIA nemotron-3-embed-1b @ 2048-d)
+    semantic_cache: str = "true"
+    semantic_threshold: float = 0.5
+    semantic_full_hit: float = 0.88
+    semantic_paraphrase_hit: float = 0.62
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "promptimizer_semantic_2048"
+    nvidia_api_key: str = ""
+    embedding_api_key: str = ""
+    embedding_base_url: str = "https://integrate.api.nvidia.com/v1"
+    embedding_model: str = "nvidia/nemotron-3-embed-1b"
+    embedding_dim: int = 2048
+    semantic_backend: str = "python"
+
 
 @lru_cache
 def get_settings() -> Settings:
