@@ -62,18 +62,21 @@ export function Footer() {
     theme === "light" ? "Switch to dark mode" : theme === "dark" ? "Switch to system theme" : "Switch to light mode";
 
   return (
-    <footer className="border-t border-primary/[0.06] px-4 py-16 sm:px-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-10 sm:flex-row sm:justify-between">
+    <footer className="border-t border-primary/[0.07] px-4 py-12 sm:px-6 sm:py-14">
+      <div className="mx-auto flex max-w-6xl flex-col gap-10 sm:flex-row sm:justify-between">
         <div>
-          <p className="font-display text-sm font-medium tracking-tight text-primary">Promptimizer</p>
-          <p className="mt-3 text-sm text-secondary">© {new Date().getFullYear()} Promptimizer</p>
-          <GitHubLink className="mt-4 inline-flex size-8 items-center justify-center rounded-full text-primary/40 transition-colors hover:text-primary" />
+          <p className="font-display text-base font-semibold tracking-tight text-primary">Promptimizer</p>
+          <p className="mt-2 max-w-xs text-sm leading-6 text-secondary">The adaptive routing layer for production AI.</p>
+          <div className="mt-4 flex items-center gap-3">
+            <GitHubLink className="inline-flex size-8 items-center justify-center rounded-lg text-primary/40 transition-colors hover:bg-primary/[0.05] hover:text-primary" />
+            <p className="text-xs text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+          </div>
         </div>
         {compact ? null : (
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
             {COLUMNS.map((column) => (
               <div key={column.title}>
-                <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{column.title}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-secondary">{column.title}</p>
                 <ul className="mt-3 space-y-2">
                   {column.links.map((link) => (
                     <li key={link.href}>
@@ -82,12 +85,12 @@ export function Footer() {
                           href={link.href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-primary/50 transition-colors hover:text-primary"
+                          className="text-sm text-primary/55 transition-colors hover:text-primary"
                         >
                           {link.label}
                         </a>
                       ) : (
-                        <Link href={link.href} className="text-sm text-primary/50 transition-colors hover:text-primary">
+                        <Link href={link.href} className="text-sm text-primary/55 transition-colors hover:text-primary">
                           {link.label}
                         </Link>
                       )}
@@ -102,7 +105,7 @@ export function Footer() {
           type="button"
           onClick={cycle}
           aria-label={label}
-          className="size-7 rounded-full text-primary/30 transition-colors duration-150 hover:text-primary/60"
+          className="size-8 rounded-lg border border-primary/[0.08] text-primary/35 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary/65"
         >
           {theme === "light" ? "○" : theme === "system" ? "◐" : "●"}
         </button>

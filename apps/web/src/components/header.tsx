@@ -19,69 +19,85 @@ export function Header() {
   const homeHref = docs ? SITE_URL : "/";
 
   return (
-    <header
-      className="fixed inset-x-0 top-0 z-50 h-16 border-b border-primary/[0.06]"
-      style={{ background: "var(--site-header-bg)", backdropFilter: "blur(12px)" }}
-    >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+    <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
+      <div
+        className="site-nav relative mx-auto flex h-12 max-w-6xl items-center justify-between rounded-2xl px-3 sm:px-4"
+        style={{ backdropFilter: "blur(var(--site-header-blur))" }}
+      >
         <Link href={homeHref} className="flex items-center gap-2.5 text-primary">
-          <Mark className="h-9 w-9" />
-          <span className="font-display text-[17px] font-medium tracking-tight">Promptimizer</span>
+          <Mark className="h-8 w-8" />
+          <span className="font-display text-[16px] font-semibold tracking-tight">Promptimizer</span>
         </Link>
 
-        <div className="hidden items-center gap-2 lg:flex">
+        <div className="hidden items-center gap-1 lg:flex">
+          <Link
+            href="/console"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-primary/55 transition-colors hover:bg-primary/[0.05] hover:text-primary"
+          >
+            Console
+          </Link>
           <a
             href={DOCS_HOME}
             target="_blank"
             rel="noopener noreferrer"
-            className={`mr-1 flex items-center px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-              docs ? "text-primary" : "text-primary/50 hover:text-primary"
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+              docs ? "bg-primary/[0.05] text-primary" : "text-primary/55 hover:bg-primary/[0.05] hover:text-primary"
             }`}
           >
             Docs
           </a>
-          <GitHubLink className="mr-1 inline-flex size-9 items-center justify-center rounded-full text-primary/50 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary" />
+          <GitHubLink className="ml-1 inline-flex size-8 items-center justify-center rounded-lg text-primary/45 transition-colors duration-150 hover:bg-primary/[0.05] hover:text-primary" />
+          <span className="mx-2 h-5 w-px bg-primary/10" aria-hidden="true" />
           <AuthNav />
         </div>
 
         <button
           type="button"
-          className="lg:hidden text-sm font-medium text-primary/70"
+          className="inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-medium text-primary/70 transition-colors hover:bg-primary/[0.05] lg:hidden"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
         >
-          Menu
+          {open ? "Close" : "Menu"}
         </button>
-      </div>
 
-      {open ? (
-        <div className="border-t border-primary/[0.06] bg-background px-4 py-4 lg:hidden">
-          <div className="flex flex-col gap-2">
-            <a
-              href={DOCS_HOME}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className={`py-2 text-sm font-medium ${docs ? "text-primary" : "text-primary/70"}`}
-            >
-              Docs
-            </a>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className="inline-flex items-center gap-2 py-2 text-sm font-medium text-primary/70"
-            >
-              <GitHubIcon className="size-4" />
-              GitHub
-            </a>
-            <div className="mt-3 flex items-center gap-3">
-              <AuthNav />
+        {open ? (
+          <div className="site-nav absolute left-0 right-0 top-[calc(100%+0.5rem)] rounded-2xl p-3 shadow-xl lg:hidden">
+            <div className="flex flex-col gap-1">
+              <Link
+                href="/console"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-primary/70 hover:bg-primary/[0.05] hover:text-primary"
+              >
+                Console
+              </Link>
+              <a
+                href={DOCS_HOME}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className={`rounded-lg px-3 py-2 text-sm font-medium hover:bg-primary/[0.05] ${
+                  docs ? "text-primary" : "text-primary/70"
+                }`}
+              >
+                Docs
+              </a>
+              <a
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-primary/70 hover:bg-primary/[0.05] hover:text-primary"
+              >
+                <GitHubIcon className="size-4" />
+                GitHub
+              </a>
+              <div className="mt-2 flex items-center gap-3 border-t border-primary/[0.07] px-2 pt-3">
+                <AuthNav />
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </header>
   );
 }

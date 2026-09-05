@@ -174,70 +174,8 @@ function printAnswer(text) {
     out(color(ANSI.dim, "(empty)"));
     return;
   }
+  // Non-stream fallback only — print once, no fake typewriter drip.
   process.stdout.write(`${renderMarkdown(text)}\n`);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Split so ANSI escapes stay intact while typewriting. */
-function ansiChunks(text) {
-  const parts = [];
-  const re = /\x1b\[[0-9;]*m|[^\x1b]+/g;
-  let match;
-  while ((match = re.exec(String(text)))) parts.push(match[0]);
-  return parts;
-}
-
-/**
- * Stream clean markdown to the terminal. Cache hits use a very high CPS so
- * the replay feels snappy instead of dumping raw markdown source.
- */
-async function streamAnswer(text, opts = {}) {
-  if (!text) {
-    out(color(ANSI.dim, "(empty)"));
-    return;
-  }
-  const rendered = renderMarkdown(text);
-  if (!ANSI_OK) {
-    process.stdout.write(`${rendered}\n`);
-    return;
-  }
-  const cacheHit = Boolean(opts.cacheHit);
-  const cps = cacheHit ? 16_000 : opts.fast ? 10_000 : 6_000;
-  const chunkSize = Math.max(12, Math.floor(cps / 90));
-  let pending = "";
-
-  for (const part of ansiChunks(rendered)) {
-    if (part.startsWith("\x1b")) {
-      process.stdout.write(part);
-      continue;
-    }
-    for (let i = 0; i < part.length; ) {
-      const slice = part.slice(i, i + chunkSize);
-      pending += slice;
-      i += slice.length;
-      if (pending.length >= chunkSize || slice.includes("\n")) {
-        process.stdout.write(pending);
-        pending = "";
-        await sleep(Math.max(3, Math.round((1000 * chunkSize) / cps)));
-      }
-    }
-  }
-  if (pending) process.stdout.write(pending);
-  process.stdout.write("\n");
-}
-
-function isCacheHit(meta) {
-  if (!meta || typeof meta !== "object") return false;
-  return Boolean(
-    meta.exact_cache_hit ||
-      meta.prompt_cache_hit ||
-      meta.semantic_cache_hit ||
-      meta.prefix_cache_hit ||
-      meta.cache_hit,
-  );
 }
 
 const COMMANDS = [
@@ -847,16 +785,15 @@ async function cmdChat(flags, positional) {
   if (!prompt) die('Usage: promptimizer chat "What is 17 * 24?"');
   out();
   out(color(ANSI.magenta, "✦"));
-  const { text, result, elapsedMs, streamed } = await completeStream(flags, config, [
+  const { text, result, streamed } = await completeStream(flags, config, [
     { role: "user", content: prompt },
   ]);
-  const meta = result.promptimizer ?? {};
   if (!streamed) {
-    // Non-stream fallback (gateway rejected SSE) — render the full answer nicely.
-    await streamAnswer(text, {
-      cacheHit: isCacheHit(meta),
-      fast: (elapsedMs ?? 0) < 500,
-    });
+    // Non-stream fallback (gateway rejected SSE) — print the full answer once.
+    printAnswer(text);
+  } else if (!String(text || "").trim()) {
+    // Stream ended with no tokens — still surface anything in the payload.
+    printAnswer(result.choices?.[0]?.message?.content ?? "");
   }
   out();
   printMeta(result);
@@ -1065,13 +1002,11 @@ async function interactive(flags) {
       out();
       out(color(ANSI.magenta, "✦"));
       try {
-        const { text, result, elapsedMs, streamed } = await completeStream(flags, readConfig(), history);
-        const meta = result.promptimizer ?? {};
+        const { text, result, streamed } = await completeStream(flags, readConfig(), history);
         if (!streamed) {
-          await streamAnswer(text, {
-            cacheHit: isCacheHit(meta),
-            fast: (elapsedMs ?? 0) < 500,
-          });
+          printAnswer(text);
+        } else if (!String(text || "").trim()) {
+          printAnswer(result.choices?.[0]?.message?.content ?? "");
         }
         history.push({ role: "assistant", content: text });
         out();

@@ -215,7 +215,21 @@ export function ConsoleApp() {
           }
         },
       });
-      setCompletion(result);
+      const resultText = String(
+        (result.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message
+          ?.content ?? "",
+      );
+      setCompletion((prev) => {
+        const prevText = String(
+          (prev?.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message
+            ?.content ?? "",
+        );
+        // Never clobber a visible streamed answer with an empty final payload.
+        if (!resultText.trim() && prevText.trim()) {
+          return { ...result, choices: prev?.choices ?? result.choices };
+        }
+        return result;
+      });
       setSession(await api.session());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
@@ -244,7 +258,7 @@ export function ConsoleApp() {
         className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 lg:bottom-auto lg:left-4 lg:top-[calc(50%+0.5rem)] lg:translate-x-0 lg:-translate-y-1/2"
         aria-label="Console"
       >
-        <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-[1.85rem] border border-primary/[0.07] bg-card/95 p-1.5 shadow-[0_22px_60px_-32px_rgba(0,0,0,0.55)] backdrop-blur-md lg:flex-col lg:gap-1.5 lg:p-2">
+        <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-2xl border border-primary/[0.1] bg-card/95 p-1.5 shadow-[0_14px_36px_-24px_rgba(0,0,0,0.45)] backdrop-blur-md lg:flex-col lg:gap-1 lg:p-1.5">
           {TABS.map(([id, label]) => {
             const active = tab === id;
             return (
@@ -255,15 +269,15 @@ export function ConsoleApp() {
                 aria-label={label}
                 aria-current={active ? "page" : undefined}
                 onClick={() => setTab(id)}
-                className={`group relative flex size-11 items-center justify-center rounded-[1.15rem] transition-all duration-200 ease-out ${
+                className={`group relative flex size-10 items-center justify-center rounded-xl transition-colors duration-150 ${
                   active
-                    ? "bg-primary text-background shadow-[0_8px_20px_-12px_rgba(0,0,0,0.55)]"
-                    : "text-primary/40 hover:bg-primary/[0.05] hover:text-primary"
+                    ? "bg-primary text-background"
+                    : "text-primary/45 hover:bg-primary/[0.05] hover:text-primary"
                 }`}
               >
-                <DockIcon tab={id} className={`size-5 transition-transform duration-200 ${active ? "scale-100" : "group-hover:scale-105"}`} />
+                <DockIcon tab={id} className="size-[18px]" />
                 <span className="sr-only">{label}</span>
-                <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
+                <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
                   {label}
                 </span>
               </button>
@@ -277,11 +291,11 @@ export function ConsoleApp() {
               href={href}
               title={label}
               aria-label={label}
-              className="group relative flex size-11 items-center justify-center rounded-[1.15rem] text-primary/40 transition-all duration-200 ease-out hover:bg-primary/[0.05] hover:text-primary"
+              className="group relative flex size-10 items-center justify-center rounded-xl text-primary/45 transition-colors duration-150 hover:bg-primary/[0.05] hover:text-primary"
             >
-              <DockLinkIcon name={icon} className="size-5 transition-transform duration-200 group-hover:scale-105" />
+              <DockLinkIcon name={icon} className="size-[18px]" />
               <span className="sr-only">{label}</span>
-              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
+              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
                 {label}
               </span>
             </Link>
@@ -384,7 +398,7 @@ function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.75,
+    strokeWidth: 1.6,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true as const,
@@ -392,35 +406,35 @@ function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
   if (tab === "connect") {
     return (
       <svg {...common}>
-        <path d="M8 12h8" />
-        <path d="M10 8H7a3 3 0 0 0 0 8h3" />
-        <path d="M14 8h3a3 3 0 0 1 0 8h-3" />
+        <path d="M8 5v5M12 5v5" />
+        <path d="M6 10h8v2.5a4 4 0 0 1-4 4H9" />
+        <path d="M9 16.5v2.5M6.5 19h5" />
       </svg>
     );
   }
   if (tab === "fleet") {
     return (
       <svg {...common}>
-        <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
-        <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
-        <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
-        <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+        <rect x="4.5" y="4.5" width="6" height="6" rx="1" />
+        <rect x="13.5" y="4.5" width="6" height="6" rx="1" />
+        <rect x="4.5" y="13.5" width="6" height="6" rx="1" />
+        <path d="M16.5 14v5M14 16.5h5" />
       </svg>
     );
   }
   if (tab === "eval") {
     return (
       <svg {...common}>
-        <path d="M4 19V5" />
-        <path d="M4 19h16" />
-        <path d="M7 15l3.5-5 2.5 3 4-7" />
+        <path d="M5 18.5h14" />
+        <path d="m6.5 15 3.5-4 2.75 2.5L17.5 7" />
+        <path d="M14.5 7h3v3" />
       </svg>
     );
   }
   return (
     <svg {...common}>
-      <path d="M4.5 18.5V7.2A2.2 2.2 0 0 1 6.7 5h7.1A2.2 2.2 0 0 1 16 7.2v6.1a2.2 2.2 0 0 1-2.2 2.2H8.2L4.5 18.5z" />
-      <path d="M9 10h4.5M9 13h2.5" />
+      <path d="m6.5 8 3.5 3.5-3.5 3.5" />
+      <path d="M12.5 15h5" />
     </svg>
   );
 }
@@ -431,7 +445,7 @@ function DockLinkIcon({ name, className }: { name: DockLinkIconName; className?:
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.75,
+    strokeWidth: 1.6,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true as const,
@@ -439,16 +453,15 @@ function DockLinkIcon({ name, className }: { name: DockLinkIconName; className?:
   if (name === "savings") {
     return (
       <svg {...common}>
-        <path d="M12 3v18" />
-        <path d="M16.5 7.5c-.8-1.2-2-1.9-4.5-1.9-3.1 0-5 1.7-5 3.9s1.7 3.4 5.2 4.1c3.4.7 5.3 1.9 5.3 4.3s-2.1 4.1-5.5 4.1c-2.6 0-4.1-.9-5.1-2.3" />
+        <path d="M5 19.5h14" />
+        <path d="M7 16v-4M12 16V7M17 16v-6" />
       </svg>
     );
   }
   return (
     <svg {...common}>
-      <path d="M15.5 8.5a3.5 3.5 0 1 0-3.2 3.48V13.5" />
-      <path d="M12.3 13.5h5.2a2 2 0 0 1 2 2v1" />
-      <path d="M14.5 19.5h.01M17 19.5h.01M19.5 19.5h.01" />
+      <circle cx="8.5" cy="11.5" r="3.5" />
+      <path d="m11 14 5 5M16 19h3" />
     </svg>
   );
 }

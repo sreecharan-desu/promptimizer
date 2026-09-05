@@ -818,9 +818,22 @@ async function* completeStreaming(
   if (!response.body) {
     const json = await response.json();
     const text = String(json.choices?.[0]?.message?.content ?? "");
-    yield text;
+    if (text) yield text;
     return { text, usage: json.usage as StreamUsage | undefined };
   }
+
+  // Some hosts ignore stream:true and return a normal JSON completion body.
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: StreamUsage;
+    };
+    const text = String(json.choices?.[0]?.message?.content ?? "");
+    if (text) yield text;
+    return { text, usage: json.usage };
+  }
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -836,7 +849,7 @@ async function* completeStreaming(
       const trimmed = line.trim();
       if (!trimmed.startsWith("data:")) continue;
       const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") continue;
+      if (!data || data === "[DONE]") continue;
       try {
         const parsed = JSON.parse(data) as {
           choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
@@ -853,6 +866,16 @@ async function* completeStreaming(
       }
     }
   }
+
+  // Host accepted stream:true but emitted no token deltas — fall back to a normal completion
+  // so the client does not get a silent empty answer.
+  if (!full.trim()) {
+    const json = await complete(session, model, messages, _classification, opts);
+    const text = String(json.choices?.[0]?.message?.content ?? "");
+    if (text) yield text;
+    return { text, usage: (json.usage as StreamUsage | undefined) ?? usage };
+  }
+
   return { text: full, usage };
 }
 
@@ -961,11 +984,13 @@ export function routeChatStream(
         typeof body.model === "string" && body.model !== "auto" && body.model !== "promptimizer"
           ? body.model
           : "";
+      let emittedChars = 0;
       try {
         const final = await routeChat(session, body, {
           ...opts,
           onDelta: (delta, modelId) => {
             if (modelId) model = modelId;
+            if (delta) emittedChars += delta.length;
             push({
               id,
               object: "chat.completion.chunk",
@@ -978,6 +1003,9 @@ export function routeChatStream(
             const rec = event as Record<string, unknown>;
             if (typeof rec.model === "string") model = rec.model;
             if (typeof rec.to_model === "string") model = rec.to_model;
+            // Quality-gate retry replaces the prior answer — reset the emit counter so a
+            // later safety flush does not assume the discarded tokens still count.
+            if (rec.type === "escalation") emittedChars = 0;
             push({
               id,
               object: "chat.completion.chunk",
@@ -988,8 +1016,21 @@ export function routeChatStream(
             });
           },
         });
-        if (hooks?.onComplete) await hooks.onComplete(final);
         const finalModel = String(final.model ?? model);
+        const finalText = String(final.choices?.[0]?.message?.content ?? "");
+        // Cache hits (and any path that never called onDelta) must still deliver the answer.
+        // Emit once — no 48-char drip / fake typewriter.
+        if (finalText && emittedChars === 0) {
+          push({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model: finalModel,
+            choices: [{ index: 0, delta: { content: finalText }, finish_reason: null }],
+          });
+          emittedChars = finalText.length;
+        }
+        if (hooks?.onComplete) await hooks.onComplete(final);
         push({
           id,
           object: "chat.completion.chunk",
@@ -1271,6 +1312,18 @@ export async function routeChat(
   let escalated = false;
   let escalationReason: string | null = null;
   let text = payload.choices?.[0]?.message?.content ?? "";
+
+  // Cache / semantic replays never go through completeStreaming. Push the answer once
+  // immediately (no char drip) so stream clients are not left with an empty UI while
+  // the quality gate runs.
+  if (
+    opts?.onDelta &&
+    text &&
+    (exactHit || promptHit || semanticMode === "full")
+  ) {
+    opts.onDelta(text, routed.id);
+  }
+
   const structuredFail =
     requirements.requires_structured_output &&
     (() => {

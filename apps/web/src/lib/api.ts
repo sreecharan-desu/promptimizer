@@ -215,7 +215,11 @@ export const api = {
           id?: string;
           model?: string;
           error?: { message?: string };
-          choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+          choices?: Array<{
+            delta?: { content?: string };
+            message?: { content?: string };
+            finish_reason?: string | null;
+          }>;
           usage?: unknown;
           promptimizer?: unknown;
           promptimizer_event?: { type?: string; model?: string; to_model?: string; reason?: string } &
@@ -243,6 +247,11 @@ export const api = {
         if (delta) {
           text += delta;
           handlers?.onDelta?.(text, delta);
+        }
+        const messageContent = parsed.choices?.[0]?.message?.content;
+        if (!delta && typeof messageContent === "string" && messageContent && !text) {
+          text = messageContent;
+          handlers?.onDelta?.(text, messageContent);
         }
         if (parsed.usage) usage = parsed.usage;
         if (parsed.promptimizer) promptimizer = parsed.promptimizer;

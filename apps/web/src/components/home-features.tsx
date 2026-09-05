@@ -1,68 +1,95 @@
 import { DOCS_URL } from "@/lib/site";
-import { ClassifySpot, RouteSpot, SaveSpot } from "./home-spots";
 
 const FEATURES = [
   {
     href: `${DOCS_URL}/docs/guides/classification`,
-    name: "Classify",
-    title: "Know the ask before you spend.",
-    dek: "Each request gets a complexity score and a quality risk before any model is called.",
-    art: <ClassifySpot />,
+    step: "01",
+    name: "Classify intent",
+    title: "Understand the work before the model runs.",
+    dek: "Score complexity and quality risk at the edge, so light asks do not quietly inherit frontier spend.",
+    icon: <ScanIcon />,
+    stat: "Request-aware",
   },
   {
     href: `${DOCS_URL}/docs/guides/routing`,
-    name: "Route",
-    title: "Send it where it belongs.",
-    dek: "Economy when the ask is light. Frontier when it isn't. Escalate only when the answer fails the gate.",
-    art: <RouteSpot />,
+    step: "02",
+    name: "Route with context",
+    title: "Select the right capability for each ask.",
+    dek: "Direct requests to economy, standard, or frontier models, then step up only when the quality gate asks for it.",
+    icon: <RouteIcon />,
+    stat: "Quality-gated",
   },
   {
     href: `${DOCS_URL}/docs/guides/caching`,
-    name: "Measure",
-    title: "Keep the ledger honest.",
-    dek: "Cache repeated prefixes, record cost versus always-frontier, and keep a quality gate on every answer.",
-    art: <SaveSpot />,
+    step: "03",
+    name: "Measure outcomes",
+    title: "Make quality, cost, and reuse visible.",
+    dek: "Track savings against an always-frontier baseline and recognize repeated context before it becomes waste.",
+    icon: <ChartIcon />,
+    stat: "Always auditable",
   },
 ] as const;
 
 export function HomeFeatures() {
   return (
-    <div className="pt-8 sm:pt-12">
-      {FEATURES.map((feature, index) => {
-        const reverse = index % 2 === 1;
-        return (
-          <div
-            key={feature.name}
-            className={`grid items-center gap-8 lg:grid-cols-2 lg:gap-12 ${index > 0 ? "mt-16 sm:mt-24" : ""}`}
-          >
-            <a
-              href={feature.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`group/card block overflow-hidden rounded-2xl transition-transform duration-500 ease-out hover:scale-[1.02] ${
-                reverse ? "lg:order-2" : ""
-              }`}
-            >
-              {feature.art}
-            </a>
-            <div className={reverse ? "lg:order-1" : ""}>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{feature.name}</p>
-              <h2 className="mt-3 max-w-md font-display text-3xl font-medium tracking-tight text-primary text-balance sm:text-4xl">
-                {feature.title}
-              </h2>
-              <p className="mt-4 max-w-md text-lg leading-relaxed text-secondary">{feature.dek}</p>
-              <a
-                href={feature.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-6 inline-flex text-sm font-medium text-primary transition-colors duration-150 hover:text-primary-hover"
-              >
-                Read the guide →
-              </a>
-            </div>
+    <div className="grid gap-4 lg:grid-cols-3">
+      {FEATURES.map((feature) => (
+        <a
+          key={feature.name}
+          href={feature.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="feature-card group min-h-[18.5rem] rounded-[1.35rem] p-6 sm:p-7"
+        >
+          <div className="relative z-10 flex items-start justify-between gap-4">
+            <span className="feature-icon">{feature.icon}</span>
+            <span className="font-mono text-[11px] text-secondary/70">{feature.step}</span>
           </div>
-        );
-      })}
+          <div className="relative z-10 mt-8">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-accent">{feature.name}</p>
+            <h3 className="mt-3 font-display text-2xl font-semibold leading-tight tracking-[-0.035em] text-primary">
+              {feature.title}
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-secondary">{feature.dek}</p>
+          </div>
+          <div className="relative z-10 mt-6 flex items-center justify-between border-t border-primary/[0.07] pt-4 text-xs font-semibold text-primary/65">
+            <span>{feature.stat}</span>
+            <span className="text-accent transition-transform duration-200 group-hover:translate-x-1" aria-hidden="true">→</span>
+          </div>
+        </a>
+      ))}
     </div>
+  );
+}
+
+function ScanIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="size-5" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="M8 12h8M12 8v8" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
+
+function RouteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="size-5" aria-hidden="true">
+      <circle cx="6" cy="6" r="2" />
+      <circle cx="18" cy="7" r="2" />
+      <circle cx="18" cy="17" r="2" />
+      <path d="M8 6h2a4 4 0 0 1 4 4v5M14 10h2M14 15h2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="size-5" aria-hidden="true">
+      <path d="M4 19.5V5" strokeLinecap="round" />
+      <path d="M4 19.5h16" strokeLinecap="round" />
+      <path d="m7.5 15 3.4-4 2.7 2.1L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="19" cy="7.5" r="1.25" />
+    </svg>
   );
 }
