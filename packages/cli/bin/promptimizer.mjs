@@ -7,7 +7,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stdin as input, stdout as output } from "node:process";
 
-const DEFAULT_URL = process.env.PROMPTIMIZER_URL || "https://hackathon-omega-liart.vercel.app/api";
+const DEFAULT_URL =
+  process.env.PROMPTIMIZER_URL ||
+  (process.env.NEXT_PUBLIC_SITE_URL
+    ? `${String(process.env.NEXT_PUBLIC_SITE_URL).replace(/\/$/, "")}/api`
+    : "https://hackathon-omega-liart.vercel.app/api");
 const CONFIG_PATH = join(homedir(), ".promptimizer", "config.json");
 
 const ANSI = {

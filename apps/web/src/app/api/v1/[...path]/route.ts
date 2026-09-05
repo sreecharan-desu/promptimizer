@@ -16,8 +16,10 @@ import { classifyText, publicCatalog, resolveBaseURL } from "promptimizer";
 import {
   accountSessionId,
   createByokSession,
+  destroySession,
   disconnectProvider,
   getSession,
+  invalidateOwnerCaches,
   patchFleet,
   publicSession,
   routeChat,
@@ -26,6 +28,7 @@ import {
   sessionForUser,
 } from "@/server/engine";
 import { BENCHMARK } from "@/server/data";
+import { clientIp, rateLimit } from "@/server/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,7 +112,7 @@ async function resolve(request: NextRequest) {
     return { user, session: await sessionForUser(user.id) };
   }
   if (token) {
-    const session = getSession(token);
+    const session = await getSession(token);
     if (session) {
       const user = authConfigured() ? await getCurrentUser() : null;
       return { user, session };
@@ -146,21 +149,27 @@ async function handle(request: NextRequest, path: string[]) {
     }
 
     if (joined === "providers/connect" && request.method === "POST") {
+      const limited = await rateLimit("connect", clientIp(request));
+      if (limited) return limited;
       const body = await request.json();
       const user = await accountFromRequest(request);
       const sid = user ? accountSessionId(user.id) : undefined;
       const payload = connectPayload(body);
       const published = await createByokSession(payload, sid);
       if (user) {
-        const session = getSession(accountSessionId(user.id));
+        const session = await getSession(accountSessionId(user.id));
         if (session && session.mode === "byok") {
           await persistMultiProviderSession(user.id, session);
         }
+        // Refresh models / reconnect — drop stale completion cache for this account.
+        await invalidateOwnerCaches(user.id);
       }
       return NextResponse.json(published);
     }
 
     if (joined === "providers/disconnect" && request.method === "POST") {
+      const limited = await rateLimit("connect", clientIp(request));
+      if (limited) return limited;
       const body = await request.json().catch(() => ({}));
       const needle = String(body.provider ?? body.id ?? body.host ?? "").trim();
       const actor = await resolve(request);
@@ -169,9 +178,11 @@ async function handle(request: NextRequest, path: string[]) {
         return NextResponse.json({ detail: "Sign in or pass a Promptimizer API key." }, { status: 401 });
       }
       const { session: published, removed } = disconnectProvider(actor.session, needle);
+      const owner = actor.user?.id ?? actor.session.id;
+      await invalidateOwnerCaches(owner);
       if (actor.user) {
         await deleteProviderConnection(actor.user.id, removed.base_url);
-        const live = getSession(accountSessionId(actor.user.id));
+        const live = await getSession(accountSessionId(actor.user.id));
         if (live && live.mode === "byok" && live.connections.length) {
           await persistMultiProviderSession(actor.user.id, live);
         }
@@ -201,7 +212,9 @@ async function handle(request: NextRequest, path: string[]) {
 
     if (joined === "session" && request.method === "GET") return NextResponse.json(publicSession(session));
     if (joined === "session" && request.method === "DELETE") {
-      return NextResponse.json({ ok: true });
+      const owner = actor.user?.id ?? session.id;
+      await destroySession(session.id, owner);
+      return NextResponse.json({ ok: true, cleared_cache: true });
     }
     if (joined === "models" && request.method === "GET") {
       return NextResponse.json({ object: "list", data: session.models, baseline_model: session.baseline_model });
@@ -218,6 +231,8 @@ async function handle(request: NextRequest, path: string[]) {
       return NextResponse.json(await savingsForUser(actor.user.id));
     }
     if (joined === "chat/completions" && request.method === "POST") {
+      const limited = await rateLimit("chat", actor.user?.id ?? clientIp(request));
+      if (limited) return limited;
       const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
       const body = await request.json();
       const cacheOwner = actor.user?.id ?? session.id;

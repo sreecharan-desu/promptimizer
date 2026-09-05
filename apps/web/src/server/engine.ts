@@ -1,6 +1,6 @@
 import { classifyText, difficultyTier, type Classification } from "promptimizer";
 import { BENCHMARK, PRICING } from "./data";
-import { cacheGet, cacheRemember, cacheSet, userCacheKey } from "./upstash";
+import { cacheGet, cacheRemember, cacheSet, clearOwnerCaches, userCacheKey } from "./upstash";
 import {
   buildHybridMessages,
   findSimilar,
@@ -24,6 +24,8 @@ import {
   type RoutingDecision,
 } from "./optimizer";
 import { apgr, bucketStats, buildFrontierCurve, cpt, pgr, breakEvenEscalationRate } from "./routing-metrics";
+import { fetchWithTimeout } from "./fetch-timeout";
+import { deletePersistedSession, loadPersistedSession, persistSession } from "./session-store";
 export { breakEvenEscalationRate } from "./routing-metrics";
 
 export type Tier = "economy" | "standard" | "frontier";
@@ -70,6 +72,18 @@ export type Session = {
 };
 
 const store = new Map<string, Session>();
+
+function putSession(session: Session) {
+  store.set(session.id, session);
+  void persistSession(session);
+}
+
+async function dropSession(sessionId: string, cacheOwner?: string | null) {
+  store.delete(sessionId);
+  await deletePersistedSession(sessionId);
+  if (cacheOwner) await clearOwnerCaches(cacheOwner);
+  else await clearOwnerCaches(sessionId);
+}
 
 const TIER_ORDER: Tier[] = ["economy", "standard", "frontier"];
 
@@ -308,7 +322,7 @@ function emptyByokSession(sessionId?: string): Session {
     created_at: Date.now() / 1000,
     stats: emptyStats(),
   };
-  store.set(session.id, session);
+  putSession(session);
   return session;
 }
 
@@ -335,9 +349,26 @@ function publicSession(session: Session) {
   };
 }
 
-export function getSession(sessionId: string | null) {
+export async function getSession(sessionId: string | null) {
   if (!sessionId) return null;
-  return store.get(sessionId) ?? null;
+  const mem = store.get(sessionId);
+  if (mem) return mem;
+  const remote = await loadPersistedSession(sessionId);
+  if (remote) {
+    store.set(remote.id, remote);
+    return remote;
+  }
+  return null;
+}
+
+/** Drop in-memory + Redis session and wipe owner completion caches. */
+export async function destroySession(sessionId: string, cacheOwner?: string | null) {
+  await dropSession(sessionId, cacheOwner);
+}
+
+/** Wipe completion/semantic caches for an account or anonymous session owner. */
+export async function invalidateOwnerCaches(owner: string) {
+  return clearOwnerCaches(owner);
 }
 
 function emptyStats() {
@@ -354,7 +385,7 @@ export async function createByokSession(
 ) {
   const base = normalizeBaseUrl(input.base_url);
   const connId = connectionIdFor(base, input.provider);
-  const response = await fetch(`${base}/models`, {
+  const response = await fetchWithTimeout(`${base}/models`, {
     headers: { Authorization: `Bearer ${input.api_key}` },
   });
   if (!response.ok) {
@@ -366,7 +397,7 @@ export async function createByokSession(
   const incoming = fleetFrom(raw, connId, hostLabel);
   if (!incoming.length) throw Object.assign(new Error("No chat models found."), { status: 400 });
 
-  const existing = sessionId ? store.get(sessionId) : undefined;
+  const existing = sessionId ? (await getSession(sessionId)) ?? undefined : undefined;
   const mergeInto =
     existing && existing.mode === "byok"
       ? existing
@@ -408,7 +439,7 @@ export async function createByokSession(
   dedupeFleet(mergeInto);
   const baseline = pickBaseline(mergeInto.models);
   mergeInto.baseline_model = baseline?.id ?? null;
-  store.set(mergeInto.id, mergeInto);
+  putSession(mergeInto);
   return publicSession(mergeInto);
 }
 
@@ -437,13 +468,13 @@ export function disconnectProvider(session: Session, needle: string) {
     session.models = [];
     session.baseline_model = null;
     refreshSessionLabel(session);
-    store.set(session.id, session);
+    putSession(session);
     return { session: publicSession(session), removed: conn };
   }
 
   refreshSessionLabel(session);
   session.baseline_model = pickBaseline(session.models)?.id ?? null;
-  store.set(session.id, session);
+  putSession(session);
   return { session: publicSession(session), removed: conn };
 }
 
@@ -460,6 +491,7 @@ export function patchFleet(
     if (body.selected && model.id in body.selected) model.selected = Boolean(body.selected[model.id]);
   }
   if (body.baseline_model) session.baseline_model = body.baseline_model;
+  putSession(session);
   return publicSession(session);
 }
 
@@ -641,7 +673,7 @@ async function complete(
   if (!conn?.base_url || !conn.api_key) {
     throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
   }
-  const response = await fetch(`${conn.base_url}/chat/completions`, {
+  const response = await fetchWithTimeout(`${conn.base_url}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${conn.api_key}`,
@@ -718,7 +750,7 @@ async function* completeStreaming(
   if (!conn?.base_url || !conn.api_key) {
     throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
   }
-  const response = await fetch(`${conn.base_url}/chat/completions`, {
+  const response = await fetchWithTimeout(`${conn.base_url}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${conn.api_key}`,
@@ -1774,7 +1806,7 @@ export async function runBenchmark(session: Session, opts?: { repeat_factor?: nu
 
 export async function sessionForUser(userId: string): Promise<Session> {
   const sid = accountSessionId(userId);
-  const cached = store.get(sid);
+  const cached = await getSession(sid);
   if (cached) {
     cached.models = cached.models.filter((m) => m?.id && !isUuidModelId(m.id) && !isNonChatModelId(m.id));
     dedupeFleet(cached);
@@ -1788,6 +1820,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
     } catch {
       /* ignore */
     }
+    putSession(cached);
     return cached;
   }
   const { loadAllProviderConnections, loadQualityProfiles } = await import("./account");
@@ -1843,7 +1876,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
     } catch {
       /* ignore */
     }
-    store.set(sid, session);
+    putSession(session);
     return session;
   }
   return emptyByokSession(sid);

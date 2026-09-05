@@ -105,6 +105,19 @@ export async function upsertSemanticPoint(input: {
   });
 }
 
+/** Delete all semantic points for an owner (Qdrant Cloud filter delete). */
+export async function deleteSemanticByOwner(owner: string) {
+  if (!qdrantConfigured() || !owner.trim()) return;
+  await ensureSemanticCollection();
+  const q = getClient();
+  await q.delete(qdrantCollection(), {
+    wait: true,
+    filter: {
+      must: [{ key: "owner", match: { value: owner } }],
+    },
+  });
+}
+
 export async function searchSemanticPoints(input: {
   vector: number[];
   owner: string;

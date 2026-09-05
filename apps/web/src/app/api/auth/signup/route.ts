@@ -4,6 +4,7 @@ import { authConfigured } from "@/server/db";
 import { sendVerificationEmail } from "@/server/email-auth";
 import { siteOrigin } from "@/server/google";
 import { mailConfigured } from "@/server/mail";
+import { clientIp, rateLimit } from "@/server/rate-limit";
 
 export async function POST(request: NextRequest) {
   if (!authConfigured()) {
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
   if (!mailConfigured()) {
     return NextResponse.json({ detail: "Email sending is not configured." }, { status: 503 });
   }
+  const limited = await rateLimit("auth", clientIp(request));
+  if (limited) return limited;
   let user: { id: string; email: string } | null = null;
   try {
     const body = await request.json();

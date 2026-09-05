@@ -18,6 +18,14 @@ export function AuthNav() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      const { clearConsoleCache } = await import("@/lib/console-cache");
+      const { clearSessionId } = await import("@/lib/api");
+      clearConsoleCache();
+      clearSessionId();
+    } catch {
+      /* ignore */
+    }
     invalidateMe();
     setMe({ user: null, configured: true });
     router.push("/");

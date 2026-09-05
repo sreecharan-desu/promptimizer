@@ -138,6 +138,17 @@ export function ConsoleApp() {
       setBenchCachedAt(null);
       setApiKey("");
       setTab("fleet");
+      // Server invalidates Redis/Qdrant on connect; drop local playground cache too.
+      clearConsoleCache();
+      writeConsoleCache({
+        fleetKey: fleetKey(next),
+        sessionId: next.session_id,
+        bench: null,
+        completion: null,
+        prompt,
+        tab: "fleet",
+        benchAt: null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connect failed");
     } finally {
@@ -155,6 +166,16 @@ export function ConsoleApp() {
       setCompletion(null);
       setBench(null);
       setBenchCachedAt(null);
+      clearConsoleCache();
+      writeConsoleCache({
+        fleetKey: fleetKey(next),
+        sessionId: next.session_id,
+        bench: null,
+        completion: null,
+        prompt,
+        tab,
+        benchAt: null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Disconnect failed");
     } finally {

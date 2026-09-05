@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { loginUser, writeSessionCookie } from "@/server/account";
 import { authConfigured } from "@/server/db";
+import { clientIp, rateLimit } from "@/server/rate-limit";
 
 export async function POST(request: Request) {
   if (!authConfigured()) {
     return NextResponse.json({ detail: "Accounts are not configured." }, { status: 503 });
   }
+  const limited = await rateLimit("auth", clientIp(request));
+  if (limited) return limited;
   try {
     const body = await request.json();
     const user = await loginUser(body.email ?? "", body.password ?? "");
