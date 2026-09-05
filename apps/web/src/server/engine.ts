@@ -365,6 +365,13 @@ export async function getSession(sessionId: string | null) {
   if (mem) return mem;
   const remote = await loadPersistedSession(sessionId);
   if (remote) {
+    // Sessions persisted before UUID filtering (or fed by a resurrected fleet)
+    // can carry deployment-UUID / non-chat model ids. Calling them 404s
+    // ("Function <uuid>: Not found for account") — drop them on load, the same
+    // way fresh fleets and the sessionForUser rebuild path already do.
+    remote.models = remote.models.filter(
+      (m) => m?.id && !isUuidModelId(m.id) && !isNonChatModelId(m.id),
+    );
     store.set(remote.id, remote);
     return remote;
   }

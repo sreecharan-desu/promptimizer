@@ -7,7 +7,9 @@ import {
   getSession,
   routeChat,
   userIdFromSessionId,
+  type Session,
 } from "./engine";
+import { persistSession } from "./session-store";
 
 const realFetch = globalThis.fetch;
 
@@ -69,6 +71,57 @@ describe("fleet hygiene", () => {
       "orphan model must be pruned on fleet dedupe",
     );
     assert.equal(merged.models.length, 2);
+  });
+
+  it("drops stale deployment-UUID / non-chat models when loading a persisted session", async () => {
+    // Simulate a session persisted by an older build (before UUID filtering):
+    // it carries a Baseten deployment UUID and an embedding model.
+    const sid = `sess_stale_${Date.now()}`;
+    const stale: Session = {
+      id: sid,
+      mode: "byok",
+      label: "Baseten",
+      base_url: "https://inference.baseten.co/v1",
+      api_key: "k",
+      connections: [{ id: "baseten", label: "Baseten", base_url: "https://inference.baseten.co/v1", api_key: "k" }],
+      models: [
+        {
+          id: "e598bfc1-b058-41af-869d-556d3c7e1b48",
+          owned_by: "baseten",
+          input_per_1m: 1,
+          output_per_1m: 2,
+          tier: "frontier",
+          source: "catalog",
+          selected: true,
+          provider_id: "baseten",
+        },
+        {
+          id: "text-embedding-3-small",
+          owned_by: "openai",
+          input_per_1m: 1,
+          output_per_1m: 1,
+          tier: "economy",
+          source: "catalog",
+          selected: true,
+          provider_id: "baseten",
+        },
+      ],
+      baseline_model: "e598bfc1-b058-41af-869d-556d3c7e1b48",
+      created_at: Date.now() / 1000,
+      stats: {} as Record<string, number>,
+    };
+    await persistSession(stale);
+    const loaded: any = await getSession(sid);
+    assert.ok(loaded, "persisted session must load");
+    assert.equal(
+      loaded.models.filter((m: { id: string }) => /-/.test(m.id) && m.id.length === 36).length,
+      0,
+      "deployment UUIDs must be filtered on session load",
+    );
+    assert.ok(
+      !loaded.models.some((m: { id: string }) => /embed/i.test(m.id)),
+      "non-chat models must be filtered on session load",
+    );
   });
 
   it("fails over to another host when a provider rejects a model as not configured (400)", async () => {
