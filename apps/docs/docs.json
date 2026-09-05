@@ -25,13 +25,13 @@
       },
       {
         "label": "Console",
-        "href": "https://hackathon-omega-liart.vercel.app/console"
+        "href": "https://www.promptimizer.site/console"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Open console",
-      "href": "https://hackathon-omega-liart.vercel.app/console"
+      "href": "https://www.promptimizer.site/console"
     }
   },
   "footer": {

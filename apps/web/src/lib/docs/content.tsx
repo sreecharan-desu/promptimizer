@@ -101,7 +101,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
           Copy it once.
         </P>
         <H2 id="route">3. Route a prompt</H2>
-          <Pre label="bash">{`curl -s https://hackathon-omega-liart.vercel.app/api/v1/chat/completions \\\n  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\\n  -H 'content-type: application/json' \\\n  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'`}</Pre>
+          <Pre label="bash">{`curl -s https://www.promptimizer.site/api/v1/chat/completions \\\n  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\\n  -H 'content-type: application/json' \\\n  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'`}</Pre>
         <P>You should see an economy-tier model when the ask is easy, and saved_pct versus frontier.</P>
         <H2 id="byok">4. Add your provider</H2>
         <P>
@@ -418,7 +418,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
     headings: [],
     content: (
       <>
-        <Pre label="ts">{`import OpenAI from "openai";\n\nconst openai = new OpenAI({\n  apiKey: process.env.PROMPTIMIZER_API_KEY,\n  baseURL: "https://hackathon-omega-liart.vercel.app/api/v1",\n});\n\nawait openai.chat.completions.create({\n  model: "auto",\n  messages: [{ role: "user", content: "Explain REST in two sentences." }],\n});`}</Pre>
+        <Pre label="ts">{`import OpenAI from "openai";\n\nconst openai = new OpenAI({\n  apiKey: process.env.PROMPTIMIZER_API_KEY,\n  baseURL: "https://www.promptimizer.site/api/v1",\n});\n\nawait openai.chat.completions.create({\n  model: "auto",\n  messages: [{ role: "user", content: "Explain REST in two sentences." }],\n});`}</Pre>
         <P>Works with LangChain, the Vercel AI SDK, and any agent that already speaks OpenAI chat completions. Streaming is not enabled yet.</P>
       </>
     ),
@@ -500,7 +500,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
         <Table
           headers={["Host", "Base"]}
           rows={[
-            ["Hosted", "https://hackathon-omega-liart.vercel.app/api"],
+            ["Hosted", "https://www.promptimizer.site/api"],
             ["Local Next.js", "http://localhost:3000/api"],
             ["FastAPI", "http://localhost:8000"],
           ]}

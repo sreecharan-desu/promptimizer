@@ -53,7 +53,7 @@
     "url": "git+https://github.com/sreecharan-desu/promptimizer.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://hackathon-omega-liart.vercel.app",
+  "homepage": "https://www.promptimizer.site",
   "bugs": {
     "url": "https://github.com/sreecharan-desu/promptimizer/issues"
   },

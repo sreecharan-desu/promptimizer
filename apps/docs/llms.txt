@@ -6,17 +6,17 @@ Promptimizer sits in front of cheap and frontier models. It classifies each requ
 
 ## Docs
 
-- [Introduction](https://hackathon-omega-liart.vercel.app/docs)
-- [Quickstart](https://hackathon-omega-liart.vercel.app/docs/quickstart)
-- [Concepts](https://hackathon-omega-liart.vercel.app/docs/concepts)
-- [Classification](https://hackathon-omega-liart.vercel.app/docs/guides/classification)
-- [Routing](https://hackathon-omega-liart.vercel.app/docs/guides/routing)
-- [Prompt cache](https://hackathon-omega-liart.vercel.app/docs/guides/caching)
-- [Quality gate](https://hackathon-omega-liart.vercel.app/docs/guides/quality)
-- [BYOK](https://hackathon-omega-liart.vercel.app/docs/guides/byok)
-- [Benchmark](https://hackathon-omega-liart.vercel.app/docs/guides/benchmark)
-- [SDK](https://hackathon-omega-liart.vercel.app/docs/sdk)
-- [API](https://hackathon-omega-liart.vercel.app/docs/api)
+- [Introduction](https://www.promptimizer.site/docs)
+- [Quickstart](https://www.promptimizer.site/docs/quickstart)
+- [Concepts](https://www.promptimizer.site/docs/concepts)
+- [Classification](https://www.promptimizer.site/docs/guides/classification)
+- [Routing](https://www.promptimizer.site/docs/guides/routing)
+- [Prompt cache](https://www.promptimizer.site/docs/guides/caching)
+- [Quality gate](https://www.promptimizer.site/docs/guides/quality)
+- [BYOK](https://www.promptimizer.site/docs/guides/byok)
+- [Benchmark](https://www.promptimizer.site/docs/guides/benchmark)
+- [SDK](https://www.promptimizer.site/docs/sdk)
+- [API](https://www.promptimizer.site/docs/api)
 
 ## Product rules
 

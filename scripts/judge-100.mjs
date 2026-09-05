@@ -14,7 +14,7 @@ const OUT_JSON = join(OUT_DIR, "judge-100-results.json");
 
 const cfg = JSON.parse(readFileSync(join(homedir(), ".promptimizer", "config.json"), "utf8"));
 const API_KEY = cfg.apiKey;
-const BASE = String(cfg.gatewayURL || "https://hackathon-omega-liart.vercel.app/api").replace(/\/$/, "");
+const BASE = String(cfg.gatewayURL || "https://www.promptimizer.site/api").replace(/\/$/, "");
 if (!API_KEY?.startsWith("pmz_")) {
   console.error("Missing pmz_ key in ~/.promptimizer/config.json — run promptimizer login first.");
   process.exit(1);

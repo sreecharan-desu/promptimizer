@@ -19,7 +19,7 @@ export class PromptimizerError extends Error {
 }
 
 export const DEFAULT_GATEWAY = (
-  process.env.PROMPTIMIZER_URL || "https://hackathon-omega-liart.vercel.app/api"
+  process.env.PROMPTIMIZER_URL || "https://www.promptimizer.site/api"
 ).replace(/\/$/, "");
 
 export class Promptimizer {

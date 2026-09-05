@@ -11,7 +11,7 @@ const DEFAULT_URL =
   process.env.PROMPTIMIZER_URL ||
   (process.env.NEXT_PUBLIC_SITE_URL
     ? `${String(process.env.NEXT_PUBLIC_SITE_URL).replace(/\/$/, "")}/api`
-    : "https://hackathon-omega-liart.vercel.app/api");
+    : "https://www.promptimizer.site/api");
 const CONFIG_PATH = join(homedir(), ".promptimizer", "config.json");
 
 const ANSI = {
@@ -675,7 +675,7 @@ async function cmdLogin(flags) {
     gatewayURL = String(config.gatewayURL).replace(/\/$/, "");
   }
   if (!flags.url && !flags.u && /localhost|127\.0\.0\.1/.test(gatewayURL) && !config.gatewayURL) {
-    gatewayURL = "https://hackathon-omega-liart.vercel.app/api";
+    gatewayURL = "https://www.promptimizer.site/api";
   }
   await request("/v1/session", { apiKey, gatewayURL });
   writeConfig({ ...config, gatewayURL, apiKey, sessionId: undefined });

@@ -1,6 +1,6 @@
 # promptimizer
 
-OpenAI-compatible TypeScript SDK for [Promptimizer](https://hackathon-omega-liart.vercel.app). Route each request to the cheapest adequate model, cache repeated prefixes, and keep a quality gate so savings do not silently degrade hard answers.
+OpenAI-compatible TypeScript SDK for [Promptimizer](https://www.promptimizer.site). Route each request to the cheapest adequate model, cache repeated prefixes, and keep a quality gate so savings do not silently degrade hard answers.
 
 ```bash
 npm install promptimizer
@@ -44,7 +44,7 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.PROMPTIMIZER_API_KEY,
-  baseURL: "https://hackathon-omega-liart.vercel.app/api/v1",
+  baseURL: "https://www.promptimizer.site/api/v1",
 });
 
 await openai.chat.completions.create({

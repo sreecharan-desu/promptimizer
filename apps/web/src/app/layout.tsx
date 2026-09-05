@@ -3,6 +3,8 @@ import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { ThemeScript } from "@/components/theme-script";
+import { JsonLd } from "@/components/json-ld";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import "./tailwind.generated.css";
 
 const sans = Inter({
@@ -25,36 +27,84 @@ const mono = IBM_Plex_Mono({
   display: "swap",
 });
 
-const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, "")}`
-  : process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
-    : (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000");
+function resolveSiteUrl() {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, "")}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`;
+  }
+  return SITE_URL;
+}
 
-const description = "Quality-aware LLM router for OpenAI-compatible APIs. Bring your own key.";
+const siteUrl = resolveSiteUrl();
+const description = SITE_DESCRIPTION;
 
 export const metadata: Metadata = {
   title: {
-    default: "Promptimizer",
-    template: "%s · Promptimizer",
+    default: `${SITE_NAME} · ${SITE_TAGLINE}`,
+    template: `%s · ${SITE_NAME}`,
   },
   description,
   metadataBase: new URL(siteUrl),
-  applicationName: "Promptimizer",
+  applicationName: SITE_NAME,
+  keywords: [
+    "LLM router",
+    "GPU cost optimizer",
+    "prompt caching",
+    "BYOK",
+    "OpenAI compatible",
+    "model routing",
+    "quality gate",
+    "AI cost optimization",
+    "Promptimizer",
+  ],
+  authors: [{ name: SITE_NAME, url: siteUrl }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  category: "technology",
+  alternates: {
+    canonical: "/",
+  },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
   },
+  manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "Promptimizer",
+    title: `${SITE_NAME} · ${SITE_TAGLINE}`,
     description,
     type: "website",
-    siteName: "Promptimizer",
+    locale: "en_US",
+    url: siteUrl,
+    siteName: SITE_NAME,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Promptimizer",
+    title: `${SITE_NAME} · ${SITE_TAGLINE}`,
     description,
+    images: ["/opengraph-image"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
   },
 };
 
@@ -70,6 +120,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`dark ${sans.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <ThemeScript />
+        <JsonLd />
       </head>
       <body className="font-sans antialiased">
         <Header />

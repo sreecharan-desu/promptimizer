@@ -10,7 +10,7 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.PROMPTIMIZER_SESSION_ID,
-  baseURL: "https://your-app.vercel.app/api/v1",
+  baseURL: "https://www.promptimizer.site/api/v1",
 });
 
 await openai.chat.completions.create({

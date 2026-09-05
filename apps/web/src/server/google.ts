@@ -13,9 +13,12 @@ export function siteOrigin(request?: NextRequest) {
       return `${proto}://${host}`.replace(/\/$/, "");
     }
   }
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
   if (vercel) return `https://${vercel.replace(/^https?:\/\//, "")}`.replace(/\/$/, "");
-  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+  if (process.env.NODE_ENV !== "production") return "http://localhost:3000";
+  return "https://www.promptimizer.site";
 }
 
 export function googleRedirectUri(request?: NextRequest) {

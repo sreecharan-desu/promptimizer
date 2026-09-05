@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
-const HOST = "https://hackathon-omega-liart.vercel.app";
+const HOST = "https://www.promptimizer.site";
 
 const TABS = ["TypeScript", "CLI", "cURL"] as const;
 type Tab = (typeof TABS)[number];
