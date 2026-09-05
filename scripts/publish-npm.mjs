@@ -2,10 +2,10 @@
 /**
  * Publish SDK + CLI to npm.
  *
- * Goals:
- * - Never leave @latest on a non-installable (ghost) version
- * - Survive concurrent CI runs and "already published" 403s by bumping + retrying
- * - Publish under a temporary tag first, then promote @latest once the tarball is fetchable
+ * - Publish under temporary tag `release`, promote to `latest` only when installable
+ * - Never stack a new version while a prior `release` is still settling on the CDN
+ * - Retry 403 "already published" by bumping
+ * - Exit 0 when latest is healthy (CDN lag is not a hard failure)
  */
 import { execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -35,6 +35,17 @@ function writePkg(dir, pkg) {
 
 function publishedLatest(name) {
   return runCapture(`npm view ${name} version`);
+}
+
+function distTag(name, tag) {
+  const raw = runCapture(`npm view ${name} dist-tags --json`);
+  if (!raw) return null;
+  try {
+    const tags = JSON.parse(raw);
+    return typeof tags?.[tag] === "string" ? tags[tag] : null;
+  } catch {
+    return null;
+  }
 }
 
 function versionExists(name, version) {
@@ -84,7 +95,7 @@ function waitUntilInstallable(name, version, { attempts, label = "tarball" }) {
     console.log(
       `waiting for ${name}@${version} ${label} (attempt ${attempt}/${attempts}, http ${httpStatus(tarballUrl(name, version))})…`,
     );
-    sleep(Math.min(25, 3 + attempt * 2));
+    sleep(Math.min(20, 2 + attempt * 2));
   }
   return false;
 }
@@ -120,11 +131,9 @@ function highestPublishedVersion(name) {
   return versions.reduce((best, cur) => (cmp(cur, best) > 0 ? cur : best));
 }
 
-/** Next free semver: max(local, highest published) + patch, skipping any reserved versions. */
 function allocateVersion(name, local) {
   const highest = highestPublishedVersion(name);
   let version = highest ? (cmp(local, highest) > 0 ? local : bumpPatch(highest)) : local;
-  // Skip any version that already has registry metadata (including ghosts).
   for (let i = 0; i < 50 && versionExists(name, version); i += 1) {
     console.warn(`${name}@${version} already on registry — bumping`);
     version = bumpPatch(version);
@@ -152,56 +161,92 @@ function lastInstallableVersion(name, exclude) {
   return null;
 }
 
-/** Make sure `npm i <name>` works. Retags @latest backward if needed. */
 function ensureLatestInstallable(name) {
   const latest = publishedLatest(name);
   if (!latest) return null;
 
-  if (installable(name, latest)) {
-    // Prefer the newest installable version (skip ghost newer releases).
-    const versions = listVersions(name);
-    for (let i = versions.length - 1; i >= 0; i -= 1) {
-      const v = versions[i];
-      if (!tarballOk(name, v)) continue;
-      if (v !== latest) {
-        console.log(`Promoting ${name}@latest ${latest} → ${v} (newer installable)`);
-        setDistTag(name, v, "latest");
+  if (!installable(name, latest)) {
+    if (!waitUntilInstallable(name, latest, { attempts: 4, label: "latest-quick" })) {
+      const fallback = lastInstallableVersion(name, latest);
+      if (!fallback) {
+        throw new Error(`${name}@${latest} is @latest but not installable, and no fallback found`);
       }
-      return v;
+      console.warn(`Protecting installs: ${name}@latest ${latest} not ready → ${fallback}`);
+      setDistTag(name, fallback, "latest");
+      return fallback;
     }
-    return latest;
   }
 
-  if (waitUntilInstallable(name, latest, { attempts: 5, label: "latest-quick" })) return latest;
+  // Prefer newest installable (may be on `release` ahead of `latest`).
+  const versions = listVersions(name);
+  for (let i = versions.length - 1; i >= 0; i -= 1) {
+    const v = versions[i];
+    if (!tarballOk(name, v)) continue;
+    const current = publishedLatest(name);
+    if (v !== current) {
+      console.log(`Promoting ${name}@latest ${current} → ${v} (newer installable)`);
+      setDistTag(name, v, "latest");
+    }
+    return v;
+  }
+  return publishedLatest(name);
+}
 
-  const fallback = lastInstallableVersion(name, latest);
-  if (!fallback) {
-    throw new Error(`${name}@${latest} is @latest but not installable, and no fallback found`);
+/**
+ * If a prior publish is still settling, wait/promote it instead of stacking ghosts.
+ * Returns a result object when we should skip a new publish, else null.
+ */
+function settlePendingRelease(name) {
+  const pending = distTag(name, RELEASE_TAG);
+  const latest = publishedLatest(name);
+  if (!pending) return null;
+  if (latest && cmp(pending, latest) <= 0 && installable(name, latest)) {
+    // release tag is not ahead — nothing pending
+    return null;
   }
-  console.warn(`Protecting installs: ${name}@latest ${latest} not ready → ${fallback}`);
-  setDistTag(name, fallback, "latest");
-  if (!installable(name, fallback)) {
-    throw new Error(`Failed to point ${name}@latest at installable ${fallback}`);
+  if (installable(name, pending)) {
+    setDistTag(name, pending, "latest");
+    return { name, version: pending, skipped: true, ok: true, promoted: true };
   }
-  return fallback;
+  console.log(`${name}@${pending} (${RELEASE_TAG}) still settling — waiting before any new publish`);
+  if (waitUntilInstallable(name, pending, { attempts: 8, label: "pending-release" })) {
+    setDistTag(name, pending, "latest");
+    return { name, version: pending, skipped: true, ok: true, promoted: true };
+  }
+  // Ghost / stuck metadata: point release back at healthy latest, then allow a fresh bump.
+  const safe = ensureLatestInstallable(name);
+  if (safe) {
+    console.warn(`Abandoning unsettled ${name}@${pending}; ${RELEASE_TAG} → ${safe}`);
+    try {
+      setDistTag(name, safe, RELEASE_TAG);
+    } catch (err) {
+      console.warn(String(err?.message || err));
+    }
+  }
+  return null;
 }
 
 function finalizePublish(name, version) {
-  if (waitUntilInstallable(name, version, { attempts: 10, label: "post-publish" })) {
+  if (waitUntilInstallable(name, version, { attempts: 8, label: "post-publish" })) {
     setDistTag(name, version, "latest");
     return true;
   }
-
   const safe = ensureLatestInstallable(name);
   console.warn(
-    `${name}@${version} published (tag ${RELEASE_TAG}) but tarball not ready yet; @latest → ${safe}. ` +
-      `Re-run this workflow later to promote ${version}.`,
+    `${name}@${version} published as ${RELEASE_TAG} but CDN lag; @latest stays ${safe}. Next run will promote.`,
   );
   return true;
 }
 
 function publishPackage(name, dir) {
   ensureLatestInstallable(name);
+
+  const settled = settlePendingRelease(name);
+  if (settled) return settled;
+
+  // If latest already matches the newest installable and FORCE_PUBLISH is unset, still
+  // publish a bump when this workflow was intentionally triggered for package changes.
+  // (Path filters + workflow_dispatch mean we always intend a release here.)
 
   const original = readFileSync(join(dir, "package.json"), "utf8");
   const pkg = JSON.parse(original);
@@ -212,12 +257,10 @@ function publishPackage(name, dir) {
 
   try {
     for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
-      const outgoing = { ...pkg, ...publishedFields, version };
-      writePkg(dir, outgoing);
+      writePkg(dir, { ...pkg, ...publishedFields, version });
       console.log(`${name} ${version} (attempt ${attempt}/${MAX_PUBLISH_ATTEMPTS})`);
 
       try {
-        // Temporary tag keeps a broken CDN blob off @latest.
         run(`npm publish --access public --tag ${RELEASE_TAG}`, dir);
         finalizePublish(name, version);
         return { name, version, skipped: false, ok: true };
@@ -265,5 +308,12 @@ for (const [name] of packages) {
   }
 }
 
+const latestOk = packages.every(([name]) => {
+  const v = publishedLatest(name);
+  const ok = Boolean(v && installable(name, v));
+  console.log(`${name}@${v || "?"} latest-installable=${ok}`);
+  return ok;
+});
+
 console.log("publish results:", JSON.stringify(results, null, 2));
-if (results.some((r) => r.ok === false)) process.exit(1);
+if (!latestOk || results.some((r) => r.ok === false)) process.exit(1);
