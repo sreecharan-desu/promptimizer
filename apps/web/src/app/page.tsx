@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CodePanel } from "@/components/code-panel";
 import { HomeFeatures } from "@/components/home-features";
-import { ProductPreview } from "@/components/home-product-preview";
+import { UnizHero } from "@/components/uniz-hero";
 import { DOCS_HOME, DOCS_URL } from "@/lib/site";
 
 const PROVIDERS = ["OpenAI", "Anthropic", "Google", "Groq", "Mistral", "OpenRouter"];
@@ -9,58 +9,20 @@ const PROVIDERS = ["OpenAI", "Anthropic", "Google", "Groq", "Mistral", "OpenRout
 export default function HomePage() {
   return (
     <>
-      <section className="landing-hero relative overflow-hidden">
-        <div className="landing-grid pointer-events-none absolute inset-0" aria-hidden="true" />
-        <div className="landing-orb pointer-events-none absolute -right-36 -top-24 size-[34rem] rounded-full" aria-hidden="true" />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-20 sm:px-6 sm:pb-20 sm:pt-28 lg:grid-cols-[0.94fr_1.06fr] lg:gap-16 lg:pb-24 lg:pt-32">
-          <div className="home-rise">
-            <p className="eyebrow">
-              <span className="eyebrow-dot" />
-              Routing infrastructure
-            </p>
-            <h1 className="mt-5 max-w-2xl font-display text-[2.8rem] font-semibold leading-[0.98] tracking-[-0.055em] text-primary text-balance sm:text-6xl lg:text-[4.25rem]">
-              The routing layer for <span className="gradient-ink">model fleets.</span>
-            </h1>
-            <p className="mt-6 max-w-xl text-[1.05rem] leading-8 text-secondary text-pretty sm:text-lg">
-              A lightweight decision layer that keeps model spend predictable without trading away performance —
-              behind one OpenAI-compatible API.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link
-                href="/signup"
-                className="hero-primary-action inline-flex h-11 items-center rounded-xl bg-primary px-5 text-sm font-semibold text-background transition-all duration-200 hover:bg-primary-hover"
-              >
-                Set up your stack
-                <span className="ml-2 text-base leading-none" aria-hidden="true">→</span>
-              </Link>
-              <a
-                href={DOCS_HOME}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hero-secondary-action inline-flex h-11 items-center rounded-xl border border-primary/10 bg-card/70 px-5 text-sm font-semibold text-primary shadow-sm transition-all duration-200 hover:bg-card"
-              >
-                Read the docs
-              </a>
-            </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-secondary">
-              <span className="inline-flex items-center gap-2"><Check /> Your keys and providers</span>
-              <span className="inline-flex items-center gap-2"><Check /> Explicit routing policy</span>
-              <span className="inline-flex items-center gap-2"><Check /> Measurable outcomes</span>
-            </div>
-          </div>
+      <UnizHero />
 
-          <div className="home-rise home-rise-delay home-float-wrap">
-            <ProductPreview />
-          </div>
+      <div className="relative mx-auto max-w-6xl border-t border-primary/[0.08] px-4 py-8 sm:px-6">
+        <p className="mb-4 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary/75">
+          Supports the providers you already use
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs font-semibold text-primary/50 sm:gap-x-12">
+          {PROVIDERS.map((provider) => (
+            <span key={provider} className="transition-colors hover:text-primary">
+              {provider}
+            </span>
+          ))}
         </div>
-
-        <div className="relative mx-auto max-w-6xl border-t border-primary/[0.08] px-4 py-5 sm:px-6">
-          <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary/75">Supports the providers you already use</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2 text-xs font-semibold text-primary/50 sm:gap-x-10">
-            {PROVIDERS.map((provider) => <span key={provider}>{provider}</span>)}
-          </div>
-        </div>
-      </section>
+      </div>
 
       <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
         <div className="max-w-2xl">

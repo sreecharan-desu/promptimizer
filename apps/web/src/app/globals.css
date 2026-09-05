@@ -295,6 +295,19 @@ body {
 .home-float-wrap {
   animation: home-float 7s ease-in-out 0.9s infinite;
 }
+@keyframes float-icon {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(4deg); }
+}
+.animate-float {
+  animation: float-icon 5s ease-in-out infinite;
+}
+.animate-float-delayed {
+  animation: float-icon 6.5s ease-in-out 1.5s infinite;
+}
+.animate-float-slow {
+  animation: float-icon 8s ease-in-out 3s infinite;
+}
 .home-hero-spot {
   box-shadow: 0 24px 60px -36px hsl(var(--primary) / 0.28);
 }
