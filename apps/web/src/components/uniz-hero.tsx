@@ -7,7 +7,6 @@ import {
   DatabaseZap,
   Route,
   ShieldCheck,
-  Sparkles,
   Zap,
 } from "lucide-react";
 import { DOCS_URL } from "@/lib/site";
@@ -70,18 +69,16 @@ export function UnizHero() {
   return (
     <section className="hero-brand">
       <div className="hero-brand-glow" aria-hidden="true" />
-      <Sparkles className="hero-orbit hero-orbit-one" aria-hidden="true" />
-      <Route className="hero-orbit hero-orbit-two" aria-hidden="true" />
-      <ShieldCheck className="hero-orbit hero-orbit-three" aria-hidden="true" />
-      <Activity className="hero-orbit hero-orbit-four" aria-hidden="true" />
-
       <div className="hero-brand-copy">
-        <p className="hero-brand-eyebrow"><span /> Promptimizer routing layer</p>
-        <h1>Build a calmer way to<br /><em>run your model fleet.</em></h1>
-        <p className="hero-brand-description">One OpenAI-compatible API for routing, quality checks, semantic cache, and spend control — designed for reliable AI products.</p>
+        <p className="hero-brand-eyebrow"><span /> Quality-aware routing layer</p>
+        <h1>One API. Better decisions.<br /><em>Every model request.</em></h1>
+        <p className="hero-brand-description">Promptimizer gives production AI teams the control to route intelligently, protect quality, and keep spend predictable.</p>
         <div className="hero-brand-actions">
           <Link href="/signup" className="hero-brand-primary">Start routing for free <ArrowRight className="size-4" /></Link>
           <a href={`${DOCS_URL}/docs/sdk`} target="_blank" rel="noopener noreferrer" className="hero-brand-secondary">Explore the docs</a>
+        </div>
+        <div className="hero-brand-proof" aria-label="Product capabilities">
+          <span>OpenAI-compatible</span><i /><span>Bring your own providers</span><i /><span>No SDK rewrite</span>
         </div>
       </div>
 
