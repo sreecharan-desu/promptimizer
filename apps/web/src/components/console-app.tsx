@@ -11,6 +11,7 @@ import {
 } from "@/lib/console-cache";
 import { EmptyFleetSpot, KeySpot } from "./console-spots";
 import { Donut, Meter, Pill, usd } from "./metrics";
+import { ModelIcon, ProviderIcon } from "./provider-icon";
 
 const HOSTS = [
   ...PROVIDERS.map((p) => ({
@@ -244,9 +245,12 @@ export function ConsoleApp() {
             <p className="mt-1.5 max-w-xl text-sm text-secondary">{tabMeta}</p>
           </div>
           {session?.baseline_model ? (
-            <div className="max-w-sm rounded-2xl border border-primary/[0.06] bg-card/80 px-3.5 py-2.5 text-right backdrop-blur-sm">
+            <div className="max-w-sm rounded-2xl border border-primary/[0.06] bg-card/80 px-3.5 py-2.5 backdrop-blur-sm">
               <p className="text-[10px] font-medium uppercase tracking-wide text-secondary">Baseline</p>
-              <p className="mt-0.5 truncate font-mono text-[11px] text-primary/75">{session.baseline_model}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <ModelIcon modelId={session.baseline_model} className="size-4 shrink-0" />
+                <p className="truncate font-mono text-[11px] text-primary/75">{session.baseline_model}</p>
+              </div>
             </div>
           ) : null}
         </header>
@@ -584,7 +588,7 @@ function ConnectPane({
                 key={item.id}
                 type="button"
                 onClick={() => onPick(item)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
                   active
                     ? "bg-primary text-background"
                     : connected
@@ -592,8 +596,9 @@ function ConnectPane({
                       : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:text-primary"
                 }`}
               >
-                {connected ? <span aria-hidden="true">✓</span> : null}
+                <ProviderIcon id={item.id} className="size-3.5" invert={active} />
                 {item.label}
+                {connected ? <span aria-hidden="true" className="text-[11px] opacity-80">✓</span> : null}
               </button>
             );
           })}
@@ -610,7 +615,10 @@ function ConnectPane({
             />
           </label>
         ) : (
-          <p className="mt-5 truncate font-mono text-[13px] text-secondary">{host.base_url}</p>
+          <p className="mt-5 flex items-center gap-2 truncate font-mono text-[13px] text-secondary">
+            <ProviderIcon id={host.id} className="size-4 shrink-0" />
+            <span className="truncate">{host.base_url}</span>
+          </p>
         )}
 
         <label className="mt-4 block text-sm text-secondary">
@@ -736,9 +744,7 @@ function FleetPane({
                       key={h.id}
                       className="inline-flex items-center gap-1.5 rounded-full border border-primary/[0.08] bg-background px-2.5 py-1 text-[11px] text-primary"
                     >
-                      <span className="text-accent" aria-hidden>
-                        ✓
-                      </span>
+                      <ProviderIcon id={h.id} className="size-3.5" />
                       {h.label}
                       <span className="text-secondary">{h.count}</span>
                     </span>
@@ -780,8 +786,12 @@ function FleetPane({
               className="rounded-2xl border border-primary/[0.06] bg-card p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="min-w-0 break-all font-mono text-[13px] text-primary">{model.id}</p>
-                <span className="shrink-0 rounded-full bg-primary/[0.06] px-2 py-0.5 text-[11px] text-secondary">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <ModelIcon modelId={model.id} providerId={model.provider_id} className="mt-0.5 size-5 shrink-0" />
+                  <p className="min-w-0 break-all font-mono text-[13px] text-primary">{model.id}</p>
+                </div>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/[0.06] px-2 py-0.5 text-[11px] text-secondary">
+                  <ProviderIcon id={model.provider_id || host} className="size-3" />
                   {host}
                 </span>
               </div>
@@ -837,10 +847,18 @@ function FleetPane({
               const host = hostFor(model);
               return (
                 <tr key={`${model.provider_id ?? "x"}:${model.id}`} className="border-t border-primary/5">
-                  <td className="max-w-[240px] px-4 py-3 font-mono text-[13px] text-primary">
-                    <span className="break-all">{model.id}</span>
+                  <td className="max-w-[280px] px-4 py-3 font-mono text-[13px] text-primary">
+                    <span className="inline-flex items-start gap-2.5">
+                      <ModelIcon modelId={model.id} providerId={model.provider_id} className="mt-0.5 size-5 shrink-0" />
+                      <span className="break-all">{model.id}</span>
+                    </span>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-secondary">{host}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-secondary">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ProviderIcon id={model.provider_id || host} className="size-3.5" />
+                      {host}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} />
                   </td>
