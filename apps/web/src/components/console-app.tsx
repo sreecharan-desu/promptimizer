@@ -61,6 +61,7 @@ export function ConsoleApp() {
   const [busy, setBusy] = useState(false);
   const [prompt, setPrompt] = useState(EXAMPLES[0].prompt);
   const [completion, setCompletion] = useState<Record<string, unknown> | null>(null);
+  const [escalation, setEscalation] = useState<string | null>(null);
   const [bench, setBench] = useState<Bench | null>(null);
   const [benchCachedAt, setBenchCachedAt] = useState<number | null>(null);
 
@@ -194,6 +195,7 @@ export function ConsoleApp() {
     if (!prompt.trim()) return;
     setBusy(true);
     setError(null);
+    setEscalation(null);
     setCompletion({
       choices: [{ message: { role: "assistant", content: "" } }],
     });
@@ -204,6 +206,13 @@ export function ConsoleApp() {
             ...(prev ?? {}),
             choices: [{ message: { role: "assistant", content: fullText } }],
           }));
+        },
+        onEvent: (event) => {
+          if (event.type === "escalation") {
+            setEscalation(
+              `Quality gate failed — escalating to ${String(event.to_model ?? "a stronger model")}`,
+            );
+          }
         },
       });
       setCompletion(result);
@@ -351,6 +360,7 @@ export function ConsoleApp() {
                 meta={meta}
                 usage={usage}
                 busy={busy}
+                escalation={escalation}
                 onPrompt={setPrompt}
                 onSend={send}
               />
@@ -1209,6 +1219,7 @@ function PlayPane({
   meta,
   usage,
   busy,
+  escalation,
   onPrompt,
   onSend,
 }: {
@@ -1218,6 +1229,7 @@ function PlayPane({
   meta?: Record<string, unknown>;
   usage?: { cost?: Record<string, number> };
   busy: boolean;
+  escalation?: string | null;
   onPrompt: (v: string) => void;
   onSend: () => void;
 }) {
@@ -1295,6 +1307,7 @@ function PlayPane({
                 <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
                 {busy ? <Pill tone="warn">Streaming</Pill> : null}
               </div>
+              {escalation ? <p className="mt-2 text-xs text-secondary">⚠ {escalation}</p> : null}
               {answer ? (
                 <div className="mt-3">
                   <MarkdownContent>{answer}</MarkdownContent>
