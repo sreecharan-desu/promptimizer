@@ -39,7 +39,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
           cost saved versus always-frontier — with a quality score, so silent degradation is visible.
         </P>
         <Callout kind="note">
-          The simulator needs no vendor key. Open the <Link href="/console">console</Link> and start there.
+          Open the <Link href="/console">console</Link>, connect an OpenAI-compatible key, and start routing.
         </Callout>
         <Cards>
           <Card title="Quickstart" href="/docs/quickstart">
@@ -92,9 +92,8 @@ export const DOC_CONTENT: Record<string, DocBody> = {
       <>
         <H2 id="account">1. Create an account</H2>
         <P>
-          Open <Link href="/signup">/signup</Link> and confirm the email we send. Then the{" "}
-          <Link href="/console">console</Link> — the simulator is already connected so you can try routing without a
-          vendor key.
+          Open <Link href="/signup">/signup</Link> and confirm the email we send. Then open the{" "}
+          <Link href="/console">console</Link> and connect an OpenAI-compatible provider key.
         </P>
         <H2 id="key">2. Mint an API key</H2>
         <P>
@@ -103,7 +102,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
         </P>
         <H2 id="route">3. Route a prompt</H2>
           <Pre label="bash">{`curl -s https://hackathon-omega-liart.vercel.app/api/v1/chat/completions \\\n  -H "Authorization: Bearer $PROMPTIMIZER_API_KEY" \\\n  -H 'content-type: application/json' \\\n  -d '{"messages":[{"role":"user","content":"What is the capital of France?"}]}'`}</Pre>
-        <P>You should see promptimizer-nano, a Paris answer, and saved_pct versus frontier.</P>
+        <P>You should see an economy-tier model when the ask is easy, and saved_pct versus frontier.</P>
         <H2 id="byok">4. Add your provider</H2>
         <P>
           In the console or CLI, pick a known provider — Baseten, Groq, OpenAI — and paste the key. We already have
@@ -126,8 +125,9 @@ export const DOC_CONTENT: Record<string, DocBody> = {
       <>
         <H2 id="session">Session</H2>
         <P>
-          A short-lived connection to a provider. mock is the built-in fleet. byok is your base_url + api_key. The raw
-          key never lands in localStorage. Pass sess_… as X-Promptimizer-Session or Authorization: Bearer.
+          A connection to one or more OpenAI-compatible hosts (BYOK). The raw vendor key never lands in
+          localStorage. Pass your <span className="font-mono text-primary">pmz_live_</span> key as Authorization:
+          Bearer, or a short-lived session id as X-Promptimizer-Session.
         </P>
         <H2 id="fleet">Fleet</H2>
         <Table
@@ -213,7 +213,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
             If the cheap model is likely to pass, pick the cheapest selected model in that tier. Never step down.
           </Step>
           <Step n="03" title="Complete">
-            Call the provider or the mock with that model id.
+            Call the connected provider with that model id.
           </Step>
           <Step n="04" title="Guard">
             If the answer looks degraded, retry one tier higher and mark escalated.
@@ -512,7 +512,7 @@ export const DOC_CONTENT: Record<string, DocBody> = {
             Create an account and mint a pmz_live_ key
           </Step>
           <Step n="02" title="Provider">
-            Connect OpenAI-compatible BYOK in the console, or use the simulator
+            Connect an OpenAI-compatible BYOK host in the console
           </Step>
           <Step n="03" title="Route">
             POST /v1/chat/completions with Authorization: Bearer pmz_live_…
@@ -567,13 +567,13 @@ export const DOC_CONTENT: Record<string, DocBody> = {
   },
   "/docs/api/connect": {
     title: "Connect a provider",
-    description: "Start a mock or BYOK session and receive a tiered fleet.",
+    description: "Connect a BYOK host and receive a tiered fleet.",
     headings: [],
     content: (
       <>
         <Endpoint method="POST" path="/v1/providers/connect" />
         <Param name="mode" type="string" required>
-          mock or byok.
+          byok (required).
         </Param>
         <Param name="provider" type="string">
           Known id such as baseten or groq. Fills base_url.

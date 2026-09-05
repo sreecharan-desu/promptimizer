@@ -15,7 +15,7 @@ async def require_session(
     if not session_id:
         raise HTTPException(
             status_code=401,
-            detail="Missing session. Connect a provider or use the simulator.",
+            detail="Missing session. Connect a provider with a valid API key.",
         )
     session = sessions.get(session_id)
     if not session:

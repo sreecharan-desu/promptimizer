@@ -11,7 +11,6 @@ from app.api.deps import require_session
 from app.core.sessions import (
     ProviderSession,
     create_byok_session,
-    create_mock_session,
     public_session,
     sessions,
     update_session_fleet,
@@ -22,7 +21,6 @@ from app.domain.classifier import classify_messages, classify_text
 from app.domain.providers import public_catalog, resolve_base_url
 from app.domain.quality import score_answer
 from app.domain.router import RoutingError, route_chat
-from app.providers.mock import mock_models
 from app.providers.openai_compat import ProviderError, list_models
 
 router = APIRouter()
@@ -30,7 +28,7 @@ _BENCH = Path(__file__).resolve().parent.parent / "data" / "benchmark.json"
 
 
 class ConnectBody(BaseModel):
-    mode: str = Field(description="mock | byok")
+    mode: str = Field(default="byok", description="byok")
     label: str | None = None
     provider: str | None = None
     base_url: str | None = None
@@ -73,9 +71,11 @@ async def providers() -> dict[str, Any]:
 
 @router.post("/v1/providers/connect")
 async def connect(body: ConnectBody) -> dict[str, Any]:
-    if body.mode == "mock":
-        session = create_mock_session(body.label or "Promptimizer simulator")
-        return public_session(session)
+    if body.mode == "mock" or body.provider in {"simulator", "mock"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Simulator mode was removed. Connect a real OpenAI-compatible provider.",
+        )
     base_url, provider = resolve_base_url(provider=body.provider, base_url=body.base_url)
     if not base_url:
         raise HTTPException(
@@ -308,5 +308,4 @@ async def analytics(session: ProviderSession = Depends(require_session)) -> dict
         "session": public_session(session),
         "cache": cache.stats(),
         "saved_pct": round((stats.get("saved_usd") or 0) / baseline * 100, 2) if baseline else 0,
-        "mock_models": mock_models() if session.mode == "mock" else None,
     }

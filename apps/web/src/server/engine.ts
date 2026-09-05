@@ -58,7 +58,7 @@ export type ModelInfo = {
 
 export type Session = {
   id: string;
-  mode: "mock" | "byok";
+  mode: "byok";
   label: string;
   base_url: string;
   api_key: string;
@@ -270,17 +270,33 @@ function dedupeFleet(session: Session) {
 }
 
 function refreshSessionLabel(session: Session) {
-  if (session.mode === "mock") {
-    session.label = "Promptimizer simulator";
-    return;
-  }
   const labels = session.connections.map((c) => c.label);
-  session.label = labels.length ? labels.join(" + ") : "BYOK";
+  session.label = labels.length ? labels.join(" + ") : "No providers";
   const primary = session.connections[0];
   if (primary) {
     session.base_url = primary.base_url;
     session.api_key = primary.api_key;
+  } else {
+    session.base_url = "";
+    session.api_key = "";
   }
+}
+
+function emptyByokSession(sessionId?: string): Session {
+  const session: Session = {
+    id: sessionId ?? id(),
+    mode: "byok",
+    label: "No providers",
+    base_url: "",
+    api_key: "",
+    connections: [],
+    models: [],
+    baseline_model: null,
+    created_at: Date.now() / 1000,
+    stats: emptyStats(),
+  };
+  store.set(session.id, session);
+  return session;
 }
 
 function pickBaseline(models: ModelInfo[]) {
@@ -317,28 +333,6 @@ function emptyStats() {
 
 export function accountSessionId(userId: string) {
   return `acct_${userId}`;
-}
-
-export function createMockSession(label = "Promptimizer simulator", sessionId?: string) {
-  const models = fleetFrom(
-    [{ id: "promptimizer-nano" }, { id: "promptimizer-flash" }, { id: "promptimizer-frontier" }],
-    "simulator",
-    "Simulator",
-  );
-  const session: Session = {
-    id: sessionId ?? id(),
-    mode: "mock",
-    label,
-    base_url: "mock://promptimizer",
-    api_key: "",
-    connections: [],
-    models,
-    baseline_model: "promptimizer-frontier",
-    created_at: Date.now() / 1000,
-    stats: emptyStats(),
-  };
-  store.set(session.id, session);
-  return publicSession(session);
 }
 
 export async function createByokSession(
@@ -411,11 +405,6 @@ export function disconnectProvider(session: Session, needle: string) {
   if (!n) {
     throw Object.assign(new Error("Provide a host id (e.g. baseten) or label."), { status: 400 });
   }
-  if (session.mode === "mock") {
-    throw Object.assign(new Error("Simulator has no removable hosts. Connect a BYOK provider first."), {
-      status: 400,
-    });
-  }
   const conn = session.connections.find(
     (c) =>
       c.id.toLowerCase() === n ||
@@ -432,7 +421,11 @@ export function disconnectProvider(session: Session, needle: string) {
   session.models = session.models.filter((m) => m.provider_id !== conn.id);
 
   if (!session.connections.length) {
-    return { session: createMockSession("Promptimizer simulator", session.id), removed: conn };
+    session.models = [];
+    session.baseline_model = null;
+    refreshSessionLabel(session);
+    store.set(session.id, session);
+    return { session: publicSession(session), removed: conn };
   }
 
   refreshSessionLabel(session);
@@ -573,57 +566,15 @@ function pick(session: Session, classification: Classification, hint?: string) {
   return cheapest(session.models);
 }
 
-function mockAnswer(model: string, prompt: string, classification: Classification) {
-  const hard = classification.complexity >= 4 || classification.quality_risk === "high";
-  if (model.endsWith("nano") && hard) {
-    return "This looks too complex for the economy model. I don't know how to give a complete, reliable answer.";
-  }
-  if (model.endsWith("flash") && classification.complexity >= 5) {
-    return "I can outline this, but as a small model I may miss failure modes. A frontier model should review the design.";
-  }
-  const table: Array<[RegExp, string]> = [
-    [/capital of france/i, "Paris is the capital of France."],
-    [/fahrenheit/i, "37.8"],
-    [/http stand/i, "HyperText Transfer Protocol"],
-    [/17 \* 24|17\*24/i, "408"],
-    [/rest api/i, "A REST API is an HTTP interface that exposes resources through uniform methods. Clients send stateless requests."],
-    [/merge_sorted/i, 'def merge_sorted(a, b):\n    """Merge two sorted lists in linear time."""\n    i = j = 0\n    out = []\n    while i < len(a) and j < len(b):\n        if a[i] <= b[j]:\n            out.append(a[i]); i += 1\n        else:\n            out.append(b[j]); j += 1\n    out.extend(a[i:]); out.extend(b[j:])\n    return out'],
-    [/tcp and udp/i, "TCP is reliable and ordered; UDP is connectionless and lower latency. UDP is better for live video, DNS, and multiplayer game state."],
-    [/expected number of flips/i, "Let E be expected flips. E = 1 + (1/2)E, so E = 2."],
-    [/despliegue|secreto de la base/i, "The deployment failed because the database secret was not mounted into the pod."],
-    [/rate limiter/i, "Use a distributed token bucket: each edge holds a local slice of tokens, replenished from a Redis cluster with sliding-window fallback. Accept eventual consistency on refill."],
-    [/infinitely many prime/i, "Euclid: if p1..pk were all primes, N = p1..pk + 1 has a new prime factor — contradiction. Twin primes are pairs; the same construction does not produce a pair with difference 2."],
-    [/goroutine/i, "Go maps are not goroutine-safe; concurrent writes race and can panic. Protect with a mutex, or shard maps by key hash."],
-    [/cut LLM cost|refunds, legal/i, "Classify tickets by risk and route FAQ to economy, refunds/legal/medical to frontier. Keep a gold eval set so silent quality regressions auto-escalate."],
-    [/peeking/i, "Daily peeking inflates Type I error; p=0.048 is not valid. Use sequential testing or a pre-registered sample. Multiple comparisons need correction."],
-    [/first missing/i, "The given code is O(n^2) because membership scans the list. Place each value v at index v-1, then scan for the first mismatch — O(n) time."],
-  ];
-  for (const [re, value] of table) if (re.test(prompt)) return value;
-  return prompt.slice(0, 220);
-}
-
 async function complete(
   session: Session,
   model: string,
   messages: Array<{ role: string; content: string }>,
-  classification: Classification,
+  _classification: Classification,
   opts?: { max_tokens?: number; provider_id?: string; temperature?: number },
 ) {
-  const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-  if (session.mode === "mock") {
-    const text = mockAnswer(model, prompt, classification);
-    return {
-      id: `chatcmpl-mock-${Date.now()}`,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
-      usage: {
-        prompt_tokens: tokens(JSON.stringify(messages)),
-        completion_tokens: tokens(text),
-        total_tokens: tokens(JSON.stringify(messages)) + tokens(text),
-      },
-    };
+  if (!session.connections.length) {
+    throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
   const modelInfo =
     (opts?.provider_id
@@ -653,22 +604,16 @@ async function complete(
   return response.json();
 }
 
-/** Stream tokens from the provider (or mock). Yields text deltas; resolves with full text. */
+/** Stream tokens from the provider. Yields text deltas; resolves with full text. */
 async function* completeStreaming(
   session: Session,
   model: string,
   messages: Array<{ role: string; content: string }>,
-  classification: Classification,
+  _classification: Classification,
   opts?: { max_tokens?: number; provider_id?: string },
 ): AsyncGenerator<string, string, void> {
-  const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-  if (session.mode === "mock") {
-    const text = mockAnswer(model, prompt, classification);
-    for (const part of text.match(/.{1,12}/g) ?? [text]) {
-      yield part;
-      await new Promise((r) => setTimeout(r, 8));
-    }
-    return text;
+  if (!session.connections.length) {
+    throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
   const modelInfo =
     (opts?.provider_id
@@ -1154,7 +1099,7 @@ export async function routeChat(
     complexity: classification.complexity,
     must_include: mustInclude,
     must_not_include: mustNotInclude,
-    allow_expensive: !cacheSkipEscalate && session.mode !== "mock",
+    allow_expensive: !cacheSkipEscalate,
     session_mode: session.mode,
     routed_model: routed!.id,
     fleet: session.models,
@@ -1797,8 +1742,7 @@ export async function sessionForUser(userId: string): Promise<Session> {
     store.set(sid, session);
     return session;
   }
-  createMockSession("Promptimizer simulator", sid);
-  return store.get(sid)!;
+  return emptyByokSession(sid);
 }
 
 export { publicSession };

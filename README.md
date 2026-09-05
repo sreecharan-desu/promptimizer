@@ -30,7 +30,7 @@ OpenAI-compatible middleware that classifies each request, routes it to the chea
 ```bash
 npm install
 npm run dev:web
-# http://localhost:3000 — simulator works with no vendor key
+# http://localhost:3000 — connect a provider key in /console
 ```
 
 ```bash

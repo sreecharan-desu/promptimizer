@@ -2,7 +2,7 @@
 
 Promptimizer is a middleware router, not a new model vendor.
 
-1. **Connect** — mock fleet, or BYOK against a catalog provider (app-owned base URL + user API key).
+1. **Connect** — BYOK against a catalog provider (app-owned base URL + user API key).
 2. **Catalog** — `GET /models`, normalize into ModelProfile (pricing, context, features), tier `economy | standard | frontier`.
 3. **Classify** — transparent features → complexity 1–5 and `P(quality|small)`.
 4. **Requirements** — tools / vision / structured output / size derived from the chat body.

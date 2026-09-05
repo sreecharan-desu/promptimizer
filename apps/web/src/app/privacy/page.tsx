@@ -24,7 +24,7 @@ export default function PrivacyPage() {
         <h2 className="pt-4 text-xl font-medium text-primary">What we send</h2>
         <p>
           When you use BYOK, prompts go to the base URL you typed — OpenAI, Groq, or any other OpenAI-compatible
-          host. The simulator never leaves this app.
+          host. We do not run a local answer simulator; completions always hit your connected providers.
         </p>
       </div>
     </article>

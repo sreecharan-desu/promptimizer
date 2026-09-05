@@ -51,7 +51,6 @@ const COMMAND_HELP = {
     "Usage",
     "  promptimizer connect <provider> --key <vendor-key>",
     "  promptimizer connect custom --base-url <url> --key <vendor-key>",
-    "  promptimizer connect simulator",
     "",
     "Adds a host to your fleet without replacing others.",
     "Aliases: add",
@@ -451,9 +450,12 @@ async function cmdConnect(flags, positional) {
   }
 
   const mock = provider === "simulator" || provider === "mock";
+  if (mock) {
+    die("Simulator mode was removed. Connect a real provider, e.g. promptimizer connect baseten --key …");
+  }
   let vendorKey = flags.key || flags.k;
   let label = flags.label;
-  if (!mock && !baseURL && provider && provider !== "custom") {
+  if (!baseURL && provider && provider !== "custom") {
     const catalog = await request("/v1/providers", { gatewayURL });
     const found = (catalog.data ?? []).find(
       (row) => row.id === provider || String(row.label).toLowerCase() === provider.toLowerCase(),
@@ -464,7 +466,7 @@ async function cmdConnect(flags, positional) {
       die(`Missing API key for ${found.label}. Pass --key or set ${found.env}.`);
     }
     label = label || found.label;
-  } else if (!mock && !vendorKey && provider !== "ollama") {
+  } else if (!vendorKey && provider !== "ollama") {
     die("Missing provider key. Pass --key.");
   }
 
@@ -473,9 +475,7 @@ async function cmdConnect(flags, positional) {
     method: "POST",
     gatewayURL,
     apiKey,
-    body: mock
-      ? { mode: "mock", label: "Promptimizer simulator" }
-      : {
+    body: {
           mode: "byok",
           label,
           provider: provider && provider !== "custom" ? provider : undefined,
@@ -519,8 +519,8 @@ async function cmdHosts(flags) {
   const connections = session.connections ?? [];
   out();
   if (!connections.length) {
-    out(`  ${session.label} (simulator)`);
-    out(`  ${session.models?.length ?? 0} models`);
+    out(`  ${color(ANSI.dim, "No hosts connected.")}`);
+    out(`  ${color(ANSI.dim, "Add: promptimizer connect <host> --key …")}`);
     out();
     return session;
   }

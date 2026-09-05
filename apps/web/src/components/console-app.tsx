@@ -117,25 +117,6 @@ export function ConsoleApp() {
     });
   }, [session, bench, completion, prompt, tab, benchCachedAt]);
 
-  async function connectSimulator() {
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await api.connect({ mode: "mock", label: "Simulator" });
-      writeSessionId(next.session_id);
-      clearConsoleCache();
-      setSession(next);
-      setCompletion(null);
-      setBench(null);
-      setBenchCachedAt(null);
-      setTab("fleet");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Connect failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function connectKey() {
     setBusy(true);
     setError(null);
@@ -209,9 +190,10 @@ export function ConsoleApp() {
     return choices?.[0]?.message?.content ?? "";
   }, [completion]);
 
-  const tabMeta = session
-    ? `${session.label} · ${session.models.length} models`
-    : "Connect a host or start the simulator.";
+  const hasFleet = Boolean(session?.models?.length);
+  const tabMeta = hasFleet
+    ? `${session!.label} · ${session!.models.length} models`
+    : "Connect an OpenAI-compatible host to begin.";
   const tabLabel = TABS.find(([id]) => id === tab)?.[1] ?? "Console";
 
   return (
@@ -284,8 +266,8 @@ export function ConsoleApp() {
               apiKey={apiKey}
               connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
               fleetSummary={
-                session?.mode === "byok"
-                  ? `${session.label} · ${session.models.length} models across ${session.connections?.length ?? 1} host(s)`
+                hasFleet
+                  ? `${session!.label} · ${session!.models.length} models across ${session!.connections?.length ?? 1} host(s)`
                   : null
               }
               onQuery={setQuery}
@@ -295,24 +277,23 @@ export function ConsoleApp() {
               }}
               onBaseUrl={setBaseUrl}
               onKey={setApiKey}
-              onSimulator={connectSimulator}
               onFetch={connectKey}
               onDisconnect={disconnectHost}
             />
           ) : null}
 
           {tab === "fleet" ? (
-            session ? (
-              <FleetPane session={session} onTier={changeTier} />
+            hasFleet ? (
+              <FleetPane session={session!} onTier={changeTier} />
             ) : (
-              <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+              <NeedSession onConnect={() => setTab("connect")} />
             )
           ) : null}
 
           {tab === "play" ? (
-            session ? (
+            hasFleet ? (
               <PlayPane
-                session={session}
+                session={session!}
                 prompt={prompt}
                 answer={answer}
                 meta={meta}
@@ -322,12 +303,12 @@ export function ConsoleApp() {
                 onSend={send}
               />
             ) : (
-              <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+              <NeedSession onConnect={() => setTab("connect")} />
             )
           ) : null}
 
           {tab === "eval" ? (
-            session ? <EvalPane /> : <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+            hasFleet ? <EvalPane /> : <NeedSession onConnect={() => setTab("connect")} />
           ) : null}
         </div>
       </div>
@@ -557,7 +538,6 @@ function ConnectPane({
   onPick,
   onBaseUrl,
   onKey,
-  onSimulator,
   onFetch,
   onDisconnect,
 }: {
@@ -573,7 +553,6 @@ function ConnectPane({
   onPick: (item: (typeof HOSTS)[number]) => void;
   onBaseUrl: (v: string) => void;
   onKey: (v: string) => void;
-  onSimulator: () => void;
   onFetch: () => void;
   onDisconnect: (providerId: string) => void;
 }) {
@@ -664,29 +643,6 @@ function ConnectPane({
               Remove host
             </button>
           ) : null}
-        </div>
-      </section>
-
-      <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Step 02</p>
-            <h2 className="mt-1 font-display text-xl font-medium tracking-tight text-primary">Simulator</h2>
-            <p className="mt-1 text-sm text-secondary">Three mocked models. No vendor key.</p>
-            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] text-secondary">
-              <li>nano · economy</li>
-              <li>flash · standard</li>
-              <li>frontier · frontier</li>
-            </ul>
-          </div>
-          <button
-            type="button"
-            onClick={onSimulator}
-            disabled={busy}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-          >
-            {busy ? "Starting…" : "Start simulator"}
-          </button>
         </div>
       </section>
     </div>
@@ -1260,36 +1216,20 @@ function PlayPane({
   );
 }
 
-function NeedSession({
-  onSimulator,
-  onConnect,
-  busy,
-}: {
-  onSimulator: () => void;
-  onConnect: () => void;
-  busy: boolean;
-}) {
+function NeedSession({ onConnect }: { onConnect: () => void }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="p-8">
           <h2 className="font-display text-2xl font-medium tracking-tight text-primary">No fleet yet</h2>
-          <p className="mt-3 max-w-md text-secondary">Start the simulator, or connect a vendor key.</p>
+          <p className="mt-3 max-w-md text-secondary">Connect an OpenAI-compatible provider key to discover models and start routing.</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={onSimulator}
-              disabled={busy}
-              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
-            >
-              {busy ? "Starting…" : "Start simulator"}
-            </button>
-            <button
-              type="button"
               onClick={onConnect}
-              className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)]"
+              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background"
             >
-              Your key
+              Connect a host
             </button>
           </div>
         </div>

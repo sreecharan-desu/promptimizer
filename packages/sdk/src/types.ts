@@ -31,7 +31,7 @@ export type ModelInfo = {
 };
 
 export type ConnectOptions = {
-  mode?: "mock" | "byok";
+  mode?: "byok";
   label?: string;
   provider?: string;
   baseURL?: string;

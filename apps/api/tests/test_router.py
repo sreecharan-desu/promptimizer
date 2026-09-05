@@ -1,27 +1,32 @@
-import pytest
+from app.domain.catalog import fleet_from_provider_models
+from app.domain.classifier import classify_messages
+from app.domain.router import pick_model
 
-from app.core.sessions import create_mock_session
-from app.domain.router import route_chat
 
-
-@pytest.mark.asyncio
-async def test_easy_routes_to_nano():
-    session = create_mock_session()
-    result = await route_chat(
-        session,
-        messages=[{"role": "user", "content": "What is the capital of France?"}],
+def _fleet():
+    return fleet_from_provider_models(
+        [
+            {"id": "promptimizer-nano", "owned_by": "promptimizer"},
+            {"id": "promptimizer-flash", "owned_by": "promptimizer"},
+            {"id": "promptimizer-frontier", "owned_by": "promptimizer"},
+        ]
     )
-    assert result["promptimizer"]["tier"] == "economy"
-    assert "Paris" in result["choices"][0]["message"]["content"]
-    assert result["usage"]["cost"]["saved_pct"] > 0
 
 
-@pytest.mark.asyncio
-async def test_hard_routes_to_frontier_or_escalates():
-    session = create_mock_session()
-    result = await route_chat(
-        session,
-        messages=[
+def test_easy_routes_to_economy():
+    fleet = _fleet()
+    classification = classify_messages(
+        [{"role": "user", "content": "What is the capital of France?"}]
+    )
+    chosen = pick_model(fleet, classification)
+    assert chosen.tier == "economy"
+    assert chosen.id == "promptimizer-nano"
+
+
+def test_hard_routes_to_frontier():
+    fleet = _fleet()
+    classification = classify_messages(
+        [
             {
                 "role": "user",
                 "content": (
@@ -29,26 +34,8 @@ async def test_hard_routes_to_frontier_or_escalates():
                     "per-API-key quotas, and burst tokens. Discuss consistency and failure modes."
                 ),
             }
-        ],
+        ]
     )
-    meta = result["promptimizer"]
-    assert meta["tier"] == "frontier"
-    text = result["choices"][0]["message"]["content"]
-    assert "token bucket" in text.lower() or "Redis" in text
-    assert meta["quality_gate"] == "pass"
-
-
-@pytest.mark.asyncio
-async def test_prompt_cache_hits_on_repeated_system():
-    session = create_mock_session()
-    system = {"role": "system", "content": "You are a careful support agent. " + ("policy " * 80)}
-    first = await route_chat(
-        session,
-        messages=[system, {"role": "user", "content": "What is the capital of France?"}],
-    )
-    second = await route_chat(
-        session,
-        messages=[system, {"role": "user", "content": "What does HTTP stand for?"}],
-    )
-    assert first["promptimizer"]["prefix_cache_hit"] is False
-    assert second["promptimizer"]["prefix_cache_hit"] is True
+    chosen = pick_model(fleet, classification)
+    assert chosen.tier == "frontier"
+    assert chosen.id == "promptimizer-frontier"

@@ -12,7 +12,7 @@ from app.domain.costing import compute_cost, estimate_tokens
 from app.domain.optimizer.requirements import extract_requirements
 from app.domain.quality import looks_degraded, score_answer
 from app.providers import openai_compat
-from app.providers.mock import mock_complete
+
 
 TIER_ORDER = ("economy", "standard", "frontier")
 
@@ -52,7 +52,7 @@ async def route_chat(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if stream:
-        raise RoutingError("Streaming is not enabled in the simulator API yet.")
+        raise RoutingError("Streaming is not enabled on the FastAPI gateway yet.")
 
     extra = extra or {}
     started = time.perf_counter()
@@ -178,8 +178,7 @@ async def _complete(
     classification: Classification,
     extra: dict[str, Any],
 ) -> dict[str, Any]:
-    if session.mode == "mock":
-        return mock_complete(model=model, messages=messages, classification=classification)
+    del classification  # provider path does not use classification
     body = {"model": model, "messages": messages, **extra}
     body.pop("level_override", None)
     return await openai_compat.chat_completions(

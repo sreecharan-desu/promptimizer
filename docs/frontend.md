@@ -6,8 +6,8 @@
 
 | Path | Job |
 | --- | --- |
-| `/` | Marketing home — classifier mock, code panel, quality table |
-| `/console` | BYOK + simulator, fleet table, playground, benchmark |
+| `/` | Marketing home — classifier demo, code panel, quality table |
+| `/console` | BYOK connect, fleet table, playground, eval |
 | `/docs` | Routing / quality / stack |
 | `/docs/api` | Endpoint list |
 | `/docs/sdk` | npm package |

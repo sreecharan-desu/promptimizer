@@ -12,7 +12,11 @@ All mutating console calls after connect send `X-Promptimizer-Session: sess_...`
 Start a session.
 
 ```json
-{ "mode": "mock" }
+{
+  "mode": "byok",
+  "provider": "groq",
+  "api_key": "gsk_..."
+}
 ```
 
 ```json

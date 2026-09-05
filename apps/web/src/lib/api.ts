@@ -146,7 +146,7 @@ export type BenchmarkResult = {
 };
 
 export const api = {
-  connect: (body: { mode: "mock" | "byok"; label?: string; provider?: string; base_url?: string; api_key?: string }) =>
+  connect: (body: { mode?: "byok"; label?: string; provider?: string; base_url?: string; api_key?: string }) =>
     request<Session>("/api/v1/providers/connect", { method: "POST", body: JSON.stringify(body) }),
   disconnect: (body: { provider: string }) =>
     request<Session & { removed?: { id: string; label: string } }>("/api/v1/providers/disconnect", {

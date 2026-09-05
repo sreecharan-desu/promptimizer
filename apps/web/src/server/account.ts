@@ -16,7 +16,7 @@ export type SavedProvider = {
   id: string;
   user_id: string;
   label: string;
-  mode: "mock" | "byok";
+  mode: "byok";
   base_url: string;
   api_key: string;
   baseline_model: string | null;
@@ -26,7 +26,7 @@ export type SavedProvider = {
 
 export type PersistableSession = {
   label: string;
-  mode: "mock" | "byok";
+  mode: "byok";
   base_url: string;
   api_key: string;
   baseline_model: string | null;
@@ -351,7 +351,7 @@ export async function loadAllProviderConnections(userId: string): Promise<SavedP
       id: String(r.id),
       user_id: String(r.user_id),
       label,
-      mode: r.mode === "byok" ? "byok" : "mock",
+      mode: "byok",
       base_url: base,
       api_key: decryptText(r.api_key_encrypted ? String(r.api_key_encrypted) : ""),
       baseline_model: r.baseline_model ? String(r.baseline_model) : null,

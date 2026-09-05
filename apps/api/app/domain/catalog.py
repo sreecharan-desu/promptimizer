@@ -150,16 +150,6 @@ def fleet_from_provider_models(raw_models: list[dict[str, Any]]) -> Fleet:
     return fleet
 
 
-def mock_fleet() -> Fleet:
-    return fleet_from_provider_models(
-        [
-            {"id": "promptimizer-nano", "owned_by": "promptimizer"},
-            {"id": "promptimizer-flash", "owned_by": "promptimizer"},
-            {"id": "promptimizer-frontier", "owned_by": "promptimizer"},
-        ]
-    )
-
-
 def apply_tier_overrides(fleet: Fleet, overrides: dict[str, str]) -> Fleet:
     for model in fleet.models:
         if model.id in overrides and overrides[model.id] in {"economy", "standard", "frontier"}:

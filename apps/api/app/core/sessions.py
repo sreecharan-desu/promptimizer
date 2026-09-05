@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from app.core.config import get_settings
-from app.domain.catalog import Fleet, ModelInfo, apply_tier_overrides, mock_fleet
+from app.domain.catalog import Fleet, ModelInfo, apply_tier_overrides
 
 
 def _fernet() -> Fernet:
@@ -48,8 +48,6 @@ class ProviderSession:
     })
 
     def api_key(self) -> str:
-        if self.mode == "mock":
-            return ""
         return _fernet().decrypt(self.api_key_encrypted.encode()).decode()
 
     def fleet_obj(self) -> Fleet:
@@ -112,22 +110,6 @@ class SessionStore:
 sessions = SessionStore()
 
 
-def create_mock_session(label: str = "Promptimizer simulator") -> ProviderSession:
-    fleet = mock_fleet()
-    session = ProviderSession(
-        id=f"sess_{secrets.token_urlsafe(16)}",
-        mode="mock",
-        label=label,
-        base_url="mock://promptimizer",
-        api_key_encrypted="",
-        fleet={"models": fleet.as_dicts()},
-        baseline_model=fleet.baseline_model,
-        created_at=time.time(),
-    )
-    sessions.put(session)
-    return session
-
-
 def create_byok_session(
     *,
     label: str,
@@ -155,7 +137,7 @@ def public_session(session: ProviderSession) -> dict[str, Any]:
         "session_id": session.id,
         "mode": session.mode,
         "label": session.label,
-        "base_url": session.base_url if session.mode == "mock" else _mask_url(session.base_url),
+        "base_url": _mask_url(session.base_url),
         "models": session.fleet.get("models", []),
         "baseline_model": session.baseline_model,
         "stats": session.stats,

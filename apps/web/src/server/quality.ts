@@ -328,7 +328,7 @@ export async function evaluateQualityGate(input: {
   let degraded = s1.degraded;
   let stage2_skipped = false;
 
-  const canSample = Boolean(input.sample) && input.session_mode !== "mock";
+  const canSample = Boolean(input.sample);
   if (canSample && input.sample) {
     try {
       const a = await input.sample({ temperature: 0.8, max_tokens: 400 });
@@ -352,7 +352,7 @@ export async function evaluateQualityGate(input: {
     }
   } else {
     stage2_skipped = true;
-    if (input.session_mode === "mock") reasons.push("stage2_skipped_mock");
+    reasons.push("stage2_skipped");
   }
 
   const stillUncertain = escalate || selfConsistency == null || selfConsistency < 0.9;

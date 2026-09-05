@@ -16,7 +16,6 @@ import { classifyText, publicCatalog, resolveBaseURL } from "promptimizer";
 import {
   accountSessionId,
   createByokSession,
-  createMockSession,
   disconnectProvider,
   getSession,
   patchFleet,
@@ -55,8 +54,10 @@ function connectPayload(body: {
   base_url?: string;
   api_key?: string;
 }) {
-  if (body.mode === "mock") {
-    return { mode: "mock" as const, label: body.label || "Promptimizer simulator" };
+  if (body.mode === "mock" || body.provider === "simulator" || body.provider === "mock") {
+    throw Object.assign(new Error("Simulator mode was removed. Connect a real OpenAI-compatible provider."), {
+      status: 400,
+    });
   }
   const { baseURL, provider } = resolveBaseURL({ provider: body.provider, baseURL: body.base_url });
   if (!baseURL) {
@@ -150,10 +151,7 @@ async function handle(request: NextRequest, path: string[]) {
       const user = await accountFromRequest(request);
       const sid = user ? accountSessionId(user.id) : undefined;
       const payload = connectPayload(body);
-      const published =
-        payload.mode === "mock"
-          ? createMockSession(payload.label, sid)
-          : await createByokSession(payload, sid);
+      const published = await createByokSession(payload, sid);
       if (user) {
         const session = getSession(accountSessionId(user.id));
         if (session && session.mode === "byok") {
