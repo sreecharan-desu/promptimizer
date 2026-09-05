@@ -254,6 +254,22 @@ export async function persistMultiProviderSession(
     models: Array<{ provider_id?: string } & Record<string, unknown>>;
   },
 ) {
+  await ensureSchema();
+  // The DB must mirror the session exactly: delete rows for hosts that are no
+  // longer connected, otherwise a later rebuild (sessionForUser) resurrects
+  // disconnected providers with stale model slugs.
+  const keep = new Set(
+    session.connections
+      .map((c) => c.base_url.replace(/\/$/, "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const rows = await getSql()`SELECT id, base_url FROM providers WHERE user_id = ${userId}`;
+  for (const row of rows) {
+    const r = asRecord(row);
+    const base = String(r.base_url).replace(/\/$/, "").trim().toLowerCase();
+    if (keep.has(base)) continue;
+    await getSql()`DELETE FROM providers WHERE id = ${String(r.id)}`;
+  }
   for (const conn of session.connections) {
     await upsertProviderConnection(userId, {
       label: conn.label,

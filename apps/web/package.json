@@ -9,7 +9,7 @@
     "start": "next start --port 3000",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/server/optimizer/optimizer.test.ts src/server/semantic-cache.test.ts src/server/quality.test.ts src/server/cost-metrics.test.ts src/server/cache-clear.test.ts"
+    "test": "tsx --test src/server/optimizer/optimizer.test.ts src/server/semantic-cache.test.ts src/server/quality.test.ts src/server/cost-metrics.test.ts src/server/cache-clear.test.ts src/server/fleet-hygiene.test.ts"
   },
   "dependencies": {
     "@alloc/quick-lru": "^5.3.0",
