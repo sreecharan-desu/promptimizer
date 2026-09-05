@@ -505,6 +505,9 @@ export type SavingsSummary = {
   quality_gate_pass_rate: number | null;
   quality_audits: number;
   quality_audit_passes: number;
+  tier_economy: number;
+  tier_standard: number;
+  tier_frontier: number;
   recent: UsageEvent[];
 };
 
@@ -613,7 +616,10 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
       coalesce(sum(CASE WHEN quality_gate = 'pass' THEN 1 ELSE 0 END), 0)::int AS quality_passes,
       coalesce(sum(CASE WHEN quality_gate = 'fail' THEN 1 ELSE 0 END), 0)::int AS quality_fails,
       coalesce(sum(CASE WHEN quality_audit THEN 1 ELSE 0 END), 0)::int AS quality_audits,
-      coalesce(sum(CASE WHEN quality_audit_pass IS TRUE THEN 1 ELSE 0 END), 0)::int AS quality_audit_passes
+      coalesce(sum(CASE WHEN quality_audit_pass IS TRUE THEN 1 ELSE 0 END), 0)::int AS quality_audit_passes,
+      coalesce(sum(CASE WHEN tier = 'economy' THEN 1 ELSE 0 END), 0)::int AS tier_economy,
+      coalesce(sum(CASE WHEN tier = 'standard' THEN 1 ELSE 0 END), 0)::int AS tier_standard,
+      coalesce(sum(CASE WHEN tier = 'frontier' THEN 1 ELSE 0 END), 0)::int AS tier_frontier
     FROM usage_events
     WHERE user_id = ${userId}
   `;
@@ -624,7 +630,7 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
     FROM usage_events
     WHERE user_id = ${userId}
     ORDER BY created_at DESC
-    LIMIT 40
+    LIMIT 250
   `;
   const t = asRecord(totals[0] ?? {});
   const baseline = num(t.baseline_usd);
@@ -646,6 +652,9 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
     quality_gate_pass_rate: gated ? num(t.quality_passes) / gated : null,
     quality_audits: num(t.quality_audits),
     quality_audit_passes: num(t.quality_audit_passes),
+    tier_economy: num(t.tier_economy),
+    tier_standard: num(t.tier_standard),
+    tier_frontier: num(t.tier_frontier),
     recent: recent.map(eventFromRow),
   };
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { SavingsSummary } from "@/server/account";
 import { Donut, Meter, MetricCard, MiniBars, Pill, Sparkline, pct, usd } from "./metrics";
-import { RecentRequestRows } from "./portal-request-rows";
+import { RecentRequestsPanel } from "./portal-recent-requests";
 
 function chrono(events: SavingsSummary["recent"]) {
   return [...events].reverse();
@@ -13,9 +13,15 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
   const savedSeries = series.map((e) => e.saved_usd);
   const costSeries = series.map((e) => e.actual_usd);
 
-  const tierCounts = { economy: 0, standard: 0, frontier: 0 };
-  for (const e of savings.recent) {
-    if (e.tier in tierCounts) tierCounts[e.tier as keyof typeof tierCounts] += 1;
+  const tierCounts = {
+    economy: savings.tier_economy ?? 0,
+    standard: savings.tier_standard ?? 0,
+    frontier: savings.tier_frontier ?? 0,
+  };
+  if (!(savings.tier_economy || savings.tier_standard || savings.tier_frontier)) {
+    for (const e of savings.recent) {
+      if (e.tier in tierCounts) tierCounts[e.tier as keyof typeof tierCounts] += 1;
+    }
   }
   const tierTotal = Object.values(tierCounts).reduce((a, b) => a + b, 0) || 1;
 
@@ -187,28 +193,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
           or CLI.
         </p>
       ) : (
-        <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06]">
-          <div className="border-b border-primary/[0.06] bg-card px-4 py-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Recent requests</p>
-            <p className="mt-0.5 text-xs text-secondary/80">Click a row to open prompt, routing, and cost detail</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="text-secondary">
-                <tr>
-                  <th className="px-4 py-3 font-medium">When</th>
-                  <th className="px-4 py-3 font-medium">Model</th>
-                  <th className="px-4 py-3 font-medium">Tier</th>
-                  <th className="px-4 py-3 font-medium">Quality</th>
-                  <th className="px-4 py-3 font-medium">API cost</th>
-                  <th className="px-4 py-3 font-medium">Saved</th>
-                  <th className="px-4 py-3 font-medium">Flags</th>
-                </tr>
-              </thead>
-              <RecentRequestRows rows={savings.recent} />
-            </table>
-          </div>
-        </div>
+        <RecentRequestsPanel rows={savings.recent} />
       )}
     </div>
   );
