@@ -1,4 +1,4 @@
-"""Qdrant-backed semantic cache (prompt → answer replay)."""
+"""Qdrant semantic cache — same PointStruct / query_points pattern as the RAG notebooks."""
 
 from __future__ import annotations
 
@@ -9,8 +9,20 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    FilterSelector,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    VectorParams,
+)
+
 from app.core.config import get_settings
-from app.domain.embeddings import embed_query, embedding_configured, embedding_dim
+from app.domain.embeddings import embed_query, embedding_configured, embedding_dim, get_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +49,7 @@ class SemanticMatch:
     shared_ratio: float
 
 
-_client = None
+_client: QdrantClient | None = None
 _ensured = False
 
 
@@ -56,12 +68,11 @@ def collection_name() -> str:
     return get_settings().qdrant_collection.strip() or "promptimizer_semantic_2048"
 
 
-def _client_get():
+def _client_get() -> QdrantClient:
+    """Notebook style: QdrantClient(url=...)."""
     global _client
     if _client is not None:
         return _client
-    from qdrant_client import QdrantClient
-
     settings = get_settings()
     kwargs: dict[str, Any] = {
         "url": settings.qdrant_url.rstrip("/"),
@@ -69,51 +80,49 @@ def _client_get():
     }
     if settings.qdrant_api_key.strip():
         kwargs["api_key"] = settings.qdrant_api_key.strip()
-    # Docker compose hostname
-    if settings.qdrant_url.startswith("http://qdrant:"):
-        kwargs["url"] = settings.qdrant_url.rstrip("/")
     _client = QdrantClient(**kwargs)
     return _client
 
 
 def ensure_collection() -> bool:
+    """create_collection(VectorParams(size=2048, distance=Distance.COSINE)) like the notebook."""
     global _ensured
     if not qdrant_configured():
         return False
     if _ensured:
         return True
-    from qdrant_client.http import models as qm
 
-    q = _client_get()
+    qdrant_client = _client_get()
     name = collection_name()
     dim = embedding_dim()
-    existing = {c.name for c in q.get_collections().collections}
+    existing = {c.name for c in qdrant_client.get_collections().collections}
+
     if name not in existing:
-        q.create_collection(
+        qdrant_client.create_collection(
             collection_name=name,
-            vectors_config=qm.VectorParams(size=dim, distance=qm.Distance.COSINE),
+            vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         )
     else:
-        info = q.get_collection(name)
-        size = None
+        info = qdrant_client.get_collection(name)
         params = info.config.params.vectors
-        if hasattr(params, "size"):
-            size = int(params.size)
+        size = int(params.size) if hasattr(params, "size") else None
         if size is not None and size != dim:
             raise RuntimeError(
                 f'Qdrant collection "{name}" is {size}-d but embeddings are {dim}-d. '
                 "Set QDRANT_COLLECTION to a new name."
             )
+
     try:
-        q.create_payload_index(
+        qdrant_client.create_payload_index(
             collection_name=name,
             field_name="owner",
-            field_schema=qm.PayloadSchemaType.KEYWORD,
+            field_schema=PayloadSchemaType.KEYWORD,
         )
     except Exception as err:  # noqa: BLE001
         msg = str(err).lower()
         if "already" not in msg and "conflict" not in msg and "exists" not in msg:
             logger.warning("payload index owner: %s", err)
+
     _ensured = True
     return True
 
@@ -132,7 +141,6 @@ def _canonicalize(text: str) -> str:
     s = re.sub(r"\bmultiplied by\b", "*", s)
     s = re.sub(r"[^0-9*+\-/\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    # Prefer compact math form when digits present
     nums = re.findall(r"\d+", s)
     if len(nums) >= 2 and "*" in s:
         return f"{nums[0]} * {nums[1]}"
@@ -146,7 +154,6 @@ def _entities_compatible(a: str, b: str) -> bool:
     nb = set(re.findall(r"\d+", b))
     if na or nb:
         return na == nb
-    # Negation flip
     neg_a = bool(re.search(r"\bnot\b|n't\b", a.lower()))
     neg_b = bool(re.search(r"\bnot\b|n't\b", b.lower()))
     if neg_a != neg_b:
@@ -211,39 +218,45 @@ def _pick(
     return SemanticMatch(entry, sim, "miss", prompt, shared_ratio)
 
 
+def _entry_from_payload(point_id: Any, payload: dict[str, Any]) -> SemanticEntry | None:
+    if not payload.get("answer") or not payload.get("prompt"):
+        return None
+    return SemanticEntry(
+        id=str(payload.get("entry_id") or point_id),
+        prompt=str(payload["prompt"]),
+        answer=str(payload["answer"]),
+        model=str(payload.get("model") or ""),
+        tier=str(payload.get("tier") or ""),
+        quality=float(payload.get("quality") or 0),
+        created_at=float(payload.get("created_at") or 0),
+    )
+
+
 async def find_similar(prompt: str, owner: str) -> SemanticMatch | None:
+    """Notebook retrieve: embed → query_points → read payload + score from results.points."""
     if not semantic_enabled() or not qdrant_configured() or not owner.strip():
         return None
     try:
         ensure_collection()
-        vector = await embed_query(prompt)
-        from qdrant_client.http import models as qm
-
-        q = _client_get()
-        hits = q.query_points(
+        query_embedding = await embed_query(prompt)
+        qdrant_client = _client_get()
+        results = qdrant_client.query_points(
             collection_name=collection_name(),
-            query=vector,
+            query=query_embedding,
             limit=8,
             with_payload=True,
-            query_filter=qm.Filter(
-                must=[qm.FieldCondition(key="owner", match=qm.MatchValue(value=owner))]
+            query_filter=Filter(
+                must=[FieldCondition(key="owner", match=MatchValue(value=owner))]
             ),
         )
+
         candidates: list[tuple[SemanticEntry, float]] = []
-        for hit in hits.points or []:
-            p = hit.payload or {}
-            if not p.get("answer") or not p.get("prompt"):
+        for result in results.points or []:
+            payload = result.payload or {}
+            entry = _entry_from_payload(result.id, payload)
+            if not entry:
                 continue
-            entry = SemanticEntry(
-                id=str(p.get("entry_id") or hit.id),
-                prompt=str(p["prompt"]),
-                answer=str(p["answer"]),
-                model=str(p.get("model") or ""),
-                tier=str(p.get("tier") or ""),
-                quality=float(p.get("quality") or 0),
-                created_at=float(p.get("created_at") or 0),
-            )
-            candidates.append((entry, float(hit.score or 0)))
+            candidates.append((entry, float(result.score or 0)))
         return _pick(prompt, candidates)
     except Exception as err:  # noqa: BLE001
         logger.warning("semantic find_similar failed: %s", err)
@@ -259,37 +272,38 @@ async def remember_semantic(
     quality: float,
     owner: str,
 ) -> None:
+    """Notebook upsert: PointStruct(id, vector, payload) → upsert(wait=True, points=[...])."""
     if not semantic_enabled() or not qdrant_configured():
         return
     if not prompt.strip() or not answer.strip() or not owner.strip():
         return
     try:
         ensure_collection()
-        vector = await embed_query(prompt)
+        embedding = await embed_query(prompt)
         entry_id = f"sem_{uuid.uuid4().hex[:12]}"
-        from qdrant_client.http import models as qm
+        point_id = str(uuid.uuid4())
 
-        q = _client_get()
-        q.upsert(
+        point = PointStruct(
+            id=point_id,
+            vector=embedding,
+            payload={
+                "prompt": prompt[:12_000],
+                "answer": answer[:24_000],
+                "model": model,
+                "tier": tier,
+                "quality": quality,
+                "owner": owner,
+                "created_at": time.time() * 1000,
+                "entry_id": entry_id,
+                "embed_model": get_settings().embedding_model or "nvidia/nemotron-3-embed-1b",
+            },
+        )
+
+        qdrant_client = _client_get()
+        qdrant_client.upsert(
             collection_name=collection_name(),
             wait=True,
-            points=[
-                qm.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector=vector,
-                    payload={
-                        "prompt": prompt[:12_000],
-                        "answer": answer[:24_000],
-                        "model": model,
-                        "tier": tier,
-                        "quality": quality,
-                        "owner": owner,
-                        "created_at": time.time() * 1000,
-                        "entry_id": entry_id,
-                        "embed_backend": "nvidia",
-                    },
-                )
-            ],
+            points=[point],
         )
     except Exception as err:  # noqa: BLE001
         logger.warning("semantic remember failed: %s", err)
@@ -300,14 +314,12 @@ async def delete_semantic_by_owner(owner: str) -> None:
         return
     try:
         ensure_collection()
-        from qdrant_client.http import models as qm
-
-        q = _client_get()
-        q.delete(
+        qdrant_client = _client_get()
+        qdrant_client.delete(
             collection_name=collection_name(),
-            points_selector=qm.FilterSelector(
-                filter=qm.Filter(
-                    must=[qm.FieldCondition(key="owner", match=qm.MatchValue(value=owner))]
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="owner", match=MatchValue(value=owner))]
                 )
             ),
         )
@@ -342,3 +354,32 @@ def build_hybrid_messages(
             return out
     out.insert(0, {"role": "system", "content": system_extra})
     return out
+
+
+# Sync helpers matching notebook cell names (useful for scripts / smoke tests).
+def retrieve_data(query: str, owner: str, k: int = 5) -> dict[str, Any]:
+    """Sync retrieve like 03-RAG-pipeline.retrieve_data."""
+    ensure_collection()
+    query_embedding = get_embedding(query)
+    results = _client_get().query_points(
+        collection_name=collection_name(),
+        query=query_embedding,
+        limit=k,
+        with_payload=True,
+        query_filter=Filter(
+            must=[FieldCondition(key="owner", match=MatchValue(value=owner))]
+        ),
+    )
+    prompts: list[str] = []
+    answers: list[str] = []
+    scores: list[float] = []
+    for result in results.points:
+        payload = result.payload or {}
+        prompts.append(str(payload.get("prompt") or ""))
+        answers.append(str(payload.get("answer") or ""))
+        scores.append(float(result.score or 0))
+    return {
+        "retrieved_prompts": prompts,
+        "retrieved_answers": answers,
+        "similarity_scores": scores,
+    }
