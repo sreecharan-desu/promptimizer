@@ -462,11 +462,11 @@ async function cmdConnect(flags, positional) {
     );
     if (!found) die(`Unknown provider "${provider}". Run promptimizer providers, or pass --base-url.`);
     if (!vendorKey && found.env && process.env[found.env]) vendorKey = process.env[found.env];
-    if (!vendorKey && found.id !== "ollama") {
+    if (!vendorKey) {
       die(`Missing API key for ${found.label}. Pass --key or set ${found.env}.`);
     }
     label = label || found.label;
-  } else if (!vendorKey && provider !== "ollama") {
+  } else if (!vendorKey) {
     die("Missing provider key. Pass --key.");
   }
 

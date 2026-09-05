@@ -66,7 +66,6 @@ function connectPayload(body: {
     });
   }
   let apiKey = body.api_key?.trim() ?? "";
-  if (!apiKey && provider?.id === "ollama") apiKey = "ollama";
   if (!apiKey) throw Object.assign(new Error("api_key is required."), { status: 400 });
   return {
     mode: "byok" as const,

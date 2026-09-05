@@ -83,8 +83,6 @@ async def connect(body: ConnectBody) -> dict[str, Any]:
             detail="Unknown provider. Pass base_url for a custom OpenAI-compatible /v1.",
         )
     api_key = (body.api_key or "").strip()
-    if not api_key and provider and provider["id"] == "ollama":
-        api_key = "ollama"
     if not api_key:
         raise HTTPException(status_code=400, detail="api_key is required.")
     try:

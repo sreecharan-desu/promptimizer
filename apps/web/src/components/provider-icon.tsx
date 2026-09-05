@@ -17,7 +17,6 @@ const PROVIDER_ICONS: Record<string, string> = {
   sambanova: "sambanova",
   hyperbolic: "hyperbolic",
   moonshot: "moonshot",
-  ollama: "ollama",
 };
 
 const LABEL_TO_ICON: Record<string, string> = {
@@ -40,7 +39,6 @@ const LABEL_TO_ICON: Record<string, string> = {
   sambanova: "sambanova",
   hyperbolic: "hyperbolic",
   moonshot: "moonshot",
-  ollama: "ollama",
   anthropic: "anthropic",
   claude: "claude",
   meta: "meta",

@@ -99,12 +99,6 @@ PROVIDERS: list[dict[str, str]] = [
         "base_url": "https://api.moonshot.ai/v1",
         "env": "MOONSHOT_API_KEY",
     },
-    {
-        "id": "ollama",
-        "label": "Ollama",
-        "base_url": "http://localhost:11434/v1",
-        "env": "OLLAMA_API_KEY",
-    },
 ]
 
 

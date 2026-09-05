@@ -23,7 +23,6 @@ export const PROVIDERS: ProviderPreset[] = [
   { id: "sambanova", label: "SambaNova", baseURL: "https://api.sambanova.ai/v1", env: "SAMBANOVA_API_KEY", hint: "samba key" },
   { id: "hyperbolic", label: "Hyperbolic", baseURL: "https://api.hyperbolic.xyz/v1", env: "HYPERBOLIC_API_KEY", hint: "hyperbolic key" },
   { id: "moonshot", label: "Moonshot", baseURL: "https://api.moonshot.ai/v1", env: "MOONSHOT_API_KEY", hint: "sk-..." },
-  { id: "ollama", label: "Ollama", baseURL: "http://localhost:11434/v1", env: "OLLAMA_API_KEY", hint: "optional" },
 ];
 
 export function findProvider(input: string) {
