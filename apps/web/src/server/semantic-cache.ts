@@ -431,9 +431,16 @@ export async function rememberSemantic(input: {
   let wroteQdrant = false;
   try {
     const { qdrantConfigured, upsertSemanticPoint } = await import("./qdrant-semantic");
-    if (qdrantConfigured() && input.owner) {
-      const { embedQuery, embeddingBackend } = await import("./embeddings");
+    if (!qdrantConfigured()) {
+      // Redis-only path (local/dev without Qdrant).
+    } else if (!input.owner) {
+      console.warn("[semantic-cache] skip qdrant upsert: missing owner");
+    } else {
+      const { embedQuery, embeddingBackend, embeddingDim } = await import("./embeddings");
       const vector = await embedQuery(input.prompt, embedText);
+      if (vector.length !== embeddingDim()) {
+        throw new Error(`embedding dim mismatch: got ${vector.length}, expected ${embeddingDim()}`);
+      }
       await upsertSemanticPoint({
         vector,
         payload: {
