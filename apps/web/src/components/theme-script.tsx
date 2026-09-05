@@ -3,14 +3,14 @@ export function ThemeScript() {
     (function () {
       try {
         var stored = localStorage.getItem("promptimizer-theme");
-        var theme = stored || "dark";
+        var theme = stored || "light";
         if (theme === "system") {
           theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
         }
         document.documentElement.classList.remove("dark", "light");
         document.documentElement.classList.add(theme);
       } catch (e) {
-        document.documentElement.classList.add("dark");
+        document.documentElement.classList.add("light");
       }
     })();
   `;

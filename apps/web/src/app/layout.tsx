@@ -117,7 +117,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`dark ${sans.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`light ${sans.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <ThemeScript />
         <JsonLd />

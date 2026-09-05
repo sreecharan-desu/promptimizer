@@ -30,16 +30,16 @@ type Theme = "dark" | "light" | "system";
 
 export function Footer() {
   const pathname = usePathname();
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const compact = pathname.startsWith("/docs");
 
   useEffect(() => {
-    const stored = (localStorage.getItem("promptimizer-theme") as Theme | null) ?? "dark";
+    const stored = (localStorage.getItem("promptimizer-theme") as Theme | null) ?? "light";
     setTheme(stored);
   }, []);
 
   function cycle() {
-    const next: Theme = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
+    const next: Theme = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
     setTheme(next);
     localStorage.setItem("promptimizer-theme", next);
     const applied =
@@ -53,7 +53,7 @@ export function Footer() {
   }
 
   const label =
-    theme === "light" ? "Switch to system theme" : theme === "system" ? "Switch to dark mode" : "Switch to light mode";
+    theme === "light" ? "Switch to dark mode" : theme === "dark" ? "Switch to system theme" : "Switch to light mode";
 
   return (
     <footer className="border-t border-primary/[0.06] px-4 py-16 sm:px-6">
