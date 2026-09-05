@@ -1,6 +1,6 @@
 {
   "name": "promptimizer",
-  "version": "0.1.53",
+  "version": "0.1.73",
   "description": "OpenAI-compatible SDK for Promptimizer — BYOK model routing, classification, and prompt caching.",
   "type": "module",
   "main": "./src/index.ts",

@@ -2,9 +2,10 @@
 /**
  * Publish SDK + CLI to npm.
  *
- * npm often exposes version metadata before the tarball is downloadable.
- * Never leave @latest on a non-installable version — retag to the last
- * good release while CDN/registry catches up, then move @latest forward.
+ * Goals:
+ * - Never leave @latest on a non-installable (ghost) version
+ * - Survive concurrent CI runs and "already published" 403s by bumping + retrying
+ * - Publish under a temporary tag first, then promote @latest once the tarball is fetchable
  */
 import { execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,6 +14,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const RELEASE_TAG = "release";
+const MAX_PUBLISH_ATTEMPTS = 8;
 
 function run(command, cwd = root) {
   execSync(command, { cwd, stdio: "inherit", encoding: "utf8" });
@@ -30,7 +33,7 @@ function writePkg(dir, pkg) {
   writeFileSync(join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
-function publishedVersion(name) {
+function publishedLatest(name) {
   return runCapture(`npm view ${name} version`);
 }
 
@@ -44,7 +47,7 @@ function tarballUrl(name, version) {
 
 function httpStatus(url) {
   try {
-    return execSync(`curl -sL -o /dev/null -w "%{http_code}" ${JSON.stringify(url)}`, {
+    return execSync(`curl -sL -o /dev/null -w "%{http_code}" --max-time 20 ${JSON.stringify(url)}`, {
       encoding: "utf8",
     }).trim();
   } catch {
@@ -81,7 +84,7 @@ function waitUntilInstallable(name, version, { attempts, label = "tarball" }) {
     console.log(
       `waiting for ${name}@${version} ${label} (attempt ${attempt}/${attempts}, http ${httpStatus(tarballUrl(name, version))})…`,
     );
-    sleep(Math.min(20, 2 + attempt));
+    sleep(Math.min(25, 3 + attempt * 2));
   }
   return false;
 }
@@ -95,14 +98,9 @@ function cmp(a, b) {
   const left = a.split(".").map(Number);
   const right = b.split(".").map(Number);
   for (let i = 0; i < 3; i += 1) {
-    if (left[i] !== right[i]) return left[i] - right[i];
+    if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) - (right[i] || 0);
   }
   return 0;
-}
-
-function nextVersion(local, remote) {
-  if (!remote) return local;
-  return cmp(local, remote) > 0 ? local : bumpPatch(remote);
 }
 
 function listVersions(name) {
@@ -116,6 +114,34 @@ function listVersions(name) {
   }
 }
 
+function highestPublishedVersion(name) {
+  const versions = listVersions(name);
+  if (!versions.length) return null;
+  return versions.reduce((best, cur) => (cmp(cur, best) > 0 ? cur : best));
+}
+
+/** Next free semver: max(local, highest published) + patch, skipping any reserved versions. */
+function allocateVersion(name, local) {
+  const highest = highestPublishedVersion(name);
+  let version = highest ? (cmp(local, highest) > 0 ? local : bumpPatch(highest)) : local;
+  // Skip any version that already has registry metadata (including ghosts).
+  for (let i = 0; i < 50 && versionExists(name, version); i += 1) {
+    console.warn(`${name}@${version} already on registry — bumping`);
+    version = bumpPatch(version);
+  }
+  return version;
+}
+
+function setDistTag(name, version, tag) {
+  console.log(`npm dist-tag add ${name}@${version} ${tag}`);
+  run(`npm dist-tag add ${name}@${version} ${tag}`);
+}
+
+function isPublishConflict(err) {
+  const msg = String(err?.message || err);
+  return /previously published|cannot publish over|EPUBLISHCONFLICT|E403/i.test(msg);
+}
+
 function lastInstallableVersion(name, exclude) {
   const versions = listVersions(name);
   for (let i = versions.length - 1; i >= 0; i -= 1) {
@@ -126,15 +152,11 @@ function lastInstallableVersion(name, exclude) {
   return null;
 }
 
-function setLatest(name, version) {
-  console.log(`npm dist-tag add ${name}@${version} latest`);
-  run(`npm dist-tag add ${name}@${version} latest`);
-}
-
 /** Make sure `npm i <name>` works. Retags @latest backward if needed. */
 function ensureLatestInstallable(name) {
-  const latest = publishedVersion(name);
+  const latest = publishedLatest(name);
   if (!latest) return null;
+
   if (installable(name, latest)) {
     // Prefer the newest installable version (skip ghost newer releases).
     const versions = listVersions(name);
@@ -143,83 +165,70 @@ function ensureLatestInstallable(name) {
       if (!tarballOk(name, v)) continue;
       if (v !== latest) {
         console.log(`Promoting ${name}@latest ${latest} → ${v} (newer installable)`);
-        setLatest(name, v);
+        setDistTag(name, v, "latest");
       }
       return v;
     }
     return latest;
   }
-  if (waitUntilInstallable(name, latest, { attempts: 4, label: "latest-quick" })) return latest;
+
+  if (waitUntilInstallable(name, latest, { attempts: 5, label: "latest-quick" })) return latest;
 
   const fallback = lastInstallableVersion(name, latest);
   if (!fallback) {
     throw new Error(`${name}@${latest} is @latest but not installable, and no fallback found`);
   }
   console.warn(`Protecting installs: ${name}@latest ${latest} not ready → ${fallback}`);
-  setLatest(name, fallback);
+  setDistTag(name, fallback, "latest");
   if (!installable(name, fallback)) {
     throw new Error(`Failed to point ${name}@latest at installable ${fallback}`);
   }
   return fallback;
 }
 
-/**
- * After publishing `version`, confirm installability quickly.
- * If the tarball is still missing, point @latest at the last good release and
- * continue (do not block CI for many minutes on CDN lag).
- */
 function finalizePublish(name, version) {
-  if (waitUntilInstallable(name, version, { attempts: 6, label: "post-publish" })) {
-    const latest = publishedVersion(name);
-    if (latest !== version) setLatest(name, version);
+  if (waitUntilInstallable(name, version, { attempts: 10, label: "post-publish" })) {
+    setDistTag(name, version, "latest");
     return true;
   }
 
-  // Protect users immediately; ghost @latest breaks `npm i`.
   const safe = ensureLatestInstallable(name);
   console.warn(
-    `${name}@${version} published but tarball not ready yet; @latest → ${safe}. ` +
-      `Re-run this workflow later to promote ${version} once the blob appears.`,
+    `${name}@${version} published (tag ${RELEASE_TAG}) but tarball not ready yet; @latest → ${safe}. ` +
+      `Re-run this workflow later to promote ${version}.`,
   );
   return true;
 }
 
-function publish(name, dir) {
-  // Repair any broken @latest before bumping again.
+function publishPackage(name, dir) {
   ensureLatestInstallable(name);
 
   const original = readFileSync(join(dir, "package.json"), "utf8");
   const pkg = JSON.parse(original);
-  const remote = publishedVersion(name);
-  let version = nextVersion(pkg.version, remote);
-
-  if (versionExists(name, version) && installable(name, version)) {
-    console.log(`${name}@${version} already installable — skip publish`);
-    const latest = publishedVersion(name);
-    if (latest !== version && installable(name, version)) {
-      // Optional: promote if we're behind a ghost newer latest that was retagged away.
-      console.log(`${name}@${version} available; current latest is ${latest}`);
-    }
-    writeFileSync(join(dir, "package.json"), original);
-    return { name, version, skipped: true, ok: true };
-  }
-
-  // Metadata without blob — cannot overwrite; bump.
-  if (versionExists(name, version) && !tarballOk(name, version)) {
-    console.warn(`${name}@${version} metadata exists without tarball — bumping`);
-    version = bumpPatch(version);
-  }
+  let version = allocateVersion(name, pkg.version);
 
   const publishConfig = pkg.publishConfig ?? {};
   const { access: _access, ...publishedFields } = publishConfig;
-  const outgoing = { ...pkg, ...publishedFields, version };
-  writePkg(dir, outgoing);
-  console.log(`${name} ${version}`);
 
   try {
-    run("npm publish --access public", dir);
-    finalizePublish(name, version);
-    return { name, version, skipped: false, ok: true };
+    for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
+      const outgoing = { ...pkg, ...publishedFields, version };
+      writePkg(dir, outgoing);
+      console.log(`${name} ${version} (attempt ${attempt}/${MAX_PUBLISH_ATTEMPTS})`);
+
+      try {
+        // Temporary tag keeps a broken CDN blob off @latest.
+        run(`npm publish --access public --tag ${RELEASE_TAG}`, dir);
+        finalizePublish(name, version);
+        return { name, version, skipped: false, ok: true };
+      } catch (err) {
+        if (!isPublishConflict(err) || attempt === MAX_PUBLISH_ATTEMPTS) throw err;
+        console.warn(`${name}@${version} publish conflict — bumping and retrying`);
+        version = bumpPatch(version);
+        while (versionExists(name, version)) version = bumpPatch(version);
+      }
+    }
+    throw new Error(`${name}: exhausted publish retries`);
   } finally {
     writeFileSync(join(dir, "package.json"), original);
   }
@@ -235,7 +244,7 @@ const packages = [
 
 for (const [name, dir] of packages) {
   try {
-    results.push(publish(name, dir));
+    results.push(publishPackage(name, dir));
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     try {

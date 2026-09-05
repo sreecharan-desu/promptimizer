@@ -3,7 +3,16 @@ name: publish
 on:
   push:
     branches: [main]
+    paths:
+      - "packages/sdk/**"
+      - "packages/cli/**"
+      - "scripts/publish-npm.mjs"
+      - ".github/workflows/publish.yml"
   workflow_dispatch:
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   npm:
