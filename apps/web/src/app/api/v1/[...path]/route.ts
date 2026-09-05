@@ -26,6 +26,7 @@ import {
   routeChatStream,
   runBenchmark,
   sessionForUser,
+  userIdFromSessionId,
 } from "@/server/engine";
 import { BENCHMARK } from "@/server/data";
 import { clientIp, rateLimit } from "@/server/rate-limit";
@@ -153,23 +154,29 @@ async function handle(request: NextRequest, path: string[]) {
       if (limited) return limited;
       const body = await request.json();
       const user = await accountFromRequest(request);
+      // Account sessions stay account-scoped even when the auth cookie expired —
+      // otherwise a reconnect would fork into an anonymous session and later
+      // rebuilds would resurrect the account's old fleet.
+      const headerSessionId = request.headers.get("x-promptimizer-session");
+      const ownerId =
+        user?.id ?? (headerSessionId ? userIdFromSessionId(headerSessionId) : null);
       const allowAnon = (process.env.ALLOW_ANON_CONNECT ?? "").trim() === "1";
-      if (!user && !allowAnon) {
+      if (!ownerId && !allowAnon) {
         return NextResponse.json(
           { detail: "Sign in or pass a Promptimizer API key to connect a provider." },
           { status: 401 },
         );
       }
-      const sid = user ? accountSessionId(user.id) : undefined;
+      const sid = ownerId ? accountSessionId(ownerId) : undefined;
       const payload = connectPayload(body);
       const published = await createByokSession(payload, sid);
-      if (user) {
-        const session = await getSession(accountSessionId(user.id));
+      if (ownerId) {
+        const session = await getSession(accountSessionId(ownerId));
         if (session && session.mode === "byok") {
-          await persistMultiProviderSession(user.id, session);
+          await persistMultiProviderSession(ownerId, session);
         }
         // Refresh models / reconnect — drop stale completion cache for this account.
-        await invalidateOwnerCaches(user.id);
+        await invalidateOwnerCaches(ownerId);
       }
       return NextResponse.json(published);
     }
@@ -184,14 +191,19 @@ async function handle(request: NextRequest, path: string[]) {
       if (!actor.session) {
         return NextResponse.json({ detail: "Sign in or pass a Promptimizer API key." }, { status: 401 });
       }
-      const { session: published, removed } = disconnectProvider(actor.session, needle);
-      const owner = actor.user?.id ?? actor.session.id;
+      const { session: published, removed } = await disconnectProvider(actor.session, needle);
+      // Owner must be the account user id (usr_…) even when the auth cookie
+      // expired: caches are keyed by user id, and the DB row for the removed
+      // host must be deleted or a later rebuild resurrects it with stale slugs.
+      const ownerId =
+        actor.user?.id ?? userIdFromSessionId(actor.session.id) ?? null;
+      const owner = ownerId ?? actor.session.id;
       await invalidateOwnerCaches(owner);
-      if (actor.user) {
-        await deleteProviderConnection(actor.user.id, removed.base_url);
-        const live = await getSession(accountSessionId(actor.user.id));
-        if (live && live.mode === "byok" && live.connections.length) {
-          await persistMultiProviderSession(actor.user.id, live);
+      if (ownerId) {
+        await deleteProviderConnection(ownerId, removed.base_url);
+        const live = await getSession(accountSessionId(ownerId));
+        if (live && live.mode === "byok") {
+          await persistMultiProviderSession(ownerId, live);
         }
       }
       return NextResponse.json({ ...published, removed: { id: removed.id, label: removed.label } });
@@ -219,7 +231,7 @@ async function handle(request: NextRequest, path: string[]) {
 
     if (joined === "session" && request.method === "GET") return NextResponse.json(publicSession(session));
     if (joined === "session" && request.method === "DELETE") {
-      const owner = actor.user?.id ?? session.id;
+      const owner = actor.user?.id ?? userIdFromSessionId(session.id) ?? session.id;
       await destroySession(session.id, owner);
       return NextResponse.json({ ok: true, cleared_cache: true });
     }
@@ -228,7 +240,8 @@ async function handle(request: NextRequest, path: string[]) {
     }
     if (joined === "models" && request.method === "PATCH") {
       const next = patchFleet(session, await request.json());
-      if (actor.user && session.mode === "byok") await persistMultiProviderSession(actor.user.id, session);
+      const patchOwnerId = actor.user?.id ?? userIdFromSessionId(session.id);
+      if (patchOwnerId && session.mode === "byok") await persistMultiProviderSession(patchOwnerId, session);
       return NextResponse.json(next);
     }
     if (joined === "savings" && request.method === "GET") {
@@ -242,7 +255,9 @@ async function handle(request: NextRequest, path: string[]) {
       if (limited) return limited;
       const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
       const body = await request.json();
-      const cacheOwner = actor.user?.id ?? session.id;
+      // Cache keys must be stable per account regardless of cookie state —
+      // otherwise disconnect's invalidation misses the real (user-id-scoped) caches.
+      const cacheOwner = actor.user?.id ?? userIdFromSessionId(session.id) ?? session.id;
       if (body.stream) {
         const record = async (result: Awaited<ReturnType<typeof routeChat>>) => {
           if (!actor.user) return;
