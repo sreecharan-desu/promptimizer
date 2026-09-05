@@ -145,8 +145,20 @@ function complexityOf(h: Record<string, unknown>, category: string): number {
   if (category === "analysis" && (h.multi_part || h.long_form)) score = Math.max(score, 3);
   if (h.multi_part && (h.design || h.safety || h.analysis)) score = Math.max(score, 4);
 
-  // Keep trivial Q&A cheap.
+  // Keep trivial Q&A / chitchat cheap.
   if (category === "factual_recall" && (h.words as number) < 28 && !h.design && !h.reason && !h.debug) {
+    score = Math.min(score, 2);
+  }
+  if (
+    (h.words as number) <= 8 &&
+    !h.design &&
+    !h.reason &&
+    !h.debug &&
+    !h.code_fence &&
+    !h.code_kw &&
+    !h.safety &&
+    !h.multi_part
+  ) {
     score = Math.min(score, 2);
   }
   if (category === "math" && (h.words as number) < 24 && !h.reason) {

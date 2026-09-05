@@ -9,6 +9,14 @@ test("easy factual stays economy", () => {
   assert.ok(result.complexity <= 2);
 });
 
+test("short greetings stay economy", () => {
+  for (const prompt of ["hi", "hi there", "hi how are you", "thanks"]) {
+    const result = classifyText(prompt);
+    assert.ok(result.complexity <= 2, `${prompt} → L${result.complexity}`);
+    assert.equal(result.recommended_tier, "economy", prompt);
+  }
+});
+
 test("easy math stays cheap", () => {
   const result = classifyText("What is 17 * 24? Reply with only the number.");
   assert.ok(result.complexity <= 2);

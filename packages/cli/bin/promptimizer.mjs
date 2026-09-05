@@ -360,6 +360,7 @@ function writeConfig(next) {
 
 function usd(value) {
   const n = Number(value) || 0;
+  if (Math.abs(n) < 1e-5) return "$0.0000";
   return Math.abs(n) >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
 }
 

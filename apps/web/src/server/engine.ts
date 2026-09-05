@@ -925,7 +925,11 @@ export async function routeChat(
   }));
   const prompt = textMessages.map((m) => m.content).join("\n");
   const started = Date.now();
-  const classification = classifyText(prompt);
+  // Route on the latest user turn — full thread history must not inflate complexity
+  // (REPL "hi how are you" after prior replies was being mis-scored as L4 analysis).
+  const userPrompt =
+    [...textMessages].reverse().find((m) => m.role === "user")?.content ?? prompt;
+  const classification = classifyText(userPrompt);
   if (body.level_override) {
     classification.complexity = body.level_override;
     classification.recommended_tier = difficultyTier(body.level_override);
@@ -949,7 +953,7 @@ export async function routeChat(
       models: selectedModels,
       requirements,
       qualityProfiles: profileMap,
-      expectedInputTokens: Math.max(64, Math.round(prompt.length / 4)),
+      expectedInputTokens: Math.max(64, Math.round(userPrompt.length / 4)),
       expectedOutputTokens: Math.max(128, requirements.minimum_output_tokens || 256),
     });
     if (decision) {
@@ -974,9 +978,6 @@ export async function routeChat(
   const prefixKey = system.slice(0, 800);
   const prefixHit =
     prefixKey.length >= 40 ? await cacheRemember(userCacheKey(owner, "prefix", prefixKey)) : false;
-
-  const userPrompt =
-    [...textMessages].reverse().find((m) => m.role === "user")?.content ?? prompt;
 
   // Safety lane: medical/legal/compliance topics need at least standard tier.
   if (
@@ -1052,14 +1053,15 @@ export async function routeChat(
           },
         };
       } else if (semantic?.mode === "hybrid") {
-        const novelComplexity = Math.min(
-          5,
-          Math.max(
-            classification.complexity,
-            semantic.novel.length > 280 ? classification.complexity + 1 : classification.complexity,
-          ),
-        );
-        if (novelComplexity >= 4 || semantic.shared_ratio < 0.35) {
+        // Score the novel fragment alone — do not inherit inflated thread complexity.
+        const novelClass = classifyText(semantic.novel || userPrompt);
+        const novelComplexity = novelClass.complexity;
+        const casual =
+          (userPrompt.trim().split(/\s+/).length <= 8 && novelComplexity <= 2) ||
+          /^(hi|hey|hello|yo|sup|thanks|thank you|how are you|what's up|whats up)\b/i.test(
+            userPrompt.trim(),
+          );
+        if (!casual && (novelComplexity >= 4 || semantic.shared_ratio < 0.35)) {
           const stronger =
             cheapest(session.models, "frontier") ??
             cheapest(session.models, "standard") ??
@@ -1067,9 +1069,15 @@ export async function routeChat(
           if (TIER_ORDER.indexOf(stronger.tier) > TIER_ORDER.indexOf(routed.tier)) {
             routed = stronger;
           }
-        } else if (semantic.shared_ratio > 0.7 && novelComplexity <= 2) {
-          const cheaper = cheapest(session.models, "economy") ?? routed;
-          routed = cheaper;
+        } else if (casual || (semantic.shared_ratio > 0.55 && novelComplexity <= 2)) {
+          const cheaper =
+            cheapest(session.models, "economy") ??
+            cheapest(session.models, "standard") ??
+            routed;
+          // Prefer staying at or below current tier for chitchat / high overlap.
+          if (TIER_ORDER.indexOf(cheaper.tier) <= TIER_ORDER.indexOf(routed.tier)) {
+            routed = cheaper;
+          }
         }
 
         const hybridMessages = buildHybridMessages(textMessages, semantic);
@@ -1241,22 +1249,38 @@ export async function routeChat(
   let cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0, {
     fullReplay,
   });
+  // Routing to the baseline itself cannot "save" vs baseline (float dust → tiny negatives).
+  if (!fullReplay && routed.id === baseline.id) {
+    cost = {
+      ...cost,
+      actual_usd: cost.actual_usd,
+      saved_usd: 0,
+      saved_pct: 0,
+      routing_saved_usd: 0,
+    };
+  }
   let wastedUsd = 0;
   if (escalated && !fullReplay) {
     wastedUsd = firstAttemptCost.actual_usd;
+    const totalActual = cost.actual_usd + wastedUsd + gateSampleCostUsd;
     cost = {
       ...cost,
-      actual_usd: cost.actual_usd + wastedUsd + gateSampleCostUsd,
-      saved_usd: cost.baseline_usd - (cost.actual_usd + wastedUsd + gateSampleCostUsd),
+      actual_usd: totalActual,
+      saved_usd: cost.baseline_usd - totalActual,
       wasted_usd: wastedUsd + gateSampleCostUsd,
     };
   } else {
+    const totalActual = cost.actual_usd + gateSampleCostUsd;
     cost = {
       ...cost,
-      actual_usd: cost.actual_usd + gateSampleCostUsd,
-      saved_usd: cost.baseline_usd - (cost.actual_usd + gateSampleCostUsd),
+      actual_usd: totalActual,
+      saved_usd: cost.baseline_usd - totalActual,
       wasted_usd: gateSampleCostUsd,
     };
+  }
+  // Hide micro-cent float noise in the ledger.
+  if (Math.abs(cost.saved_usd) < 1e-5) {
+    cost = { ...cost, saved_usd: 0, saved_pct: 0 };
   }
 
   // Persist completion cache only after a passing gate (never poison with fails).
