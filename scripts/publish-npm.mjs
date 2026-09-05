@@ -151,31 +151,23 @@ function ensureLatestInstallable(name) {
 }
 
 /**
- * After publishing `version`, either confirm it's installable as @latest,
- * or keep @latest on a previous good release until the blob shows up.
+ * After publishing `version`, confirm installability quickly.
+ * If the tarball is still missing, point @latest at the last good release and
+ * continue (do not block CI for many minutes on CDN lag).
  */
 function finalizePublish(name, version) {
-  // Short wait — often enough once CDN is warm.
-  if (waitUntilInstallable(name, version, { attempts: 8, label: "post-publish" })) {
-    // Ensure dist-tag latest points here (npm usually does this already).
+  if (waitUntilInstallable(name, version, { attempts: 6, label: "post-publish" })) {
     const latest = publishedVersion(name);
     if (latest !== version) setLatest(name, version);
     return true;
   }
 
-  // Don't strand users on a ghost @latest.
-  ensureLatestInstallable(name);
-
-  // Keep waiting; if it appears, move @latest forward.
-  if (waitUntilInstallable(name, version, { attempts: 18, label: "cdn-lag" })) {
-    setLatest(name, version);
-    return true;
-  }
-
+  // Protect users immediately; ghost @latest breaks `npm i`.
+  const safe = ensureLatestInstallable(name);
   console.warn(
-    `${name}@${version} is on the registry but still not downloadable; @latest left on an installable version. Re-run publish later to promote it.`,
+    `${name}@${version} published but tarball not ready yet; @latest → ${safe}. ` +
+      `Re-run this workflow later to promote ${version} once the blob appears.`,
   );
-  // Treat as soft success: package is published; installs still work.
   return true;
 }
 
