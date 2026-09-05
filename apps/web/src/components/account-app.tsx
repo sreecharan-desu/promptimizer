@@ -53,49 +53,58 @@ export function AccountApp({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <div className="flex items-center gap-3">
-        <UserAvatar name={user.name} email={user.email} src={user.avatarUrl} size={40} />
-        <div>
-          <h1 className="font-display text-2xl font-medium tracking-tight text-primary">{user.name || "Account"}</h1>
-          <p className="text-sm text-secondary">{user.email}</p>
+    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+      <section className="metric-surface relative overflow-hidden rounded-[1.35rem] p-6 sm:p-8">
+        <div className="pointer-events-none absolute -right-16 -top-20 size-64 rounded-full bg-accent/[0.08] blur-3xl" aria-hidden="true" />
+        <div className="relative flex items-center gap-3">
+          <UserAvatar name={user.name} email={user.email} src={user.avatarUrl} size={44} />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-accent">Workspace account</p>
+            <h1 className="mt-1 font-display text-3xl font-semibold tracking-[-0.04em] text-primary">{user.name || "Account"}</h1>
+            <p className="mt-1 text-sm text-secondary">{user.email}</p>
+          </div>
         </div>
+      </section>
+
+      <div className="mt-10 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-accent">Access</p>
+          <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.035em] text-primary">API keys</h2>
+        </div>
+        <p className="text-sm text-secondary">
+        Send as <span className="font-mono text-primary">Authorization: Bearer pmz_live_…</span>
+        </p>
       </div>
 
-      <h2 className="mt-12 text-sm font-medium text-primary">API keys</h2>
-      <p className="mt-1 text-sm text-secondary">
-        Send as <span className="font-mono text-primary">Authorization: Bearer pmz_live_…</span>
-      </p>
-
-      <form onSubmit={createKey} className="mt-6 flex flex-wrap items-end gap-3">
+      <form onSubmit={createKey} className="metric-surface mt-5 flex flex-wrap items-end gap-3 rounded-2xl p-4 sm:p-5">
         <label className="min-w-48 flex-1">
-          <span className="text-sm text-secondary">Name</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.11em] text-secondary">Key name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="mt-1 h-11 w-full rounded-xl border border-primary/10 bg-card px-3 text-sm text-primary outline-none"
+            className="auth-field mt-2 h-11 w-full rounded-xl border px-3 text-sm text-primary outline-none"
           />
         </label>
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-60"
+          className="inline-flex h-11 items-center rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-[0_10px_22px_-14px_hsl(var(--accent)/0.9)] transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
           Create key
         </button>
       </form>
 
       {created ? (
-        <div className="mt-6 rounded-xl border border-accent/25 bg-accent/[0.06] px-4 py-3">
+        <div className="mt-6 rounded-xl border border-accent/25 bg-accent/[0.07] px-4 py-3">
           <p className="text-xs text-secondary">Copy now. This value is shown once.</p>
           <p className="mt-2 break-all font-mono text-sm text-primary">{created}</p>
         </div>
       ) : null}
       {error ? <p className="mt-4 text-sm text-error">{error}</p> : null}
 
-      <div className="mt-8 overflow-hidden rounded-xl border border-primary/[0.06]">
+      <div className="metric-surface mt-8 overflow-hidden rounded-2xl">
         <table className="w-full text-left text-sm">
-          <thead className="bg-card text-secondary">
+          <thead className="bg-primary/[0.035] text-secondary">
             <tr>
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Key</th>
@@ -130,7 +139,8 @@ export function AccountApp({
         </table>
       </div>
 
-      <h2 className="mt-12 text-sm font-medium text-primary">Use a key</h2>
+      <p className="mt-12 text-[11px] font-semibold uppercase tracking-[0.13em] text-accent">Integration</p>
+      <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.035em] text-primary">Use a key</h2>
       <p className="mt-1 mb-6 text-sm text-secondary">SDK, CLI, or curl against the hosted API.</p>
       <CodePanel />
     </div>

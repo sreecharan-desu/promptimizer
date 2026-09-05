@@ -147,9 +147,9 @@ export function MetricCard({
   children?: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{label}</p>
-      <p className="mt-2 font-display text-3xl font-medium tracking-tight text-primary tabular">{value}</p>
+    <div className="metric-surface rounded-2xl p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-secondary">{label}</p>
+      <p className="mt-2 font-display text-3xl font-semibold tracking-[-0.04em] text-primary tabular">{value}</p>
       {hint ? <p className="mt-1 text-sm text-secondary">{hint}</p> : null}
       {children ? <div className="mt-4">{children}</div> : null}
     </div>

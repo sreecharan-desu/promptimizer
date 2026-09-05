@@ -32,11 +32,12 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
   const auditPasses = savings.quality_audit_passes ?? 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-medium tracking-tight text-primary">Savings</h1>
-          <p className="mt-2 max-w-xl text-secondary">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Usage intelligence</p>
+          <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.045em] text-primary">Savings</h1>
+          <p className="mt-3 max-w-xl leading-7 text-secondary">
             Estimated provider spend versus always-frontier
             {user.name || user.email ? ` · ${user.name || user.email}` : ""}. Exact, prefix, and similarity cache —
             plus a live quality gate. No routing fee — savings come from cheaper models and cache.
@@ -104,7 +105,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5 lg:col-span-2">
+        <div className="metric-surface rounded-2xl p-5 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Split</p>
@@ -135,7 +136,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
           </div>
         </div>
 
-        <div className="rounded-2xl border border-primary/[0.06] bg-card p-5">
+        <div className="metric-surface rounded-2xl p-5">
           <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Cache & gate</p>
           <p className="mt-1 font-display text-xl font-medium text-primary">Hits · similarity · audits</p>
           <div className="mt-5 flex items-center gap-4">
