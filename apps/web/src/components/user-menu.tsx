@@ -29,7 +29,7 @@ export function UserMenu({ user, onLogout }: { user: User; onLogout: () => void 
         aria-haspopup="menu"
       >
         <UserAvatar name={user.name} email={user.email} src={user.avatarUrl} />
-        <span className="hidden max-w-[10rem] truncate text-sm font-medium text-primary sm:inline">{label}</span>
+        <span className="hidden max-w-[10rem] truncate text-sm font-bold text-slate-900 dark:text-white sm:inline">{label}</span>
       </button>
       {open ? (
         <div
