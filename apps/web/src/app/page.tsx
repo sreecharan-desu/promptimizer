@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { CodePanel } from "@/components/code-panel";
 import { HomeFeatures } from "@/components/home-features";
+import { ProviderIcon } from "@/components/provider-icon";
 import { UnizHero } from "@/components/uniz-hero";
 import { DOCS_HOME, DOCS_URL } from "@/lib/site";
 
 const PROVIDERS = [
-  { name: "OpenAI", logo: "https://cdn.simpleicons.org/openai/64748B" },
-  { name: "Anthropic", logo: "https://cdn.simpleicons.org/anthropic/64748B" },
-  { name: "Google", logo: "https://cdn.simpleicons.org/google/64748B" },
-  { name: "Groq", logo: "https://cdn.simpleicons.org/groq/64748B" },
-  { name: "Mistral AI", logo: "https://cdn.simpleicons.org/mistralai/64748B" },
-  { name: "OpenRouter", logo: "https://cdn.simpleicons.org/openrouter/64748B" },
+  { name: "OpenAI", id: "openai" },
+  { name: "Anthropic", id: "anthropic" },
+  { name: "Google Gemini", id: "google" },
+  { name: "Groq", id: "groq" },
+  { name: "Mistral AI", id: "mistral" },
+  { name: "OpenRouter", id: "openrouter" },
+  { name: "DeepSeek", id: "deepseek" },
 ];
 
 export default function HomePage() {
@@ -18,15 +20,20 @@ export default function HomePage() {
     <>
       <UnizHero />
 
-      <div className="relative mx-auto max-w-6xl border-t border-primary/[0.08] px-4 py-8 sm:px-6">
-        <p className="mb-4 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary/75">
+      <div className="relative mx-auto max-w-6xl border-t border-slate-200/80 dark:border-slate-800/80 px-4 py-10 sm:px-6">
+        <p className="mb-6 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
           Supports the providers you already use
         </p>
-        <div className="provider-logos" role="list" aria-label="Supported AI providers">
+        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4" role="list" aria-label="Supported AI providers">
           {PROVIDERS.map((provider) => (
-            <div key={provider.name} className="provider-logo" role="listitem" tabIndex={0} title={provider.name}>
-              <img src={provider.logo} alt={provider.name} width={28} height={28} />
-              <span className="provider-logo-label">{provider.name}</span>
+            <div
+              key={provider.name}
+              className="inline-flex items-center gap-2.5 rounded-full border border-slate-200/90 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-2xs backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:text-slate-900 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:text-white"
+              role="listitem"
+              title={provider.name}
+            >
+              <ProviderIcon id={provider.id} className="size-4" />
+              <span>{provider.name}</span>
             </div>
           ))}
         </div>
