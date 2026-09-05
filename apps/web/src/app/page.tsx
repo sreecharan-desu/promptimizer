@@ -4,7 +4,14 @@ import { HomeFeatures } from "@/components/home-features";
 import { UnizHero } from "@/components/uniz-hero";
 import { DOCS_HOME, DOCS_URL } from "@/lib/site";
 
-const PROVIDERS = ["OpenAI", "Anthropic", "Google", "Groq", "Mistral", "OpenRouter"];
+const PROVIDERS = [
+  { name: "OpenAI", logo: "https://cdn.simpleicons.org/openai/64748B" },
+  { name: "Anthropic", logo: "https://cdn.simpleicons.org/anthropic/64748B" },
+  { name: "Google", logo: "https://cdn.simpleicons.org/google/64748B" },
+  { name: "Groq", logo: "https://cdn.simpleicons.org/groq/64748B" },
+  { name: "Mistral AI", logo: "https://cdn.simpleicons.org/mistralai/64748B" },
+  { name: "OpenRouter", logo: "https://cdn.simpleicons.org/openrouter/64748B" },
+];
 
 export default function HomePage() {
   return (
@@ -15,11 +22,12 @@ export default function HomePage() {
         <p className="mb-4 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary/75">
           Supports the providers you already use
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs font-semibold text-primary/50 sm:gap-x-12">
+        <div className="provider-logos" role="list" aria-label="Supported AI providers">
           {PROVIDERS.map((provider) => (
-            <span key={provider} className="transition-colors hover:text-primary">
-              {provider}
-            </span>
+            <div key={provider.name} className="provider-logo" role="listitem" tabIndex={0} title={provider.name}>
+              <img src={provider.logo} alt={provider.name} width={28} height={28} />
+              <span className="provider-logo-label">{provider.name}</span>
+            </div>
           ))}
         </div>
       </div>
