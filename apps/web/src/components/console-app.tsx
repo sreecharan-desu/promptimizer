@@ -166,9 +166,19 @@ export function ConsoleApp() {
     if (!prompt.trim()) return;
     setBusy(true);
     setError(null);
+    setCompletion({
+      choices: [{ message: { role: "assistant", content: "" } }],
+    });
     try {
-      const result = await api.chat([{ role: "user", content: prompt }]);
-      setCompletion(result as Record<string, unknown>);
+      const result = await api.chatStream([{ role: "user", content: prompt }], "auto", {
+        onDelta: (fullText) => {
+          setCompletion((prev) => ({
+            ...(prev ?? {}),
+            choices: [{ message: { role: "assistant", content: fullText } }],
+          }));
+        },
+      });
+      setCompletion(result);
       setSession(await api.session());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
@@ -1067,10 +1077,25 @@ function PlayPane({
               {busy ? "Routing…" : "Send"}
             </button>
           </div>
-          {answer ? (
+          {answer || busy ? (
             <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
-              <MarkdownContent className="mt-3">{answer}</MarkdownContent>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
+                {busy ? <Pill tone="warn">Streaming</Pill> : null}
+              </div>
+              {answer ? (
+                <div className="mt-3">
+                  <MarkdownContent>{answer}</MarkdownContent>
+                  {busy ? (
+                    <span
+                      className="mt-1 inline-block h-3.5 w-[2px] animate-pulse bg-accent align-middle"
+                      aria-hidden
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-secondary">Waiting for first tokens…</p>
+              )}
             </div>
           ) : null}
         </div>

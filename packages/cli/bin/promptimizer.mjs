@@ -153,6 +153,74 @@ function printAnswer(text) {
   process.stdout.write(`${rendered}\n`);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Split so ANSI escapes stay intact while typewriting. */
+function ansiChunks(text) {
+  const parts = [];
+  const re = /\x1b\[[0-9;]*m|[^\x1b]+/g;
+  let match;
+  while ((match = re.exec(String(text)))) parts.push(match[0]);
+  return parts;
+}
+
+/**
+ * Stream clean markdown to the terminal. Cache hits use a very high CPS so
+ * the replay feels snappy instead of dumping raw markdown source.
+ */
+async function streamAnswer(text, opts = {}) {
+  if (!text) {
+    out(color(ANSI.dim, "(empty)"));
+    return;
+  }
+  if (!ANSI_OK) {
+    process.stdout.write(`${text}\n`);
+    return;
+  }
+  const rendered = renderMarkdown(text);
+  const cacheHit = Boolean(opts.cacheHit);
+  // ~chars per second for the visible body (escapes are free)
+  const cps = cacheHit ? 14_000 : opts.fast ? 9_000 : 5_500;
+  const chunkSize = Math.max(8, Math.floor(cps / 80));
+  let pending = "";
+  let visible = 0;
+
+  for (const part of ansiChunks(rendered)) {
+    if (part.startsWith("\x1b")) {
+      process.stdout.write(part);
+      continue;
+    }
+    for (let i = 0; i < part.length; ) {
+      const slice = part.slice(i, i + chunkSize);
+      pending += slice;
+      visible += slice.length;
+      i += slice.length;
+      if (pending.length >= chunkSize || slice.includes("\n")) {
+        process.stdout.write(pending);
+        pending = "";
+        await sleep(Math.max(4, Math.round((1000 * chunkSize) / cps)));
+      }
+    }
+  }
+  if (pending) process.stdout.write(pending);
+  process.stdout.write("\n");
+  // silence unused when tiny answers finish in one tick
+  void visible;
+}
+
+function isCacheHit(meta) {
+  if (!meta || typeof meta !== "object") return false;
+  return Boolean(
+    meta.exact_cache_hit ||
+      meta.prompt_cache_hit ||
+      meta.semantic_cache_hit ||
+      meta.prefix_cache_hit ||
+      meta.cache_hit,
+  );
+}
+
 const COMMANDS = [
   ["", "Start interactive session (Gemini-style REPL)"],
   ["login", "Save a Promptimizer API key"],
@@ -462,7 +530,7 @@ async function complete(flags, config, messages) {
   });
 }
 
-/** Stream a completion; buffers tokens then returns { text, result }. */
+/** Stream a completion; buffers tokens (no raw dump), returns { text, result }. */
 async function completeStream(flags, config, messages) {
   const gatewayURL = gateway(flags, config);
   const { apiKey, sessionId } = authFromConfig(flags, config);
@@ -500,6 +568,7 @@ async function completeStream(flags, config, messages) {
   };
   let spinTimer = null;
   let spinFrame = 0;
+  const started = Date.now();
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   if (ANSI_OK) {
     spinTimer = setInterval(() => {
@@ -542,7 +611,7 @@ async function completeStream(flags, config, messages) {
   }
 
   result.choices = [{ message: { role: "assistant", content: text } }];
-  return { text, result };
+  return { text, result, elapsedMs: Date.now() - started };
 }
 
 async function cmdLogin(flags) {
@@ -684,8 +753,14 @@ async function cmdChat(flags, positional) {
   if (!prompt) die('Usage: promptimizer chat "What is 17 * 24?"');
   out();
   out(color(ANSI.magenta, "✦"));
-  const { text, result } = await completeStream(flags, config, [{ role: "user", content: prompt }]);
-  printAnswer(text);
+  const { text, result, elapsedMs } = await completeStream(flags, config, [
+    { role: "user", content: prompt },
+  ]);
+  const meta = result.promptimizer ?? {};
+  await streamAnswer(text, {
+    cacheHit: isCacheHit(meta),
+    fast: (elapsedMs ?? 0) < 500,
+  });
   out();
   printMeta(result);
   out();
@@ -893,8 +968,12 @@ async function interactive(flags) {
       out();
       out(color(ANSI.magenta, "✦"));
       try {
-        const { text, result } = await completeStream(flags, readConfig(), history);
-        printAnswer(text);
+        const { text, result, elapsedMs } = await completeStream(flags, readConfig(), history);
+        const meta = result.promptimizer ?? {};
+        await streamAnswer(text, {
+          cacheHit: isCacheHit(meta),
+          fast: (elapsedMs ?? 0) < 500,
+        });
         history.push({ role: "assistant", content: text });
         out();
         printMeta(result);

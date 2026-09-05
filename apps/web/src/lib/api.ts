@@ -164,6 +164,92 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ messages, model }),
     }),
+  /** OpenAI-compatible SSE stream. Calls onDelta as tokens arrive; resolves with the final completion. */
+  chatStream: async (
+    messages: Array<{ role: string; content: string }>,
+    model = "auto",
+    handlers?: { onDelta?: (fullText: string, chunk: string) => void },
+  ): Promise<Record<string, unknown>> => {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    const session = readSessionId();
+    if (session) headers.set("X-Promptimizer-Session", session);
+    const response = await fetch("/api/v1/chat/completions", {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ messages, model, stream: true }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const detail = (data as { detail?: string }).detail ?? response.statusText;
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    if (!response.body) {
+      throw new Error("No response body from stream");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let modelId: string | undefined;
+    let usage: unknown;
+    let promptimizer: unknown;
+    let id = `chatcmpl-${Date.now()}`;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let parsed: {
+          id?: string;
+          model?: string;
+          error?: { message?: string };
+          choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+          usage?: unknown;
+          promptimizer?: unknown;
+        };
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (parsed.error?.message) throw new Error(parsed.error.message);
+        if (parsed.id) id = parsed.id;
+        if (parsed.model) modelId = parsed.model;
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) {
+          text += delta;
+          handlers?.onDelta?.(text, delta);
+        }
+        if (parsed.usage) usage = parsed.usage;
+        if (parsed.promptimizer) promptimizer = parsed.promptimizer;
+      }
+    }
+
+    return {
+      id,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: modelId ?? model,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: text },
+          finish_reason: "stop",
+        },
+      ],
+      usage,
+      promptimizer,
+    };
+  },
   benchmark: () =>
     request<BenchmarkResult>(
       "/api/v1/benchmark/run",
