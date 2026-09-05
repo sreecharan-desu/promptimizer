@@ -594,17 +594,19 @@ async function completeStream(flags, config, messages) {
         typeof data === "object" && data && "detail" in data ? String(data.detail) : fallback.statusText;
       throw Object.assign(new Error(detail), { status: fallback.status });
     }
-    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data };
+    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data, streamed: false };
   }
   if (!response.body) {
     const data = await response.json();
-    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data };
+    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data, streamed: false };
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
+  let streamed = false;
+  let routingModel = "";
   let result = {
     model: undefined,
     usage: undefined,
@@ -618,9 +620,18 @@ async function completeStream(flags, config, messages) {
   if (ANSI_OK) {
     spinTimer = setInterval(() => {
       const frame = frames[spinFrame++ % frames.length];
-      process.stdout.write(`\r${color(ANSI.dim, `  ${frame} routing…`)}`);
+      const label = routingModel ? `routing → ${routingModel}` : "routing…";
+      process.stdout.write(`\r${color(ANSI.dim, `  ${frame} ${label}`)}`);
     }, 80);
   }
+
+  const stopSpinner = () => {
+    if (spinTimer) {
+      clearInterval(spinTimer);
+      spinTimer = null;
+      process.stdout.write("\r\x1b[2K");
+    }
+  };
 
   try {
     while (true) {
@@ -638,8 +649,29 @@ async function completeStream(flags, config, messages) {
         try {
           const parsed = JSON.parse(data);
           if (parsed.error?.message) throw new Error(parsed.error.message);
+          const event = parsed.promptimizer_event;
+          if (event) {
+            if (event.type === "routing" && event.model) {
+              routingModel = event.model;
+              if (event.tier) result.promptimizer = { ...(result.promptimizer ?? {}), tier: event.tier };
+            } else if (event.type === "escalation") {
+              stopSpinner();
+              if (text) process.stdout.write("\n");
+              const to = event.to_model ? ` to ${event.to_model}` : "";
+              out(color(ANSI.yellow, `  ⚠ quality gate — escalating${to}`));
+              text = "";
+              streamed = false; // previous output is being replaced — next model streams fresh
+            }
+          }
           const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) text += delta;
+          if (delta) {
+            if (!streamed) {
+              stopSpinner();
+              streamed = true;
+            }
+            text += delta;
+            process.stdout.write(delta);
+          }
           if (parsed.promptimizer) result.promptimizer = parsed.promptimizer;
           if (parsed.usage) result.usage = parsed.usage;
           if (parsed.model) result.model = parsed.model;
@@ -649,14 +681,12 @@ async function completeStream(flags, config, messages) {
       }
     }
   } finally {
-    if (spinTimer) {
-      clearInterval(spinTimer);
-      process.stdout.write("\r\x1b[2K");
-    }
+    stopSpinner();
   }
 
+  if (streamed) process.stdout.write("\n");
   result.choices = [{ message: { role: "assistant", content: text } }];
-  return { text, result, elapsedMs: Date.now() - started };
+  return { text, result, elapsedMs: Date.now() - started, streamed };
 }
 
 async function cmdLogin(flags) {
@@ -817,14 +847,17 @@ async function cmdChat(flags, positional) {
   if (!prompt) die('Usage: promptimizer chat "What is 17 * 24?"');
   out();
   out(color(ANSI.magenta, "✦"));
-  const { text, result, elapsedMs } = await completeStream(flags, config, [
+  const { text, result, elapsedMs, streamed } = await completeStream(flags, config, [
     { role: "user", content: prompt },
   ]);
   const meta = result.promptimizer ?? {};
-  await streamAnswer(text, {
-    cacheHit: isCacheHit(meta),
-    fast: (elapsedMs ?? 0) < 500,
-  });
+  if (!streamed) {
+    // Non-stream fallback (gateway rejected SSE) — render the full answer nicely.
+    await streamAnswer(text, {
+      cacheHit: isCacheHit(meta),
+      fast: (elapsedMs ?? 0) < 500,
+    });
+  }
   out();
   printMeta(result);
   out();
@@ -1032,12 +1065,14 @@ async function interactive(flags) {
       out();
       out(color(ANSI.magenta, "✦"));
       try {
-        const { text, result, elapsedMs } = await completeStream(flags, readConfig(), history);
+        const { text, result, elapsedMs, streamed } = await completeStream(flags, readConfig(), history);
         const meta = result.promptimizer ?? {};
-        await streamAnswer(text, {
-          cacheHit: isCacheHit(meta),
-          fast: (elapsedMs ?? 0) < 500,
-        });
+        if (!streamed) {
+          await streamAnswer(text, {
+            cacheHit: isCacheHit(meta),
+            fast: (elapsedMs ?? 0) < 500,
+          });
+        }
         history.push({ role: "assistant", content: text });
         out();
         printMeta(result);

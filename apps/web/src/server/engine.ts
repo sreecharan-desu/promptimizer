@@ -761,14 +761,26 @@ async function completeOrFailover(
   throw lastError;
 }
 
-/** Stream tokens from the provider. Yields text deltas; resolves with full text. */
+type StreamUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+/** Stream tokens from the provider. Yields text deltas; resolves with full text + usage. */
 async function* completeStreaming(
   session: Session,
   model: string,
   messages: Array<{ role: string; content: string }>,
   _classification: Classification,
-  opts?: { max_tokens?: number; provider_id?: string },
-): AsyncGenerator<string, string, void> {
+  opts?: {
+    max_tokens?: number;
+    provider_id?: string;
+    temperature?: number;
+    tools?: unknown[];
+    response_format?: { type?: string } | null;
+  },
+): AsyncGenerator<string, { text: string; usage?: StreamUsage }, void> {
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
@@ -790,6 +802,9 @@ async function* completeStreaming(
       messages,
       stream: true,
       ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+      ...(opts?.tools?.length ? { tools: opts.tools } : {}),
+      ...(opts?.response_format ? { response_format: opts.response_format } : {}),
     }),
   });
   if (!response.ok) {
@@ -804,12 +819,13 @@ async function* completeStreaming(
     const json = await response.json();
     const text = String(json.choices?.[0]?.message?.content ?? "");
     yield text;
-    return text;
+    return { text, usage: json.usage as StreamUsage | undefined };
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
+  let usage: StreamUsage | undefined;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -824,18 +840,94 @@ async function* completeStreaming(
       try {
         const parsed = JSON.parse(data) as {
           choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+          usage?: StreamUsage;
         };
         const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
         if (delta) {
           full += delta;
           yield delta;
         }
+        if (parsed.usage) usage = parsed.usage;
       } catch {
         /* ignore partial JSON */
       }
     }
   }
-  return full;
+  return { text: full, usage };
+}
+
+function streamPayload(routed: ModelInfo, text: string, usage?: StreamUsage) {
+  return {
+    id: `chatcmpl-stream-${Date.now()}`,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: routed.id,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: text },
+        finish_reason: "stop" as const,
+      },
+    ],
+    ...(usage ? { usage } : {}),
+  };
+}
+
+/** Like completeOrFailover but streams provider deltas through onDelta as they arrive. */
+async function completeStreamOrFailover(
+  session: Session,
+  start: ModelInfo,
+  messages: Array<{ role: string; content: string }>,
+  classification: Classification,
+  opts?: {
+    max_tokens?: number;
+    temperature?: number;
+    tools?: unknown[];
+    response_format?: { type?: string } | null;
+  },
+  onDelta?: (delta: string, modelId: string) => void,
+) {
+  const tried = new Set<string>([`${start.provider_id}::${start.id}`]);
+  let current = start;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let streamedAny = false;
+    const stream = completeStreaming(session, current.id, messages, classification, {
+      ...opts,
+      provider_id: current.provider_id,
+    });
+    try {
+      let full = "";
+      let usage: StreamUsage | undefined;
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          usage = next.value?.usage;
+          break;
+        }
+        streamedAny = true;
+        full += next.value;
+        onDelta?.(next.value, current.id);
+      }
+      return { payload: streamPayload(current, full, usage), routed: current };
+    } catch (err) {
+      lastError = err;
+      void stream.return?.(undefined as never);
+      // Deltas already reached the client — failover would corrupt the visible answer.
+      if (streamedAny) throw err;
+      const retryable =
+        typeof err === "object" &&
+        err &&
+        (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
+          ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
+      if (!retryable) throw err;
+      const next = nextFailoverModel(session, current, tried);
+      if (!next) throw err;
+      tried.add(`${next.provider_id}::${next.id}`);
+      current = next;
+    }
+  }
+  throw lastError;
 }
 
 function sseEncode(data: unknown) {
@@ -843,8 +935,15 @@ function sseEncode(data: unknown) {
 }
 
 /**
- * OpenAI-compatible SSE stream.
- * Buffers via routeChat (gate + escalate) then emits only the final answer chunks.
+ * OpenAI-compatible SSE stream with true token streaming.
+ *
+ * The first completion (and any quality-gate escalations) streams provider deltas
+ * to the client as they arrive. Pipeline events ride along as chunks carrying
+ * `promptimizer_event`:
+ *   - `{ type: "routing", model, tier, routing_policy, … }` — before first delta
+ *   - `{ type: "escalation", from_model, to_model, reason }` — client should clear
+ *     the partial answer; the stronger model's deltas follow immediately.
+ * The final chunk carries `finish_reason: "stop"` plus `usage` and `promptimizer`.
  */
 export function routeChatStream(
   session: Session,
@@ -856,26 +955,46 @@ export function routeChatStream(
   return new ReadableStream({
     async start(controller) {
       const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
+      const id = `chatcmpl-stream-${Date.now()}`;
+      const created = Math.floor(Date.now() / 1000);
+      let model =
+        typeof body.model === "string" && body.model !== "auto" && body.model !== "promptimizer"
+          ? body.model
+          : "";
       try {
-        const final = await routeChat(session, body, opts);
+        const final = await routeChat(session, body, {
+          ...opts,
+          onDelta: (delta, modelId) => {
+            if (modelId) model = modelId;
+            push({
+              id,
+              object: "chat.completion.chunk",
+              created,
+              model,
+              choices: [{ index: 0, delta: { content: delta }, finish_reason: null }],
+            });
+          },
+          onEvent: (event) => {
+            const rec = event as Record<string, unknown>;
+            if (typeof rec.model === "string") model = rec.model;
+            if (typeof rec.to_model === "string") model = rec.to_model;
+            push({
+              id,
+              object: "chat.completion.chunk",
+              created,
+              model,
+              choices: [{ index: 0, delta: {}, finish_reason: null }],
+              promptimizer_event: event,
+            });
+          },
+        });
         if (hooks?.onComplete) await hooks.onComplete(final);
-        const text = String(final.choices?.[0]?.message?.content ?? "");
-        const id = final.id ?? `chatcmpl-stream-${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
-        for (const part of text.match(/.{1,48}/g) ?? (text ? [text] : [])) {
-          push({
-            id,
-            object: "chat.completion.chunk",
-            created,
-            model: final.model,
-            choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
-          });
-        }
+        const finalModel = String(final.model ?? model);
         push({
           id,
           object: "chat.completion.chunk",
           created,
-          model: final.model,
+          model: finalModel,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
           usage: final.usage,
           promptimizer: final.promptimizer,
@@ -917,6 +1036,10 @@ export async function routeChat(
       exactHit?: boolean;
       promptHit?: boolean;
     };
+    /** Live-stream provider deltas (first attempt, hybrid, and escalations). */
+    onDelta?: (delta: string, modelId: string) => void;
+    /** Pipeline events: routing decision, quality-gate escalations. */
+    onEvent?: (event: Record<string, unknown>) => void;
   },
 ) {
   const owner = opts?.cacheOwner ?? session.id;
@@ -974,6 +1097,18 @@ export async function routeChat(
     findModel(session, session.baseline_model ?? "") ??
     session.models.find((m) => m.id === session.baseline_model) ??
     routed;
+
+  opts?.onEvent?.({
+    type: "routing",
+    session_id: session.id,
+    model: routed.id,
+    tier: routed.tier,
+    provider_id: routed.provider_id,
+    routing_policy: routingPolicy,
+    baseline_model: baseline?.id ?? null,
+    complexity: classification.complexity,
+    category: classification.category,
+  });
 
   const system = textMessages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
@@ -1082,9 +1217,33 @@ export async function routeChat(
         }
 
         const hybridMessages = buildHybridMessages(textMessages, semantic);
-        const hybrid = await completeOrFailover(session, routed, hybridMessages, classification);
+        const hybrid = opts?.onDelta
+          ? await completeStreamOrFailover(
+              session,
+              routed,
+              hybridMessages,
+              classification,
+              undefined,
+              opts.onDelta,
+            )
+          : await completeOrFailover(session, routed, hybridMessages, classification);
         routed = hybrid.routed;
         payload = hybrid.payload;
+      } else if (opts?.onDelta) {
+        const live = await completeStreamOrFailover(
+          session,
+          routed,
+          textMessages,
+          classification,
+          {
+            max_tokens: body.max_tokens ?? body.max_completion_tokens,
+            tools: body.tools ?? body.functions,
+            response_format: body.response_format,
+          },
+          opts.onDelta,
+        );
+        routed = live.routed;
+        payload = live.payload;
       } else {
         const live = await completeOrFailover(session, routed, textMessages, classification, {
           max_tokens: body.max_tokens ?? body.max_completion_tokens,
@@ -1232,13 +1391,35 @@ export async function routeChat(
       const upgrade = cheapest(session.models, TIER_ORDER[tierIdx]);
       if (!upgrade || upgrade.id === routed.id) continue;
       escalated = true;
-      routed = upgrade;
-      payload = await complete(session, routed.id, textMessages, classification, {
-        provider_id: routed.provider_id,
-        max_tokens: body.max_tokens ?? body.max_completion_tokens,
-        tools: body.tools ?? body.functions,
-        response_format: body.response_format,
+      opts?.onEvent?.({
+        type: "escalation",
+        from_model: routed.id,
+        to_model: upgrade.id,
+        reason: escalationReason,
       });
+      routed = upgrade;
+      if (opts?.onDelta) {
+        const retry = await completeStreamOrFailover(
+          session,
+          routed,
+          textMessages,
+          classification,
+          {
+            max_tokens: body.max_tokens ?? body.max_completion_tokens,
+            tools: body.tools ?? body.functions,
+            response_format: body.response_format,
+          },
+          opts.onDelta,
+        );
+        payload = retry.payload;
+      } else {
+        payload = await complete(session, routed.id, textMessages, classification, {
+          provider_id: routed.provider_id,
+          max_tokens: body.max_tokens ?? body.max_completion_tokens,
+          tools: body.tools ?? body.functions,
+          response_format: body.response_format,
+        });
+      }
       text = payload.choices?.[0]?.message?.content ?? "";
       qualityVerdict = await evaluateQualityGate({
         answer: text,
