@@ -78,7 +78,9 @@ function promptLooksLikeCode(prompt: string) {
 }
 
 function promptLooksNumeric(prompt: string) {
-  return /\b(number only|only the number|what is \d|compute|calculate|\d\s*[\*\^×x\/]\s*\d)/i.test(prompt);
+  return /\b(number only|only the number|what is \d|compute|calculate|\d\s*[\*\^\+\-×x\/]\s*\d+)/i.test(
+    prompt,
+  );
 }
 
 function promptLooksList(prompt: string) {

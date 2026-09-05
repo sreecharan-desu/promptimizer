@@ -750,7 +750,8 @@ async function completeOrFailover(
         (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
           ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
       if (!retryable) throw err;
-      current.selected = false;
+      // Skip this model for this request only — do NOT permanently deselect
+      // (that left sessions stuck on frontier after one 404/timeout).
       const next = nextFailoverModel(session, current, tried);
       if (!next) throw err;
       tried.add(`${next.provider_id}::${next.id}`);
@@ -1193,7 +1194,7 @@ export async function routeChat(
     };
   }
 
-  const shouldEscalate = qualityVerdict.escalate;
+  const shouldEscalate = qualityVerdict.escalate && qualityVerdict.gate === "fail";
 
   // First-attempt cost (for P2 waste accounting — accumulate if we escalate).
   let firstAttemptCost = costOf(
@@ -1206,9 +1207,19 @@ export async function routeChat(
   );
 
   if (shouldEscalate) {
-    escalationReason = qualityVerdict.reasons.find((r) => r.includes("structured"))
+    const reason =
+      qualityVerdict.reasons.find((r) => r.includes("structured")) ||
+      qualityVerdict.reasons.find(
+        (r) =>
+          r !== "stage1_ok" &&
+          r !== "self_consistency_ok" &&
+          !r.startsWith("self_consistency:"),
+      ) ||
+      qualityVerdict.reasons.find((r) => r !== "stage1_ok") ||
+      "quality_gate_failed";
+    escalationReason = reason.includes("structured")
       ? "structured_output_validation_failed"
-      : qualityVerdict.reasons[0] || "quality_gate_failed";
+      : reason;
     // Invalidate poisoned cache entries before regenerating.
     if (fromCacheReplay) {
       exactHit = false;

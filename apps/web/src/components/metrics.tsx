@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 
 export function usd(value: number) {
   if (!Number.isFinite(value)) return "$0";
+  if (Math.abs(value) < 1e-5) return "$0.0000";
   const sign = value < 0 ? "-" : "";
   const abs = Math.abs(value);
-  if (abs === 0) return "$0.0000";
   if (abs >= 1) return `${sign}$${abs.toFixed(2)}`;
   if (abs >= 0.01) return `${sign}$${abs.toFixed(4)}`;
   if (abs >= 0.0001) return `${sign}$${abs.toFixed(4)}`;
