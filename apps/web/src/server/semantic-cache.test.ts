@@ -34,6 +34,24 @@ describe("quality gate", () => {
     assert.equal(result.gate, "fail");
   });
 
+  it("scores short factual and numeric answers as decent", () => {
+    const paris = runQualityGate({
+      answer: "Paris",
+      prompt: "What is the capital of France?",
+      complexity: 1,
+    });
+    assert.ok(paris.score >= 0.75, `paris score ${paris.score}`);
+    assert.equal(paris.gate, "pass");
+
+    const math = runQualityGate({
+      answer: "408",
+      prompt: "What is 17 * 24? Reply with only the number.",
+      complexity: 1,
+    });
+    assert.ok(math.score >= 0.75, `math score ${math.score}`);
+    assert.equal(math.gate, "pass");
+  });
+
   it("audits on every Nth ordinal", () => {
     assert.equal(shouldRunAccuracyAudit(5), true);
     assert.equal(shouldRunAccuracyAudit(4), false);

@@ -1,17 +1,9 @@
 import Link from "next/link";
-import type { SavingsSummary, UsageEvent } from "@/server/account";
+import type { SavingsSummary } from "@/server/account";
 import { Donut, Meter, MetricCard, MiniBars, Pill, Sparkline, pct, usd } from "./metrics";
+import { RecentRequestRows } from "./portal-request-rows";
 
-function when(iso: string) {
-  return new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function chrono(events: UsageEvent[]) {
+function chrono(events: SavingsSummary["recent"]) {
   return [...events].reverse();
 }
 
@@ -206,51 +198,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
                   <th className="px-4 py-3 font-medium">Flags</th>
                 </tr>
               </thead>
-              <tbody>
-                {savings.recent.map((row) => (
-                  <tr key={row.id} className="border-t border-primary/5">
-                    <td className="px-4 py-3 text-secondary">{when(row.created_at)}</td>
-                    <td className="px-4 py-3 font-mono text-[12px] text-primary">{row.model}</td>
-                    <td className="px-4 py-3">
-                      <Pill tone={row.tier === "economy" ? "accent" : row.tier === "frontier" ? "warn" : "neutral"}>
-                        {row.tier}
-                      </Pill>
-                    </td>
-                    <td className="px-4 py-3">
-                      {row.quality == null ? (
-                        "—"
-                      ) : (
-                        <div className="w-24">
-                          <p className="tabular text-primary">{pct(row.quality * 100, 0)}</p>
-                          <Meter value={row.quality * 100} className="mt-1" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 tabular text-secondary">{usd(row.actual_usd)}</td>
-                    <td className="px-4 py-3 tabular text-accent">{usd(row.saved_usd)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {row.cache_hit ? <Pill tone="good">cache</Pill> : null}
-                        {row.semantic_hit ? <Pill tone="accent">similar</Pill> : null}
-                        {row.quality_gate === "fail" ? <Pill tone="warn">gate</Pill> : null}
-                        {row.quality_audit ? (
-                          <Pill tone={row.quality_audit_pass ? "good" : "warn"}>
-                            {row.quality_audit_pass ? "audit ok" : "audit"}
-                          </Pill>
-                        ) : null}
-                        {row.escalated ? <Pill tone="warn">escalated</Pill> : null}
-                        {!row.cache_hit &&
-                        !row.escalated &&
-                        !row.semantic_hit &&
-                        row.quality_gate !== "fail" &&
-                        !row.quality_audit ? (
-                          <span className="text-secondary">—</span>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              <RecentRequestRows rows={savings.recent} />
             </table>
           </div>
         </div>

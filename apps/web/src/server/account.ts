@@ -367,6 +367,33 @@ export async function loadAllProviderConnections(userId: string): Promise<SavedP
   });
 }
 
+export type UsageDetail = {
+  request_id?: string;
+  rationale?: string;
+  initial_model?: string;
+  final_model?: string;
+  baseline_model?: string;
+  complexity?: number | null;
+  category?: string;
+  routing_policy?: string;
+  escalation_reason?: string | null;
+  cache_mode?: string;
+  exact_cache_hit?: boolean;
+  prefix_cache_hit?: boolean;
+  prompt_cache_hit?: boolean;
+  semantic_cache_hit?: boolean;
+  semantic_similarity?: number | null;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cached_tokens?: number;
+  estimated_cost_usd?: number | null;
+  estimated_quality?: number | null;
+  quality_score?: number | null;
+  quality_notes?: string[];
+  rejected?: unknown;
+  latency_ms?: number | null;
+};
+
 export type UsageEvent = {
   id: string;
   model: string;
@@ -384,8 +411,72 @@ export type UsageEvent = {
   quality_gate: string;
   quality_audit: boolean;
   quality_audit_pass: boolean | null;
+  prompt: string | null;
+  detail: UsageDetail | null;
   created_at: string;
 };
+
+const PROMPT_STORE_MAX = 6000;
+
+export function truncatePrompt(text: string, max = PROMPT_STORE_MAX) {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
+export function cacheModeFromMeta(meta: Record<string, unknown>): string {
+  if (meta.exact_cache_hit) return "exact";
+  if (meta.prompt_cache_hit) return "prompt";
+  if (meta.prefix_cache_hit) return "prefix";
+  if (meta.semantic_cache_hit) {
+    const mode = meta.semantic_cache_mode;
+    if (mode === "hybrid") return "semantic_hybrid";
+    if (mode === "full") return "semantic_full";
+    return "semantic";
+  }
+  if (meta.cache_hit) return "cache";
+  return "miss";
+}
+
+export function usageDetailFromMeta(
+  meta: Record<string, unknown>,
+  cost: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cached_tokens?: number;
+  },
+): UsageDetail {
+  const quality =
+    typeof meta.quality === "object" && meta.quality && !Array.isArray(meta.quality)
+      ? (meta.quality as Record<string, unknown>)
+      : null;
+  return {
+    request_id: meta.request_id ? String(meta.request_id) : undefined,
+    rationale: meta.rationale ? String(meta.rationale) : undefined,
+    initial_model: meta.initial_model ? String(meta.initial_model) : undefined,
+    final_model: meta.final_model ? String(meta.final_model) : meta.model ? String(meta.model) : undefined,
+    baseline_model: meta.baseline_model ? String(meta.baseline_model) : undefined,
+    complexity: meta.complexity == null ? null : Number(meta.complexity),
+    category: meta.category ? String(meta.category) : undefined,
+    routing_policy: meta.routing_policy ? String(meta.routing_policy) : undefined,
+    escalation_reason: meta.escalation_reason ? String(meta.escalation_reason) : null,
+    cache_mode: cacheModeFromMeta(meta),
+    exact_cache_hit: Boolean(meta.exact_cache_hit),
+    prefix_cache_hit: Boolean(meta.prefix_cache_hit),
+    prompt_cache_hit: Boolean(meta.prompt_cache_hit),
+    semantic_cache_hit: Boolean(meta.semantic_cache_hit),
+    semantic_similarity: meta.semantic_similarity == null ? null : Number(meta.semantic_similarity),
+    prompt_tokens: cost.prompt_tokens,
+    completion_tokens: cost.completion_tokens,
+    cached_tokens: cost.cached_tokens,
+    estimated_cost_usd: meta.estimated_cost_usd == null ? null : Number(meta.estimated_cost_usd),
+    estimated_quality: meta.estimated_quality == null ? null : Number(meta.estimated_quality),
+    quality_score: quality && "score" in quality ? Number(quality.score) : null,
+    quality_notes: Array.isArray(quality?.notes) ? quality.notes.map(String) : undefined,
+    rejected: meta.rejected,
+    latency_ms: meta.latency_ms == null ? null : Number(meta.latency_ms),
+  };
+}
 
 export type SavingsSummary = {
   requests: number;
@@ -429,6 +520,8 @@ export async function recordUsage(
     quality_gate?: string;
     quality_audit?: boolean;
     quality_audit_pass?: boolean | null;
+    prompt?: string | null;
+    detail?: UsageDetail | null;
   },
 ) {
   if (!authConfigured()) return;
@@ -437,7 +530,8 @@ export async function recordUsage(
     INSERT INTO usage_events (
       id, user_id, model, tier, actual_usd, baseline_usd, saved_usd,
       routing_saved_usd, cache_saved_usd, cache_hit, escalated, quality,
-      semantic_hit, semantic_similarity, quality_gate, quality_audit, quality_audit_pass
+      semantic_hit, semantic_similarity, quality_gate, quality_audit, quality_audit_pass,
+      prompt, detail_json
     )
     VALUES (
       ${newId("evt")}, ${userId}, ${event.model}, ${event.tier},
@@ -446,9 +540,22 @@ export async function recordUsage(
       ${event.cache_hit}, ${event.escalated}, ${event.quality ?? null},
       ${Boolean(event.semantic_hit)}, ${event.semantic_similarity ?? null},
       ${event.quality_gate ?? ""}, ${Boolean(event.quality_audit)},
-      ${event.quality_audit_pass ?? null}
+      ${event.quality_audit_pass ?? null},
+      ${event.prompt ? truncatePrompt(event.prompt) : null},
+      ${event.detail ? JSON.stringify(event.detail) : null}
     )
   `;
+}
+
+function parseDetail(raw: unknown): UsageDetail | null {
+  if (raw == null || raw === "") return null;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as UsageDetail;
+  } catch {
+    return null;
+  }
 }
 
 function eventFromRow(row: unknown): UsageEvent {
@@ -470,6 +577,8 @@ function eventFromRow(row: unknown): UsageEvent {
     quality_gate: r.quality_gate ? String(r.quality_gate) : "",
     quality_audit: Boolean(r.quality_audit),
     quality_audit_pass: r.quality_audit_pass == null ? null : Boolean(r.quality_audit_pass),
+    prompt: r.prompt == null || r.prompt === "" ? null : String(r.prompt),
+    detail: parseDetail(r.detail_json),
     created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   };
 }
@@ -500,7 +609,7 @@ export async function savingsForUser(userId: string): Promise<SavingsSummary> {
   const recent = await sql`
     SELECT id, model, tier, actual_usd, baseline_usd, saved_usd, routing_saved_usd,
            cache_saved_usd, cache_hit, escalated, quality, semantic_hit, semantic_similarity,
-           quality_gate, quality_audit, quality_audit_pass, created_at
+           quality_gate, quality_audit, quality_audit_pass, prompt, detail_json, created_at
     FROM usage_events
     WHERE user_id = ${userId}
     ORDER BY created_at DESC

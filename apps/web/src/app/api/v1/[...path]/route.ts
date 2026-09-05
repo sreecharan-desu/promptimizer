@@ -8,6 +8,7 @@ import {
   recordUsage,
   saveQualityProfiles,
   savingsForUser,
+  usageDetailFromMeta,
   userFromApiKey,
 } from "@/server/account";
 import { authConfigured } from "@/server/db";
@@ -73,6 +74,29 @@ function connectPayload(body: {
     api_key: apiKey,
     provider: provider?.id,
   };
+}
+
+function promptFromBody(body: { messages?: Array<{ role?: string; content?: unknown }> }) {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (part && typeof part === "object" && "text" in part) return String((part as { text: unknown }).text ?? "");
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
+  return messages
+    .map((m) => (typeof m?.content === "string" ? m.content : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 async function resolve(request: NextRequest) {
@@ -207,6 +231,7 @@ async function handle(request: NextRequest, path: string[]) {
           const meta = result.promptimizer;
           if (!cost || !meta) return;
           try {
+            const metaRec = meta as unknown as Record<string, unknown>;
             await recordUsage(actor.user.id, {
               model: String(meta.model ?? result.model),
               tier: String(meta.tier ?? ""),
@@ -228,6 +253,8 @@ async function handle(request: NextRequest, path: string[]) {
               quality_audit: Boolean(meta.quality_audit),
               quality_audit_pass:
                 meta.quality_audit_pass == null ? null : Boolean(meta.quality_audit_pass),
+              prompt: promptFromBody(body),
+              detail: usageDetailFromMeta(metaRec, cost),
             });
             await recordRoutingEvent(actor.user.id, {
               request_id: String(meta.request_id ?? ""),
@@ -289,6 +316,8 @@ async function handle(request: NextRequest, path: string[]) {
               quality_audit: Boolean(meta.quality_audit),
               quality_audit_pass:
                 meta.quality_audit_pass == null ? null : Boolean(meta.quality_audit_pass),
+              prompt: promptFromBody(body),
+              detail: usageDetailFromMeta(meta as unknown as Record<string, unknown>, cost),
             });
             await recordRoutingEvent(actor.user.id, {
               request_id: String(meta.request_id ?? ""),
