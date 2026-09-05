@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { DOCS_URL } from "@/lib/site";
 import { ClassifySpot, RouteSpot, SaveSpot } from "./home-spots";
 
@@ -36,26 +35,30 @@ export function HomeFeatures() {
             key={feature.name}
             className={`grid items-center gap-8 lg:grid-cols-2 lg:gap-12 ${index > 0 ? "mt-16 sm:mt-24" : ""}`}
           >
-            <Link
+            <a
               href={feature.href}
+              target="_blank"
+              rel="noopener noreferrer"
               className={`group/card block overflow-hidden rounded-2xl transition-transform duration-500 ease-out hover:scale-[1.02] ${
                 reverse ? "lg:order-2" : ""
               }`}
             >
               {feature.art}
-            </Link>
+            </a>
             <div className={reverse ? "lg:order-1" : ""}>
               <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{feature.name}</p>
               <h2 className="mt-3 max-w-md font-display text-3xl font-medium tracking-tight text-primary text-balance sm:text-4xl">
                 {feature.title}
               </h2>
               <p className="mt-4 max-w-md text-lg leading-relaxed text-secondary">{feature.dek}</p>
-              <Link
+              <a
                 href={feature.href}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="mt-6 inline-flex text-sm font-medium text-primary transition-colors duration-150 hover:text-primary-hover"
               >
                 Read the guide →
-              </Link>
+              </a>
             </div>
           </div>
         );

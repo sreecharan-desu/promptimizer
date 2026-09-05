@@ -26,12 +26,14 @@ export default function HomePage() {
               >
                 Get started
               </Link>
-              <Link
+              <a
                 href={DOCS_HOME}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
               >
                 Documentation
-              </Link>
+              </a>
             </div>
           </div>
 
@@ -88,12 +90,14 @@ export default function HomePage() {
                 >
                   Get started
                 </Link>
-                <Link
+                <a
                   href={`${DOCS_URL}/docs/sdk`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
                 >
                   npm i promptimizer
-                </Link>
+                </a>
               </div>
             </div>
             <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">

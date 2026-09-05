@@ -30,14 +30,16 @@ export function Header() {
         </Link>
 
         <div className="hidden items-center gap-2 lg:flex">
-          <Link
+          <a
             href={DOCS_HOME}
+            target="_blank"
+            rel="noopener noreferrer"
             className={`mr-1 flex items-center px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
               docs ? "text-primary" : "text-primary/50 hover:text-primary"
             }`}
           >
             Docs
-          </Link>
+          </a>
           <GitHubLink className="mr-1 inline-flex size-9 items-center justify-center rounded-full text-primary/50 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary" />
           <AuthNav />
         </div>
@@ -55,13 +57,15 @@ export function Header() {
       {open ? (
         <div className="border-t border-primary/[0.06] bg-background px-4 py-4 lg:hidden">
           <div className="flex flex-col gap-2">
-            <Link
+            <a
               href={DOCS_HOME}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={() => setOpen(false)}
               className={`py-2 text-sm font-medium ${docs ? "text-primary" : "text-primary/70"}`}
             >
               Docs
-            </Link>
+            </a>
             <a
               href={GITHUB_URL}
               target="_blank"
