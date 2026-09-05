@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cosineSimilarity, embedText, extractNovelParts } from "./semantic-cache";
+import {
+  cosineSimilarity,
+  embedText,
+  extractNovelParts,
+  findSimilar,
+  normalizeCachePrompt,
+  rememberSemantic,
+  semanticFullHit,
+} from "./semantic-cache";
 import { runQualityGate, shouldRunAccuracyAudit } from "./quality-gate";
 
 describe("semantic cache vectors", () => {
@@ -12,6 +20,30 @@ describe("semantic cache vectors", () => {
     const simAc = cosineSimilarity(a, c);
     assert.ok(simAb > 0.5, `expected similar prompts >0.5 got ${simAb}`);
     assert.ok(simAb > simAc, `expected ${simAb} > ${simAc}`);
+  });
+
+  it("treats trailing ellipsis as the same prompt for cache identity", () => {
+    const a = "What is 17 * 24?";
+    const b = "What is 17 * 24?...";
+    assert.equal(normalizeCachePrompt(a), normalizeCachePrompt(b));
+    const sim = cosineSimilarity(embedText(a), embedText(b));
+    assert.ok(sim >= semanticFullHit(), `expected ≥${semanticFullHit()} got ${sim}`);
+  });
+
+  it("replays full semantic hit for punctuation-only near-duplicates", async () => {
+    const owner = `test-ellipsis-${Date.now()}`;
+    await rememberSemantic({
+      prompt: "What is 17 * 24?",
+      answer: "408",
+      model: "test-model",
+      tier: "economy",
+      quality: 0.95,
+      owner,
+    });
+    const match = await findSimilar("What is 17 * 24?...", owner);
+    assert.equal(match?.mode, "full");
+    assert.equal(match?.entry.answer, "408");
+    assert.ok((match?.similarity ?? 0) >= semanticFullHit());
   });
 
   it("extracts novel parts from a related prompt", () => {

@@ -32,6 +32,7 @@ const TABS = [
   ["connect", "Connect"],
   ["fleet", "Fleet"],
   ["play", "Playground"],
+  ["eval", "Eval"],
 ] as const;
 
 const FIELD =
@@ -324,6 +325,10 @@ export function ConsoleApp() {
               <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
             )
           ) : null}
+
+          {tab === "eval" ? (
+            session ? <EvalPane /> : <NeedSession onSimulator={connectSimulator} onConnect={() => setTab("connect")} busy={busy} />
+          ) : null}
         </div>
       </div>
     </div>
@@ -360,10 +365,181 @@ function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
       </svg>
     );
   }
+  if (tab === "eval") {
+    return (
+      <svg {...common}>
+        <path d="M4 19V5" />
+        <path d="M4 19h16" />
+        <path d="M7 15l3.5-5 2.5 3 4-7" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <path d="M4.5 18.5V7.2A2.2 2.2 0 0 1 6.7 5h7.1A2.2 2.2 0 0 1 16 7.2v6.1a2.2 2.2 0 0 1-2.2 2.2H8.2L4.5 18.5z" />
       <path d="M9 10h4.5M9 13h2.5" />
+    </svg>
+  );
+}
+
+function EvalPane() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [bench, setBench] = useState<Bench | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.benchmark();
+      setBench(result as Bench);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Eval failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const metrics = (bench as { metrics?: Record<string, unknown> } | null)?.metrics;
+  const summary = (bench as { summary?: Record<string, number> } | null)?.summary;
+  const curve = (metrics?.frontier_curve as Array<{ frontier_call_pct: number; quality: number }> | undefined) ?? [];
+  const curveOff =
+    (metrics?.frontier_curve_gate_off as Array<{ frontier_call_pct: number; quality: number }> | undefined) ?? [];
+  const op = metrics?.operating_point as { frontier_call_pct?: number; quality?: number } | undefined;
+  const byDiff = metrics?.by_difficulty as Record<string, { avg_routed?: number; worst_regression?: number }> | undefined;
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Eval</p>
+            <p className="mt-1 font-display text-xl font-medium text-primary">PGR · APGR · CPT · frontier</p>
+            <p className="mt-1 max-w-xl text-sm text-secondary">
+              Run the fixed task set with a real policy prefix and separate exact/prefix cache stats. Cost is never shown alone.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={run}
+            className="h-11 rounded-full bg-primary px-5 text-sm font-medium text-background disabled:opacity-50"
+          >
+            {busy ? "Running…" : "Run eval"}
+          </button>
+        </div>
+        {error ? <p className="mt-3 text-sm text-error">{error}</p> : null}
+      </section>
+
+      {summary ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricMini label="PGR" value={fmtNum(metrics?.pgr)} hint="1.0 = matched frontier" />
+          <MetricMini label="APGR" value={fmtNum(metrics?.apgr)} hint="Area under call–performance" />
+          <MetricMini label="CPT(50%)" value={pct01(metrics?.cpt_50)} hint="Frontier calls for half the gap" />
+          <MetricMini label="CPT(80%)" value={pct01(metrics?.cpt_80)} hint="Frontier calls for most of the gap" />
+          <MetricMini label="API spend" value={usd(summary.actual_usd ?? 0)} hint={`Saved ${usd(summary.saved_usd ?? 0)}`} />
+          <MetricMini
+            label="Escalation"
+            value={pct01(summary.escalation_rate)}
+            hint={`Break-even ${pct01(summary.break_even_escalation_rate)}`}
+          />
+          <MetricMini label="Exact cache" value={pct01(summary.exact_cache_hit_rate)} hint="Full replay" />
+          <MetricMini label="Prefix cache" value={pct01(summary.prefix_cache_hit_rate)} hint="Shared policy block" />
+        </div>
+      ) : null}
+
+      {curve.length > 1 ? (
+        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Cost–quality frontier</p>
+          <p className="mt-1 text-sm text-secondary">Green = gate on · amber = gate off · red mark = operating point</p>
+          <FrontierChart gateOn={curve} gateOff={curveOff} operating={op} />
+        </section>
+      ) : null}
+
+      {byDiff ? (
+        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">By difficulty</p>
+          <p className="mt-1 text-sm text-secondary">Worst regression per bucket — averages hide hard collapses.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {(["easy", "medium", "hard"] as const).map((key) => (
+              <div key={key} className="rounded-xl border border-primary/[0.06] px-3 py-3">
+                <p className="text-xs uppercase tracking-wide text-secondary">{key}</p>
+                <p className="mt-1 font-display text-lg text-primary tabular">
+                  {fmtNum(byDiff[key]?.avg_routed)}
+                </p>
+                <p className={`mt-1 text-sm tabular ${(byDiff[key]?.worst_regression ?? 0) < 0 ? "text-red-500" : "text-secondary"}`}>
+                  worst Δ {fmtNum(byDiff[key]?.worst_regression)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function MetricMini({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-4">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">{label}</p>
+      <p className="mt-1 font-display text-2xl font-medium text-primary tabular">{value}</p>
+      {hint ? <p className="mt-1 text-xs text-secondary">{hint}</p> : null}
+    </div>
+  );
+}
+
+function fmtNum(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(3) : "—";
+}
+
+function pct01(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) ? `${(n * 100).toFixed(0)}%` : "—";
+}
+
+function FrontierChart({
+  gateOn,
+  gateOff,
+  operating,
+}: {
+  gateOn: Array<{ frontier_call_pct: number; quality: number }>;
+  gateOff: Array<{ frontier_call_pct: number; quality: number }>;
+  operating?: { frontier_call_pct?: number; quality?: number };
+}) {
+  const w = 420;
+  const h = 180;
+  const pad = 28;
+  const xs = gateOn.map((p) => p.frontier_call_pct);
+  const ys = [...gateOn, ...gateOff].map((p) => p.quality);
+  const minY = Math.min(...ys, 0);
+  const maxY = Math.max(...ys, 1);
+  const x = (v: number) => pad + v * (w - pad * 2);
+  const y = (v: number) => h - pad - ((v - minY) / (maxY - minY || 1)) * (h - pad * 2);
+  const path = (pts: Array<{ frontier_call_pct: number; quality: number }>) =>
+    pts.map((p, i) => `${i ? "L" : "M"}${x(p.frontier_call_pct)},${y(p.quality)}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="mt-4 w-full max-w-xl" role="img" aria-label="Cost quality frontier">
+      <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="currentColor" strokeOpacity={0.15} />
+      <line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke="currentColor" strokeOpacity={0.15} />
+      <path d={path(gateOn)} fill="none" stroke="hsl(var(--accent))" strokeWidth={2.5} />
+      <path d={path(gateOff)} fill="none" stroke="#D4A017" strokeWidth={2} strokeDasharray="5 4" />
+      {operating && operating.frontier_call_pct != null && operating.quality != null ? (
+        <circle
+          cx={x(operating.frontier_call_pct)}
+          cy={y(operating.quality)}
+          r={5}
+          fill="#E25555"
+        />
+      ) : null}
+      <text x={w / 2} y={h - 6} textAnchor="middle" className="fill-current text-[10px]" fillOpacity={0.45}>
+        % frontier calls
+      </text>
+      <text x={12} y={h / 2} textAnchor="middle" className="fill-current text-[10px]" fillOpacity={0.45} transform={`rotate(-90 12 ${h / 2})`}>
+        quality
+      </text>
     </svg>
   );
 }

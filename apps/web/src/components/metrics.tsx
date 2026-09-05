@@ -2,14 +2,13 @@ import type { ReactNode } from "react";
 
 export function usd(value: number) {
   if (!Number.isFinite(value)) return "$0";
+  const sign = value < 0 ? "-" : "";
   const abs = Math.abs(value);
   if (abs === 0) return "$0.0000";
-  // Frontier baselines and short economy replies often land well under $0.0001 —
-  // four decimals falsely reads as "$0.0000" even when routing worked.
-  if (abs >= 1) return `$${value.toFixed(2)}`;
-  if (abs >= 0.01) return `$${value.toFixed(4)}`;
-  if (abs >= 0.0001) return `$${value.toFixed(4)}`;
-  return `$${value.toFixed(6)}`;
+  if (abs >= 1) return `${sign}$${abs.toFixed(2)}`;
+  if (abs >= 0.01) return `${sign}$${abs.toFixed(4)}`;
+  if (abs >= 0.0001) return `${sign}$${abs.toFixed(4)}`;
+  return `${sign}$${abs.toFixed(6)}`;
 }
 
 export function pct(value: number, digits = 1) {

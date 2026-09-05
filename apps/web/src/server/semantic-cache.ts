@@ -54,10 +54,27 @@ function hashToken(token: string) {
   return h >>> 0;
 }
 
+/**
+ * Canonical form for prompt-cache keys + embeddings.
+ * Strips trailing ellipsis/punctuation so "What is 17 * 24?..." ≡ "What is 17 * 24?".
+ */
+export function normalizeCachePrompt(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(/\u2026/g, "...")
+    .replace(/[×✕✖⨯]/g, "*")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(?:\.{2,}|…+|[.!?]+)+\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Lightweight hashed bag-of-tokens + char-trigrams → fixed vector (no external embed API). */
 export function embedText(text: string): number[] {
   const vec = new Float64Array(DIM);
-  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  const normalized = normalizeCachePrompt(text);
   if (!normalized) return Array.from(vec);
 
   const tokens = normalized.split(/[^a-z0-9_+./-]+/).filter(Boolean);
@@ -143,14 +160,19 @@ async function saveIndex(owner: string | null | undefined, rows: SemanticEntry[]
 export async function findSimilar(prompt: string, owner?: string | null): Promise<SemanticMatch | null> {
   if (!semanticEnabled()) return null;
   const embedding = embedText(prompt);
+  const promptNorm = normalizeCachePrompt(prompt);
   const index = await loadIndex(owner);
   if (!index.length) return null;
 
   let best: SemanticEntry | null = null;
   let bestSim = 0;
   for (const entry of index) {
-    if (!entry?.embedding?.length || !entry.answer) continue;
-    const sim = cosineSimilarity(embedding, entry.embedding);
+    if (!entry?.answer) continue;
+    // Re-embed from stored prompt so lookup stays correct after normalize/embed tweaks.
+    const entryVec = entry.prompt ? embedText(entry.prompt) : entry.embedding;
+    if (!entryVec?.length) continue;
+    const sameNorm = promptNorm && promptNorm === normalizeCachePrompt(entry.prompt);
+    const sim = sameNorm ? 1 : cosineSimilarity(embedding, entryVec);
     if (sim > bestSim) {
       bestSim = sim;
       best = entry;
@@ -161,9 +183,10 @@ export async function findSimilar(prompt: string, owner?: string | null): Promis
   const threshold = semanticThreshold();
   const full = semanticFullHit();
   const { novel, shared_ratio } = extractNovelParts(prompt, best.prompt);
+  const sameAsBest = Boolean(promptNorm && promptNorm === normalizeCachePrompt(best.prompt));
 
-  if (bestSim >= full) {
-    return { entry: best, similarity: bestSim, mode: "full", novel: "", shared_ratio };
+  if (bestSim >= full || sameAsBest) {
+    return { entry: best, similarity: sameAsBest ? 1 : bestSim, mode: "full", novel: "", shared_ratio };
   }
   if (bestSim >= threshold) {
     return { entry: best, similarity: bestSim, mode: "hybrid", novel, shared_ratio };

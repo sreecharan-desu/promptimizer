@@ -1,6 +1,14 @@
-import { scoreAnswerLike } from "./quality-gate-score";
+import { scoreAnswerLike, stage1Deterministic } from "./quality";
 
 export { scoreAnswerLike };
+export {
+  evaluateQualityGate,
+  stage1Deterministic,
+  pickJudgeModel,
+  judgeSampleRate,
+  meanPairwiseSimilarity,
+} from "./quality";
+export type { QualityVerdict, QualityStage } from "./quality";
 
 /** Env QUALITY_ESCALATE_THRESHOLD (default 0.62). */
 export function qualityEscalateThreshold() {
@@ -44,41 +52,52 @@ export type QualityGateResult = {
 };
 
 /**
- * Live quality gate + optional periodic accuracy audit.
- * Audit re-checks length, refusal, and keyword coverage extracted from the prompt.
+ * Live quality gate + optional periodic accuracy audit (stage 1).
  */
 export function runQualityGate(input: {
   answer: string;
   prompt: string;
   complexity: number;
   audit?: boolean;
+  must_include?: string[];
+  must_not_include?: string[];
 }): QualityGateResult {
-  const threshold = qualityEscalateThreshold();
-  const base = scoreAnswerLike(input.answer, input.prompt, input.complexity, threshold);
+  const base = stage1Deterministic({
+    answer: input.answer,
+    prompt: input.prompt,
+    complexity: input.complexity,
+    must_include: input.must_include,
+    must_not_include: input.must_not_include,
+  });
   const audit = Boolean(input.audit);
   let audit_pass: boolean | null = null;
   const audit_notes: string[] = [];
 
   if (audit) {
-    const must = extractMustFromPrompt(input.prompt);
-    const auditScore = scoreAnswerLike(input.answer, input.prompt, input.complexity, threshold, must);
-    const thin = input.answer.trim().length < Math.max(40, input.complexity * 20);
-    const refusal = /i don't know|too complex|as a small model|can't help|cannot help/i.test(input.answer);
-    audit_pass = !auditScore.degraded && !thin && !refusal && auditScore.score >= threshold;
+    const must = input.must_include?.length ? input.must_include : extractMustFromPrompt(input.prompt);
+    const auditScore = stage1Deterministic({
+      answer: input.answer,
+      prompt: input.prompt,
+      complexity: input.complexity,
+      must_include: must,
+      must_not_include: input.must_not_include,
+    });
+    audit_pass = auditScore.gate === "pass";
     if (!audit_pass) {
-      if (thin) audit_notes.push("audit_thin_answer");
-      if (refusal) audit_notes.push("audit_refusal");
-      if (auditScore.degraded) audit_notes.push("audit_below_threshold");
-      if (must.length && auditScore.coverage < 0.5) audit_notes.push("audit_missing_prompt_concepts");
+      audit_notes.push(...auditScore.reasons.map((r) => `audit_${r}`));
     } else {
       audit_notes.push("audit_ok");
     }
   }
 
-  const gate: "pass" | "fail" = base.degraded || audit_pass === false ? "fail" : "pass";
+  const gate: "pass" | "fail" = base.gate === "fail" || audit_pass === false ? "fail" : "pass";
 
   return {
-    ...base,
+    score: base.score,
+    coverage: base.coverage,
+    structure: base.structure,
+    degraded: base.degraded || audit_pass === false,
+    notes: base.reasons,
     gate,
     audit,
     audit_pass,

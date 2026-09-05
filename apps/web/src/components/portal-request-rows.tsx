@@ -225,7 +225,9 @@ export function RecentRequestRows({ rows }: { rows: UsageEvent[] }) {
                 )}
               </td>
               <td className="px-4 py-3 tabular text-secondary">{usd(row.actual_usd)}</td>
-              <td className="px-4 py-3 tabular text-accent">{usd(row.saved_usd)}</td>
+              <td className={`px-4 py-3 tabular ${row.saved_usd < 0 ? "text-red-500" : "text-accent"}`}>
+                {usd(row.saved_usd)}
+              </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap items-center gap-1">
                   {row.cache_hit ? <Pill tone="good">cache</Pill> : null}

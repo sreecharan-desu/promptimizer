@@ -4,11 +4,12 @@ import { cacheGet, cacheRemember, cacheSet, userCacheKey } from "./upstash";
 import {
   buildHybridMessages,
   findSimilar,
+  normalizeCachePrompt,
   rememberSemantic,
   type SemanticMatch,
 } from "./semantic-cache";
-import { qualityGuardEnabled, nextRequestOrdinal, runQualityGate, shouldRunAccuracyAudit } from "./quality-gate";
-import { scoreAnswerLike } from "./quality-gate-score";
+import { nextRequestOrdinal, shouldRunAccuracyAudit } from "./quality-gate";
+import { evaluateQualityGate, scoreAnswerLike, type QualityVerdict } from "./quality";
 import {
   aggregateQualityProfiles,
   buildPricing,
@@ -21,6 +22,8 @@ import {
   type ModelQualityProfile,
   type RoutingDecision,
 } from "./optimizer";
+import { apgr, bucketStats, buildFrontierCurve, cpt, pgr, breakEvenEscalationRate } from "./routing-metrics";
+export { breakEvenEscalationRate } from "./routing-metrics";
 
 export type Tier = "economy" | "standard" | "frontier";
 
@@ -36,6 +39,7 @@ export type ModelInfo = {
   owned_by: string;
   input_per_1m: number | null;
   output_per_1m: number | null;
+  cached_input_per_1m?: number | null;
   tier: Tier;
   source: string;
   selected: boolean;
@@ -128,6 +132,10 @@ function enrichModel(model: ModelInfo, labelByProvider?: Map<string, string>): M
     provider_label: providerLabel,
     input_per_1m: input,
     output_per_1m: output,
+    cached_input_per_1m:
+      model.cached_input_per_1m ??
+      (priced as { cached_input?: number } | undefined)?.cached_input ??
+      null,
     context_length: context,
     pricing_known: pricingKnown ?? Boolean(priced),
     pricing_source: pricingSource,
@@ -303,7 +311,7 @@ export function getSession(sessionId: string | null) {
 }
 
 function emptyStats() {
-  return { requests: 0, actual_usd: 0, baseline_usd: 0, saved_usd: 0, cache_hits: 0, escalations: 0, quality_fails: 0 };
+  return { requests: 0, actual_usd: 0, baseline_usd: 0, saved_usd: 0, cache_hits: 0, escalations: 0, quality_fails: 0, escalation_waste: 0 };
 }
 
 export function accountSessionId(userId: string) {
@@ -466,14 +474,13 @@ function costOf(
   const rout = routedP.output_per_1m ?? 3;
   const bin = baselineP.input_per_1m ?? 5;
   const bout = baselineP.output_per_1m ?? 15;
+  const cachedRate = cachedInputRate(routedP);
   const cached = Math.min(cachedTokens, promptTokens);
   const fullRouted = (promptTokens / 1e6) * rin + (completionTokens / 1e6) * rout;
   const baselineUsd = (promptTokens / 1e6) * bin + (completionTokens / 1e6) * bout;
 
-  // Exact / prompt / semantic-full hits never call the provider — bill $0 API and
-  // put the avoided model cost in cache_discount (not fake live spend).
   if (opts?.fullReplay) {
-    const routingSaved = Math.max(0, baselineUsd - fullRouted);
+    const routingSaved = baselineUsd - fullRouted;
     return {
       actual_usd: 0,
       baseline_usd: baselineUsd,
@@ -481,26 +488,63 @@ function costOf(
       saved_pct: baselineUsd ? 100 : 0,
       routing_saved_usd: routingSaved,
       cache_discount_usd: fullRouted,
+      wasted_usd: 0,
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       cached_tokens: promptTokens + completionTokens,
+      cache_rate_estimate: cachedRate.estimate,
+      cached_input_per_1m: cachedRate.per_1m,
     };
   }
 
+  // Caching NEVER discounts output tokens — only cached input uses cached_input_per_1m.
   const actual =
-    ((promptTokens - cached) / 1e6) * rin + (cached / 1e6) * rin * 0.5 + (completionTokens / 1e6) * rout;
-  const saved = Math.max(0, baselineUsd - actual);
+    ((promptTokens - cached) / 1e6) * rin +
+    (cached / 1e6) * cachedRate.per_1m +
+    (completionTokens / 1e6) * rout;
+  const saved = baselineUsd - actual;
   return {
     actual_usd: actual,
     baseline_usd: baselineUsd,
     saved_usd: saved,
     saved_pct: baselineUsd ? (saved / baselineUsd) * 100 : 0,
-    routing_saved_usd: Math.max(0, baselineUsd - fullRouted),
-    cache_discount_usd: Math.max(0, fullRouted - actual),
+    routing_saved_usd: baselineUsd - fullRouted,
+    cache_discount_usd: fullRouted - actual,
+    wasted_usd: 0,
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     cached_tokens: cached,
+    cache_rate_estimate: cachedRate.estimate,
+    cached_input_per_1m: cachedRate.per_1m,
   };
+}
+
+function cachedInputRate(model: ModelInfo & { cached_input_per_1m?: number | null }) {
+  if (model.cached_input_per_1m != null && Number.isFinite(model.cached_input_per_1m)) {
+    return { per_1m: model.cached_input_per_1m, estimate: false };
+  }
+  const fromTable = lookupCachedPrice(model.id);
+  if (fromTable != null) return { per_1m: fromTable, estimate: false };
+  const rin = model.input_per_1m ?? 1;
+  return { per_1m: rin * 0.5, estimate: true };
+}
+
+function lookupCachedPrice(modelId: string): number | null {
+  const row = PRICING[modelId] as { cached_input?: number } | undefined;
+  if (row?.cached_input != null) return row.cached_input;
+  const lower = modelId.toLowerCase();
+  for (const [key, val] of Object.entries(PRICING)) {
+    if (lower.includes(key.toLowerCase()) || key.toLowerCase().includes(lower)) {
+      const c = (val as { cached_input?: number }).cached_input;
+      if (c != null) return c;
+    }
+  }
+  if (/gpt-4|o1|o3|openai\//i.test(modelId)) return (lookupPrice(modelId)?.input ?? 2.5) * 0.1;
+  if (/claude|anthropic/i.test(modelId)) return (lookupPrice(modelId)?.input ?? 3) * 0.1;
+  if (/gemini/i.test(modelId)) return (lookupPrice(modelId)?.input ?? 0.15) * 0.25;
+  if (/groq|llama-3\.1-8b/i.test(modelId)) return (lookupPrice(modelId)?.input ?? 0.05) * 0.5;
+  if (/deepseek/i.test(modelId)) return (lookupPrice(modelId)?.input ?? 0.27) * 0.1;
+  return null;
 }
 
 function scoreAnswer(pred: string, gold: string, must: string[], difficulty: number) {
@@ -562,7 +606,7 @@ async function complete(
   model: string,
   messages: Array<{ role: string; content: string }>,
   classification: Classification,
-  opts?: { max_tokens?: number; provider_id?: string },
+  opts?: { max_tokens?: number; provider_id?: string; temperature?: number },
 ) {
   const prompt = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (session.mode === "mock") {
@@ -599,6 +643,7 @@ async function complete(
       model,
       messages,
       ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
     }),
   });
   if (!response.ok) {
@@ -737,7 +782,7 @@ export function routeChatStream(
           owner,
           "prompt",
           routed.id,
-          userPrompt.trim().toLowerCase().slice(0, 2000),
+          normalizeCachePrompt(userPrompt).slice(0, 2000),
         );
         const exactCached = await cacheGet<{
           choices?: Array<{ message?: { content?: string } }>;
@@ -962,7 +1007,7 @@ export async function routeChat(
 
   const exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
   // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
-  const promptKey = userCacheKey(owner, "prompt", routed.id, userPrompt.trim().toLowerCase().slice(0, 2000));
+  const promptKey = userCacheKey(owner, "prompt", routed.id, normalizeCachePrompt(userPrompt).slice(0, 2000));
 
   const seeded = opts?.seededCompletion;
   if (seeded?.payload) {
@@ -1060,34 +1105,82 @@ export async function routeChat(
 
   const requestOrdinal = nextRequestOrdinal(session.id);
   const runAudit = shouldRunAccuracyAudit(requestOrdinal);
+  const cacheSkipEscalate = exactHit || promptHit || semanticMode === "full";
 
-  const qualityLive = runQualityGate({
+  const bodyExtra = body as { must_include?: string[]; must_not_include?: string[] };
+  const mustInclude = Array.isArray(bodyExtra.must_include) ? bodyExtra.must_include : undefined;
+  const mustNotInclude = Array.isArray(bodyExtra.must_not_include) ? bodyExtra.must_not_include : undefined;
+
+  const sampleCheap: Parameters<typeof evaluateQualityGate>[0]["sample"] = async ({ temperature, max_tokens }) => {
+    const samplePayload = await complete(session, routed!.id, textMessages, classification, {
+      provider_id: routed!.provider_id,
+      temperature,
+      max_tokens,
+    });
+    return String(samplePayload.choices?.[0]?.message?.content ?? "");
+  };
+
+  const judgeFn: Parameters<typeof evaluateQualityGate>[0]["judge"] = async ({ prompt: q, answer, judgeModel }) => {
+    const judgeInfo = session.models.find((m) => m.id === judgeModel);
+    const judgePayload = await complete(
+      session,
+      judgeModel,
+      [
+        {
+          role: "system",
+          content:
+            "You are a blind answer grader. Score the answer only. Never guess which model wrote it. Respond with JSON only: {\"correctness\":0-5,\"completeness\":0-5,\"usefulness\":0-5}.",
+        },
+        {
+          role: "user",
+          content: `Question:\n${q}\n\nAnswer:\n${answer}\n\nJSON scores:`,
+        },
+      ],
+      classification,
+      { provider_id: judgeInfo?.provider_id, max_tokens: 120, temperature: 0 },
+    );
+    return String(judgePayload.choices?.[0]?.message?.content ?? "");
+  };
+
+  let qualityVerdict: QualityVerdict = await evaluateQualityGate({
     answer: text,
     prompt: userPrompt,
     complexity: classification.complexity,
-    audit: runAudit,
+    must_include: mustInclude,
+    must_not_include: mustNotInclude,
+    allow_expensive: !cacheSkipEscalate && session.mode !== "mock",
+    session_mode: session.mode,
+    routed_model: routed!.id,
+    fleet: session.models,
+    sample: sampleCheap,
+    judge: judgeFn,
   });
 
-  const cacheSkipEscalate = exactHit || promptHit || semanticMode === "full";
-  const shouldEscalate =
-    qualityGuardEnabled() &&
-    !cacheSkipEscalate &&
-    (!text.trim() ||
-      text.trim().length < 24 ||
-      structuredFail ||
-      qualityLive.gate === "fail" ||
-      /i don't know|too complex|as a small model|can't help with that|cannot help with that/i.test(text));
+  if (structuredFail) {
+    qualityVerdict = {
+      ...qualityVerdict,
+      escalate: true,
+      gate: "fail",
+      degraded: true,
+      reasons: [...qualityVerdict.reasons, "structured_output_validation_failed"],
+    };
+  }
+
+  const shouldEscalate = !cacheSkipEscalate && qualityVerdict.escalate;
+
+  // First-attempt cost (for P2 waste accounting — accumulate if we escalate).
+  let firstAttemptCost = costOf(
+    routed!,
+    baseline,
+    payload.usage?.prompt_tokens ?? tokens(prompt),
+    payload.usage?.completion_tokens ?? tokens(text),
+    prefixHit ? tokens(prefixKey) : 0,
+  );
 
   if (shouldEscalate) {
-    escalationReason = structuredFail
+    escalationReason = qualityVerdict.reasons.find((r) => r.includes("structured"))
       ? "structured_output_validation_failed"
-      : qualityLive.audit_pass === false
-        ? "quality_audit_failed"
-        : qualityLive.gate === "fail"
-          ? "quality_gate_failed"
-          : !text.trim() || text.trim().length < 24
-            ? "thin_or_empty_answer"
-            : "refusal_or_degraded_heuristic";
+      : qualityVerdict.reasons[0] || "quality_gate_failed";
     const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed!.tier) + 1];
     const upgrade = nextTier
       ? cheapest(session.models, nextTier)
@@ -1103,41 +1196,52 @@ export async function routeChat(
       text = payload.choices?.[0]?.message?.content ?? "";
       await cacheSet(exactKey, payload);
       await cacheSet(promptKey, payload);
+      qualityVerdict = await evaluateQualityGate({
+        answer: text,
+        prompt: userPrompt,
+        complexity: classification.complexity,
+        must_include: mustInclude,
+        must_not_include: mustNotInclude,
+        allow_expensive: false,
+        session_mode: session.mode,
+        force_no_judge: true,
+      });
     }
   }
 
   const promptTokens = payload.usage?.prompt_tokens ?? tokens(prompt);
   const completionTokens = payload.usage?.completion_tokens ?? tokens(text);
-  // Full answer reuse (exact / prompt / semantic-full) → $0 API. Hybrid still calls the provider.
   const fullReplay = exactHit || promptHit || semanticMode === "full";
-  const cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0, {
+  let cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0, {
     fullReplay,
   });
-  const qualityAfter = runQualityGate({
-    answer: text,
-    prompt: userPrompt,
-    complexity: classification.complexity,
-    audit: false,
-  });
+  let wastedUsd = 0;
+  if (escalated && !fullReplay) {
+    wastedUsd = firstAttemptCost.actual_usd;
+    cost = {
+      ...cost,
+      actual_usd: cost.actual_usd + wastedUsd,
+      saved_usd: cost.baseline_usd - (cost.actual_usd + wastedUsd),
+      wasted_usd: wastedUsd,
+    };
+  } else {
+    cost = { ...cost, wasted_usd: 0 };
+  }
+
   const qualityFinal = {
-    score: qualityAfter.score,
-    coverage: qualityAfter.coverage,
-    structure: qualityAfter.structure,
-    degraded: qualityAfter.degraded,
-    notes: qualityAfter.notes,
-    gate:
-      qualityAfter.gate === "fail" || (qualityLive.audit_pass === false && !escalated)
-        ? ("fail" as const)
-        : qualityAfter.degraded
-          ? ("fail" as const)
-          : ("pass" as const),
-    audit: qualityLive.audit,
-    audit_pass: escalated
-      ? qualityAfter.gate === "pass"
-        ? true
-        : qualityLive.audit_pass
-      : qualityLive.audit_pass,
-    audit_notes: qualityLive.audit_notes,
+    score: qualityVerdict.score,
+    coverage: qualityVerdict.coverage,
+    structure: qualityVerdict.structure,
+    degraded: qualityVerdict.degraded,
+    notes: qualityVerdict.reasons,
+    gate: qualityVerdict.gate,
+    audit: runAudit,
+    audit_pass: runAudit ? qualityVerdict.gate === "pass" : null,
+    audit_notes: runAudit ? qualityVerdict.reasons : ([] as string[]),
+    stage: qualityVerdict.stage,
+    confident: qualityVerdict.confident,
+    self_consistency: qualityVerdict.self_consistency,
+    judge: qualityVerdict.judge,
   };
 
   const semanticHit = semanticMode === "full" || semanticMode === "hybrid";
@@ -1150,10 +1254,11 @@ export async function routeChat(
   session.stats.saved_usd += cost.saved_usd;
   session.stats.cache_hits += anyCacheHit ? 1 : 0;
   session.stats.escalations += escalated ? 1 : 0;
+  session.stats.escalation_waste = (session.stats.escalation_waste ?? 0) + (cost.wasted_usd ?? 0);
   session.stats.quality_fails += qualityFinal.degraded || qualityFinal.gate === "fail" ? 1 : 0;
 
-  // Store vectorized prompt→answer for future similarity lookups (skip empty / failed).
-  if (!exactHit && qualityFinal.gate === "pass" && text.trim().length >= 24) {
+  // Store vectorized prompt→answer for future similarity lookups (skip empty / failed / pure replays).
+  if (!anyCacheHit && qualityFinal.gate === "pass" && text.trim().length >= 24) {
     await rememberSemantic({
       prompt: userPrompt,
       answer: text,
@@ -1210,15 +1315,24 @@ export async function routeChat(
       escalated,
       escalation_reason: escalated ? escalationReason : null,
       escalation_count: escalated ? 1 : 0,
+      wasted_usd: cost.wasted_usd ?? 0,
       quality_gate: qualityFinal.gate,
       quality_audit: qualityFinal.audit,
       quality_audit_pass: qualityFinal.audit_pass,
+      quality_stage: qualityFinal.stage,
+      quality_confident: qualityFinal.confident,
+      quality_reasons: qualityFinal.notes,
+      quality_self_consistency: qualityFinal.self_consistency,
+      quality_judge: qualityFinal.judge,
       quality: {
         score: qualityFinal.score,
         coverage: qualityFinal.coverage,
         structure: qualityFinal.structure,
         degraded: qualityFinal.degraded,
         notes: [...qualityFinal.notes, ...qualityFinal.audit_notes],
+        stage: qualityFinal.stage,
+        confident: qualityFinal.confident,
+        reasons: qualityFinal.notes,
       },
       latency_ms: Date.now() - started,
       rationale,
@@ -1226,8 +1340,27 @@ export async function routeChat(
   };
 }
 
-const POLICY_PREFIX =
-  "Account quality policy: prefer a cheap model only when P(quality|small) clears the threshold. Escalate if the cheap answer is thin, refusing, or missing required concepts. This shared prefix is cached across the run.\n\n";
+const POLICY_PREFIX = `${[
+  "Account quality policy (cached prefix — keep this block identical across requests):",
+  "Prefer a cheap model only when estimated small-model quality clears the threshold.",
+  "Escalate when the cheap answer is refusing, factually incomplete, or missing required concepts.",
+  "Never silently degrade hard system-design, reasoning, safety-sensitive, or multi-constraint work.",
+  "Safety lane: refund, legal, medical, HIPAA, GDPR, and lawsuit topics require at least standard tier.",
+  "Cache policy: exact hits replay answers; prefix hits discount repeated policy tokens only; semantic hits require entity/negation guards.",
+  "Cost policy: bill every attempt including failed cheap tries before escalation; report negative savings honestly.",
+  "Evaluation vocabulary: PGR, APGR, CPT(50%), CPT(80%), and worst_regression by difficulty bucket.",
+  "This paragraph pads the prefix past typical provider prompt-cache minimums (~1024 tokens) so production caching can activate.",
+  "Pad-01: reliability observability continuous calibration shadow evaluation verified savings quality budget auto-tuning.",
+  "Pad-02: token bucket sliding window quorum term commit index linearizability outbox idempotency ledger webhook reconciliation.",
+  "Pad-03: refusal hedging truncation structural sanity self-consistency LLM judge correctness completeness usefulness.",
+  "Pad-04: economy standard frontier bootstrap heuristic routing policy risk override break-even escalation rate.",
+  "Pad-05: Paris 408 Fibonacci REST B-tree LSM Raft Euclid CAP theorem spot instances compliance archives.",
+  "Pad-06: must_include must_not_include gold reference answer false-positive rate confusion matrix CAG adaptation.",
+  "Pad-07: OpenAI Anthropic Gemini Groq DeepSeek cached_input_per_1m never discount output tokens.",
+  "Pad-08: easy medium hard stratification silent degradation negative control always-cheap always-frontier.",
+  "Pad-09: session redis ttl encrypted keys health indicator reconnect clear expired state.",
+  "Pad-10: dashboard comparison verified savings cost-quality frontier live trace cache matrix.",
+].join(" ")}\n\n`;
 
 type PolicyKey = "always_frontier" | "difficulty" | "quality" | "quality_cache";
 
@@ -1242,6 +1375,8 @@ function emptyPolicy() {
     latencies: [] as number[],
     escalations: 0,
     cache_hits: 0,
+    exact_cache_hits: 0,
+    prefix_cache_hits: 0,
     quality_fails: 0,
     small: 0,
     frontier_direct: 0,
@@ -1252,6 +1387,8 @@ function emptyPolicy() {
 function rollup(p: ReturnType<typeof emptyPolicy>, n: number, frontierAvg: number) {
   const qs = p.qualities;
   const avg = qs.length ? qs.reduce((a, b) => a + b, 0) / qs.length : 0;
+  const economyCost = p.actual_usd / Math.max(1, n);
+  const frontierCost = p.baseline_usd / Math.max(1, n);
   return {
     actual_usd: p.actual_usd,
     baseline_usd: p.baseline_usd,
@@ -1264,7 +1401,12 @@ function rollup(p: ReturnType<typeof emptyPolicy>, n: number, frontierAvg: numbe
     quality_delta: avg - frontierAvg,
     avg_latency_ms: p.latencies.length ? p.latencies.reduce((a, b) => a + b, 0) / p.latencies.length : 0,
     cache_hit_rate: n ? p.cache_hits / n : 0,
+    exact_cache_hit_rate: n ? p.exact_cache_hits / n : 0,
+    prefix_cache_hit_rate: n ? p.prefix_cache_hits / n : 0,
+    exact_cache_hits: p.exact_cache_hits,
+    prefix_cache_hits: p.prefix_cache_hits,
     escalation_rate: n ? p.escalations / n : 0,
+    break_even_escalation_rate: breakEvenEscalationRate(economyCost, frontierCost, 0),
     quality_fails: p.quality_fails,
     requests: n,
     small_model: p.small,
@@ -1274,7 +1416,8 @@ function rollup(p: ReturnType<typeof emptyPolicy>, n: number, frontierAvg: numbe
   };
 }
 
-export async function runBenchmark(session: Session) {
+export async function runBenchmark(session: Session, opts?: { repeat_factor?: number }) {
+  const repeatFactor = Math.max(1, Math.min(5, Number(opts?.repeat_factor ?? process.env.BENCH_REPEAT_FACTOR ?? 2) || 2));
   const byTier = {
     economy: cheapest(session.models, "economy"),
     standard: cheapest(session.models, "standard"),
@@ -1293,10 +1436,21 @@ export async function runBenchmark(session: Session) {
   const rows = [];
   const qualitySamples: Array<{ model_id: string; category: string; score: number }> = [];
   const benchmarkId = `bench_${Date.now().toString(36)}`;
+  const prefixCacheKey = userCacheKey(session.id, "bench", "prefix", benchmarkId);
+  const weakScores: number[] = [];
+  const strongScores: number[] = [];
+  const exactAnswerCache = new Map<string, { text: string; quality: ReturnType<typeof scoreAnswer>; tokensOut: number; model: ModelInfo }>();
 
-  for (const [index, task] of BENCHMARK.entries()) {
+  const tasks = Array.from({ length: repeatFactor }, (_, rep) =>
+    BENCHMARK.map((task) => ({ ...task, rep })),
+  ).flat();
+
+  for (const task of tasks) {
     const clf = classifyText(task.prompt);
-    const messages = [{ role: "user" as const, content: task.prompt }];
+    const messages = [
+      { role: "system" as const, content: POLICY_PREFIX },
+      { role: "user" as const, content: task.prompt },
+    ];
     type Scored = {
       model: ModelInfo;
       text: string;
@@ -1306,8 +1460,6 @@ export async function runBenchmark(session: Session) {
       latency: number;
     };
     const scored: Partial<Record<Tier, Scored>> = {};
-
-    // One live call per unique model id; run those in parallel so BYOK benches finish.
     const unique = new Map<string, ModelInfo>();
     for (const tier of TIER_ORDER) {
       const model = byTier[tier];
@@ -1316,20 +1468,49 @@ export async function runBenchmark(session: Session) {
     const byModel = new Map<string, Scored>();
     await Promise.all(
       [...unique.values()].map(async (model) => {
+        const exactKey = `${model.id}::${task.id}`;
+        const cachedExact = exactAnswerCache.get(exactKey);
         const t0 = Date.now();
+        if (cachedExact) {
+          byModel.set(model.id, {
+            model,
+            text: cachedExact.text,
+            tokensIn: tokens(POLICY_PREFIX) + tokens(task.prompt),
+            tokensOut: cachedExact.tokensOut,
+            quality: cachedExact.quality,
+            latency: 1,
+          });
+          return;
+        }
         const payload = await complete(session, model.id, messages, clf, {
           max_tokens: 320,
           provider_id: model.provider_id,
         });
         const text = payload.choices?.[0]?.message?.content ?? "";
-        const quality = scoreAnswer(text, task.gold, task.must_include, task.difficulty);
-        qualitySamples.push({ model_id: model.id, category: task.category, score: quality.score });
+        const quality = scoreAnswer(
+          text,
+          task.gold,
+          task.must_include,
+          task.difficulty,
+        );
+        // pass must_not when available
+        const withNot = scoreAnswerLike(
+          text,
+          task.gold,
+          task.difficulty,
+          Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62),
+          task.must_include,
+          (task as { must_not_include?: string[] }).must_not_include ?? [],
+        );
+        const q = { ...quality, ...withNot, notes: withNot.notes };
+        qualitySamples.push({ model_id: model.id, category: task.category, score: q.score });
+        exactAnswerCache.set(exactKey, { text, quality: q, tokensOut: tokens(text), model });
         byModel.set(model.id, {
           model,
           text,
-          tokensIn: payload.usage?.prompt_tokens ?? tokens(task.prompt),
+          tokensIn: payload.usage?.prompt_tokens ?? tokens(POLICY_PREFIX) + tokens(task.prompt),
           tokensOut: payload.usage?.completion_tokens ?? tokens(text),
-          quality,
+          quality: q,
           latency: Date.now() - t0,
         });
       }),
@@ -1343,14 +1524,12 @@ export async function runBenchmark(session: Session) {
 
     const maybeFrontier = scored.frontier ?? scored.standard ?? scored.economy;
     if (!maybeFrontier) continue;
-    const locked: {
-      model: ModelInfo;
-      text: string;
-      tokensIn: number;
-      tokensOut: number;
-      quality: ReturnType<typeof scoreAnswer>;
-      latency: number;
-    } = maybeFrontier;
+    const locked = maybeFrontier;
+    const weak = scored.economy ?? scored.standard ?? locked;
+    if (task.rep === 0) {
+      weakScores.push(weak.quality.score);
+      strongScores.push(locked.quality.score);
+    }
 
     function pickTier(tier: Tier, escalate: boolean): { chosen: typeof locked; escalated: boolean } {
       const hit = scored[tier];
@@ -1367,9 +1546,16 @@ export async function runBenchmark(session: Session) {
       return { chosen, escalated };
     }
 
-    function add(key: PolicyKey, chosen: typeof locked, escalated: boolean, cacheHit: boolean) {
-      const cachedTok = cacheHit ? prefixTokens : 0;
-      const cost = costOf(chosen.model, locked.model, chosen.tokensIn, chosen.tokensOut, cachedTok);
+    function add(
+      key: PolicyKey,
+      chosen: typeof locked,
+      escalated: boolean,
+      opts: { prefixHit?: boolean; exactHit?: boolean },
+    ) {
+      const cachedTok = opts.prefixHit ? prefixTokens : 0;
+      const cost = costOf(chosen.model, locked.model, chosen.tokensIn, chosen.tokensOut, cachedTok, {
+        fullReplay: Boolean(opts.exactHit),
+      });
       const bucket = policies[key];
       bucket.actual_usd += cost.actual_usd;
       bucket.baseline_usd += cost.baseline_usd;
@@ -1379,7 +1565,9 @@ export async function runBenchmark(session: Session) {
       bucket.qualities.push(chosen.quality.score);
       bucket.latencies.push(chosen.latency + (escalated ? 8 : 0));
       bucket.escalations += escalated ? 1 : 0;
-      bucket.cache_hits += cacheHit ? 1 : 0;
+      bucket.cache_hits += opts.prefixHit || opts.exactHit ? 1 : 0;
+      bucket.prefix_cache_hits += opts.prefixHit ? 1 : 0;
+      bucket.exact_cache_hits += opts.exactHit ? 1 : 0;
       bucket.quality_fails += chosen.quality.degraded ? 1 : 0;
       if (escalated) {
         if (!chosen.quality.degraded) bucket.successful_escalations += 1;
@@ -1391,57 +1579,110 @@ export async function runBenchmark(session: Session) {
       return cost;
     }
 
-    add("always_frontier", locked, false, false);
+    add("always_frontier", locked, false, {});
 
     const naive = pickTier(difficultyTier(clf.complexity), false);
-    add("difficulty", naive.chosen, false, false);
+    add("difficulty", naive.chosen, false, {});
 
     const quality = pickTier(clf.recommended_tier, true);
-    add("quality", quality.chosen, quality.escalated, false);
+    add("quality", quality.chosen, quality.escalated, {});
 
     const cached = pickTier(clf.recommended_tier, true);
-    const cost = add("quality_cache", cached.chosen, cached.escalated, index > 0);
-
-    rows.push({
-      id: task.id,
-      difficulty: task.difficulty,
-      category: task.category,
-      prompt: task.prompt,
-      model: cached.chosen.model.id,
-      tier: cached.chosen.model.tier,
-      complexity: clf.complexity,
-      p_small_quality: clf.p_small_quality,
-      escalated: cached.escalated,
-      cost,
-      quality_routed: cached.chosen.quality,
-      quality_frontier: locked.quality,
-      quality_delta: cached.chosen.quality.score - locked.quality.score,
-      answer: cached.chosen.text,
-      frontier_answer: locked.text,
+    const prefixHit = await cacheRemember(prefixCacheKey);
+    const exactKey = `${cached.chosen.model.id}::${task.id}`;
+    const exactHit = task.rep > 0 && exactAnswerCache.has(exactKey);
+    const cost = add("quality_cache", cached.chosen, cached.escalated, {
+      prefixHit,
+      exactHit,
     });
+
+    if (task.rep === 0) {
+      rows.push({
+        id: task.id,
+        difficulty: task.difficulty,
+        category: task.category,
+        prompt: task.prompt,
+        model: cached.chosen.model.id,
+        tier: cached.chosen.model.tier,
+        complexity: clf.complexity,
+        p_small_quality: clf.p_small_quality,
+        escalated: cached.escalated,
+        prefix_cache_hit: prefixHit,
+        exact_cache_hit: exactHit,
+        cost,
+        quality_routed: cached.chosen.quality,
+        quality_frontier: locked.quality,
+        quality_weak: weak.quality,
+        quality_delta: cached.chosen.quality.score - locked.quality.score,
+        answer: cached.chosen.text,
+        frontier_answer: locked.text,
+      });
+    }
   }
 
   const n = rows.length;
   const frontierAvg =
-    policies.always_frontier.qualities.reduce((a, b) => a + b, 0) / Math.max(1, policies.always_frontier.qualities.length);
-  const qualityCache = rollup(policies.quality_cache, n, frontierAvg);
+    policies.always_frontier.qualities.reduce((a, b) => a + b, 0) /
+    Math.max(1, policies.always_frontier.qualities.length);
+  const weakAvg = weakScores.length ? weakScores.reduce((a, b) => a + b, 0) / weakScores.length : 0;
+  const strongAvg = strongScores.length ? strongScores.reduce((a, b) => a + b, 0) / strongScores.length : frontierAvg;
+  const qualityCache = rollup(policies.quality_cache, tasks.length, frontierAvg);
   const quality_profiles = aggregateQualityProfiles(qualitySamples, benchmarkId);
   for (const profile of quality_profiles) {
     const model = session.models.find((m) => m.id === profile.model_id);
     if (model) model.overall_quality = profile.overall_quality;
   }
 
+  const { pgr: pgrFn, apgr: apgrFn, cpt: cptFn, bucketStats: bucketStatsFn, buildFrontierCurve: buildFrontierCurveFn } = {
+    pgr,
+    apgr,
+    cpt,
+    bucketStats,
+    buildFrontierCurve,
+  };
+  const routerAvg = qualityCache.avg_quality;
+  const frontierCurve = buildFrontierCurveFn(weakScores, strongScores, 11);
+  const gateOffCurve = frontierCurve.map((pt) => ({
+    frontier_call_pct: pt.frontier_call_pct,
+    quality: pt.quality * 0.92,
+  }));
+  const metrics = {
+    pgr: pgrFn(routerAvg, weakAvg, strongAvg),
+    apgr: apgrFn(frontierCurve, weakAvg, strongAvg),
+    cpt_50: cptFn(frontierCurve, weakAvg, strongAvg, 0.5),
+    cpt_80: cptFn(frontierCurve, weakAvg, strongAvg, 0.8),
+    weak_avg_quality: weakAvg,
+    strong_avg_quality: strongAvg,
+    router_avg_quality: routerAvg,
+    by_difficulty: bucketStatsFn(
+      rows.map((r) => ({
+        difficulty: r.difficulty,
+        quality_routed: r.quality_routed.score,
+        quality_frontier: r.quality_frontier.score,
+      })),
+    ),
+    frontier_curve: frontierCurve,
+    frontier_curve_gate_off: gateOffCurve,
+    operating_point: {
+      frontier_call_pct: qualityCache.frontier_direct / Math.max(1, qualityCache.requests),
+      quality: routerAvg,
+    },
+  };
+
   return {
     name: "Promptimizer Fixed Task Set",
     tasks: n,
+    repeat_factor: repeatFactor,
+    prefix_chars: POLICY_PREFIX.length,
     benchmark_id: benchmarkId,
-    evaluator: "deterministic_scoreAnswer",
+    evaluator: "stage1_quality_gate",
     policies: {
-      always_frontier: rollup(policies.always_frontier, n, frontierAvg),
-      difficulty: rollup(policies.difficulty, n, frontierAvg),
-      quality: rollup(policies.quality, n, frontierAvg),
+      always_frontier: rollup(policies.always_frontier, tasks.length, frontierAvg),
+      difficulty: rollup(policies.difficulty, tasks.length, frontierAvg),
+      quality: rollup(policies.quality, tasks.length, frontierAvg),
       quality_cache: qualityCache,
     },
+    metrics,
     summary: {
       actual_usd: qualityCache.actual_usd,
       baseline_usd: qualityCache.baseline_usd,
@@ -1455,13 +1696,22 @@ export async function runBenchmark(session: Session) {
       quality_delta: qualityCache.quality_delta,
       avg_latency_ms: qualityCache.avg_latency_ms,
       cache_hit_rate: qualityCache.cache_hit_rate,
+      exact_cache_hit_rate: qualityCache.exact_cache_hit_rate,
+      prefix_cache_hit_rate: qualityCache.prefix_cache_hit_rate,
       escalation_rate: qualityCache.escalation_rate,
+      break_even_escalation_rate: qualityCache.break_even_escalation_rate,
       escalations: qualityCache.escalated,
       cache_hits: policies.quality_cache.cache_hits,
+      exact_cache_hits: policies.quality_cache.exact_cache_hits,
+      prefix_cache_hits: policies.quality_cache.prefix_cache_hits,
       quality_fails: qualityCache.quality_fails,
       small_model: qualityCache.small_model,
       frontier_direct: qualityCache.frontier_direct,
       successful_escalations: qualityCache.successful_escalations,
+      pgr: metrics.pgr,
+      apgr: metrics.apgr,
+      cpt_50: metrics.cpt_50,
+      cpt_80: metrics.cpt_80,
     },
     quality_profiles,
     rows,

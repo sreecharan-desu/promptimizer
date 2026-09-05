@@ -159,6 +159,12 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
               </li>
               <li>
                 Escalations <span className="text-primary">{savings.escalations}</span>
+                {savings.requests ? (
+                  <span className="text-secondary">
+                    {" "}
+                    · rate {Math.round((savings.escalations / savings.requests) * 100)}%
+                  </span>
+                ) : null}
               </li>
               <li>
                 Gate pass{" "}
