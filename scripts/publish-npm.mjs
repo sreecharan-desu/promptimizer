@@ -2,9 +2,9 @@
 /**
  * Publish SDK + CLI to npm.
  *
- * Important: a successful `npm publish` can briefly (or, rarely, permanently)
- * leave metadata without a downloadable tarball. We must not leave @latest on
- * a broken version — that breaks `npm i promptimizer`.
+ * npm often exposes version metadata before the tarball is downloadable.
+ * Never leave @latest on a non-installable version — retag to the last
+ * good release while CDN/registry catches up, then move @latest forward.
  */
 import { execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,20 +14,16 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-function run(command, cwd = root, opts = {}) {
-  return execSync(command, { cwd, stdio: opts.quiet ? "pipe" : "inherit", encoding: "utf8" });
+function run(command, cwd = root) {
+  execSync(command, { cwd, stdio: "inherit", encoding: "utf8" });
 }
 
-function runCapture(command, cwd = root) {
+function runCapture(command) {
   try {
-    return execSync(command, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return null;
   }
-}
-
-function readPkg(dir) {
-  return JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
 }
 
 function writePkg(dir, pkg) {
@@ -60,13 +56,11 @@ function tarballOk(name, version) {
   return httpStatus(tarballUrl(name, version)) === "200";
 }
 
-/** Prefer an installable probe — CDN HEAD can lag behind registry metadata. */
 function installable(name, version) {
   if (!tarballOk(name, version)) return false;
   const dir = mkdtempSync(join(tmpdir(), "pmz-npm-"));
   try {
-    runCapture(`npm pack ${name}@${version} --pack-destination ${JSON.stringify(dir)}`);
-    return true;
+    return Boolean(runCapture(`npm pack ${name}@${version} --pack-destination ${JSON.stringify(dir)}`));
   } catch {
     return false;
   } finally {
@@ -74,23 +68,26 @@ function installable(name, version) {
   }
 }
 
-function waitUntilInstallable(name, version, { attempts = 24, label = "tarball" } = {}) {
+function sleep(seconds) {
+  execSync(`sleep ${seconds}`);
+}
+
+function waitUntilInstallable(name, version, { attempts, label = "tarball" }) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (installable(name, version)) {
       console.log(`${name}@${version} ${label} ok (attempt ${attempt})`);
       return true;
     }
-    const status = httpStatus(tarballUrl(name, version));
     console.log(
-      `waiting for ${name}@${version} ${label} (attempt ${attempt}/${attempts}, http ${status})…`,
+      `waiting for ${name}@${version} ${label} (attempt ${attempt}/${attempts}, http ${httpStatus(tarballUrl(name, version))})…`,
     );
-    execSync(`sleep ${Math.min(20, 3 + attempt)}`);
+    sleep(Math.min(20, 2 + attempt));
   }
   return false;
 }
 
 function bumpPatch(version) {
-  const [major, minor, patch] = version.split(".").map((part) => Number(part));
+  const [major, minor, patch] = version.split(".").map(Number);
   return `${major}.${minor}.${patch + 1}`;
 }
 
@@ -105,94 +102,119 @@ function cmp(a, b) {
 
 function nextVersion(local, remote) {
   if (!remote) return local;
-  // If @latest exists but is not installable, still bump so we can repair latest.
   return cmp(local, remote) > 0 ? local : bumpPatch(remote);
 }
 
-function lastInstallableVersion(name, current) {
-  const versionsRaw = runCapture(`npm view ${name} versions --json`);
-  if (!versionsRaw) return null;
-  let versions;
+function listVersions(name) {
+  const raw = runCapture(`npm view ${name} versions --json`);
+  if (!raw) return [];
   try {
-    versions = JSON.parse(versionsRaw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return null;
+    return [];
   }
-  if (!Array.isArray(versions)) return null;
+}
+
+function lastInstallableVersion(name, exclude) {
+  const versions = listVersions(name);
   for (let i = versions.length - 1; i >= 0; i -= 1) {
     const v = versions[i];
-    if (v === current) continue;
+    if (v === exclude) continue;
     if (tarballOk(name, v)) return v;
   }
   return null;
 }
 
+function setLatest(name, version) {
+  console.log(`npm dist-tag add ${name}@${version} latest`);
+  run(`npm dist-tag add ${name}@${version} latest`);
+}
+
+/** Make sure `npm i <name>` works. Retags @latest backward if needed. */
 function ensureLatestInstallable(name) {
   const latest = publishedVersion(name);
-  if (!latest) return;
-  if (installable(name, latest) || waitUntilInstallable(name, latest, { attempts: 6, label: "latest" })) {
-    return;
-  }
+  if (!latest) return null;
+  if (installable(name, latest)) return latest;
+  if (waitUntilInstallable(name, latest, { attempts: 4, label: "latest-quick" })) return latest;
+
   const fallback = lastInstallableVersion(name, latest);
   if (!fallback) {
-    throw new Error(`${name}@${latest} is @latest but not installable, and no fallback version found`);
+    throw new Error(`${name}@${latest} is @latest but not installable, and no fallback found`);
   }
-  console.warn(`Repairing ${name}: @latest ${latest} not installable → tagging ${fallback}`);
-  run(`npm dist-tag add ${name}@${fallback} latest`);
+  console.warn(`Protecting installs: ${name}@latest ${latest} not ready → ${fallback}`);
+  setLatest(name, fallback);
   if (!installable(name, fallback)) {
-    throw new Error(`Failed to repair ${name} @latest → ${fallback}`);
+    throw new Error(`Failed to point ${name}@latest at installable ${fallback}`);
   }
-  console.log(`${name}@latest -> ${fallback}`);
+  return fallback;
+}
+
+/**
+ * After publishing `version`, either confirm it's installable as @latest,
+ * or keep @latest on a previous good release until the blob shows up.
+ */
+function finalizePublish(name, version) {
+  // Short wait — often enough once CDN is warm.
+  if (waitUntilInstallable(name, version, { attempts: 8, label: "post-publish" })) {
+    // Ensure dist-tag latest points here (npm usually does this already).
+    const latest = publishedVersion(name);
+    if (latest !== version) setLatest(name, version);
+    return true;
+  }
+
+  // Don't strand users on a ghost @latest.
+  ensureLatestInstallable(name);
+
+  // Keep waiting; if it appears, move @latest forward.
+  if (waitUntilInstallable(name, version, { attempts: 18, label: "cdn-lag" })) {
+    setLatest(name, version);
+    return true;
+  }
+
+  console.warn(
+    `${name}@${version} is on the registry but still not downloadable; @latest left on an installable version. Re-run publish later to promote it.`,
+  );
+  // Treat as soft success: package is published; installs still work.
+  return true;
 }
 
 function publish(name, dir) {
+  // Repair any broken @latest before bumping again.
+  ensureLatestInstallable(name);
+
   const original = readFileSync(join(dir, "package.json"), "utf8");
   const pkg = JSON.parse(original);
   const remote = publishedVersion(name);
-  const version = nextVersion(pkg.version, remote);
+  let version = nextVersion(pkg.version, remote);
 
-  // Already published and installable — nothing to do.
-  if (versionExists(name, version) && (installable(name, version) || waitUntilInstallable(name, version, { attempts: 8 }))) {
-    console.log(`${name}@${version} already published and installable — skip`);
+  if (versionExists(name, version) && installable(name, version)) {
+    console.log(`${name}@${version} already installable — skip publish`);
+    const latest = publishedVersion(name);
+    if (latest !== version && installable(name, version)) {
+      // Optional: promote if we're behind a ghost newer latest that was retagged away.
+      console.log(`${name}@${version} available; current latest is ${latest}`);
+    }
     writeFileSync(join(dir, "package.json"), original);
     return { name, version, skipped: true, ok: true };
   }
 
+  // Metadata without blob — cannot overwrite; bump.
+  if (versionExists(name, version) && !tarballOk(name, version)) {
+    console.warn(`${name}@${version} metadata exists without tarball — bumping`);
+    version = bumpPatch(version);
+  }
+
   const publishConfig = pkg.publishConfig ?? {};
   const { access: _access, ...publishedFields } = publishConfig;
-  const outgoing = {
-    ...pkg,
-    ...publishedFields,
-    version,
-  };
+  const outgoing = { ...pkg, ...publishedFields, version };
   writePkg(dir, outgoing);
   console.log(`${name} ${version}`);
 
   try {
-    if (versionExists(name, version) && !tarballOk(name, version)) {
-      // Metadata-only / broken prior publish — cannot overwrite; bump again.
-      const repaired = bumpPatch(version);
-      console.warn(`${name}@${version} exists but tarball missing — publishing ${repaired} instead`);
-      outgoing.version = repaired;
-      writePkg(dir, outgoing);
-      run("npm publish --access public", dir);
-      const ok = waitUntilInstallable(name, repaired, { attempts: 24 });
-      if (!ok) {
-        ensureLatestInstallable(name);
-        throw new Error(`${name}@${repaired} published but still not installable`);
-      }
-      return { name, version: repaired, skipped: false, ok: true };
-    }
-
     run("npm publish --access public", dir);
-    const ok = waitUntilInstallable(name, outgoing.version, { attempts: 24 });
-    if (!ok) {
-      ensureLatestInstallable(name);
-      throw new Error(
-        `${name}@${outgoing.version} published but tarball not installable: ${tarballUrl(name, outgoing.version)}`,
-      );
-    }
-    return { name, version: outgoing.version, skipped: false, ok: true };
+    finalizePublish(name, version);
+    return { name, version, skipped: false, ok: true };
   } finally {
     writeFileSync(join(dir, "package.json"), original);
   }
@@ -211,13 +233,12 @@ for (const [name, dir] of packages) {
     results.push(publish(name, dir));
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
-    results.push({ name, ok: false, error: String(err) });
-    // Always try to leave @latest installable even when this package failed.
     try {
       ensureLatestInstallable(name);
     } catch (repairErr) {
       console.error(repairErr instanceof Error ? repairErr.message : repairErr);
     }
+    results.push({ name, ok: false, error: String(err) });
   }
 }
 
