@@ -1,4 +1,4 @@
-import { API_URL, SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
+import { API_URL, DOCS_HOME, DOCS_URL, SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 
 export function JsonLd() {
   const graph = {
@@ -48,11 +48,11 @@ export function JsonLd() {
         ],
         softwareHelp: {
           "@type": "CreativeWork",
-          url: `${SITE_URL}/docs`,
+          url: DOCS_HOME,
         },
         downloadUrl: "https://www.npmjs.com/package/promptimizer",
-        installUrl: `${SITE_URL}/docs/quickstart`,
-        discussionUrl: `${SITE_URL}/docs/api`,
+        installUrl: `${DOCS_URL}/docs/quickstart`,
+        discussionUrl: `${DOCS_URL}/docs/api`,
         codeRepository: "https://github.com/sreecharan-desu/promptimizer",
         provider: { "@id": `${SITE_URL}/#organization` },
       },
@@ -61,7 +61,7 @@ export function JsonLd() {
         "@id": `${SITE_URL}/#api`,
         name: `${SITE_NAME} API`,
         description: "OpenAI-compatible chat completions gateway with routing metadata.",
-        documentation: `${SITE_URL}/docs/api`,
+        documentation: `${DOCS_URL}/docs/api`,
         url: `${API_URL}/v1`,
         provider: { "@id": `${SITE_URL}/#organization` },
       },

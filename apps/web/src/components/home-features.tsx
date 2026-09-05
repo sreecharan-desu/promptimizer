@@ -1,23 +1,24 @@
 import Link from "next/link";
+import { DOCS_URL } from "@/lib/site";
 import { ClassifySpot, RouteSpot, SaveSpot } from "./home-spots";
 
 const FEATURES = [
   {
-    href: "/docs/guides/classification",
+    href: `${DOCS_URL}/docs/guides/classification`,
     name: "Classify",
     title: "Know the ask before you spend.",
     dek: "Each request gets a complexity score and a quality risk before any model is called.",
     art: <ClassifySpot />,
   },
   {
-    href: "/docs/guides/routing",
+    href: `${DOCS_URL}/docs/guides/routing`,
     name: "Route",
     title: "Send it where it belongs.",
     dek: "Economy when the ask is light. Frontier when it isn't. Escalate only when the answer fails the gate.",
     art: <RouteSpot />,
   },
   {
-    href: "/docs/guides/caching",
+    href: `${DOCS_URL}/docs/guides/caching`,
     name: "Measure",
     title: "Keep the ledger honest.",
     dek: "Cache repeated prefixes, record cost versus always-frontier, and keep a quality gate on every answer.",

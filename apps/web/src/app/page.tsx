@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CodePanel } from "@/components/code-panel";
 import { HomeFeatures } from "@/components/home-features";
 import { HeroSpot, StartSpot } from "@/components/home-spots";
+import { DOCS_HOME, DOCS_URL } from "@/lib/site";
 
 export default function HomePage() {
   return (
@@ -26,7 +27,7 @@ export default function HomePage() {
                 Get started
               </Link>
               <Link
-                href="/docs"
+                href={DOCS_HOME}
                 className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
               >
                 Documentation
@@ -88,7 +89,7 @@ export default function HomePage() {
                   Get started
                 </Link>
                 <Link
-                  href="/docs/sdk"
+                  href={`${DOCS_URL}/docs/sdk`}
                   className="inline-flex h-11 items-center rounded-full px-5 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
                 >
                   npm i promptimizer

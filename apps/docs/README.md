@@ -1,9 +1,11 @@
 # Promptimizer docs
 
-Mintlify source. The live site renders the same information architecture at `/docs`.
+Mintlify source lives here for local preview. Production docs are served at
+[https://docs.promptimizer.site/docs](https://docs.promptimizer.site/docs)
+(same IA as the Next.js `/docs` routes on the main app).
 
 ```bash
 npx mintlify dev
 ```
 
-From the repo root: `cd apps/docs && npx mintlify dev`. Connect this folder to [Mintlify](https://mintlify.com) if you want a hosted `docs.*` subdomain.
+From the repo root: `cd apps/docs && npx mintlify dev`.

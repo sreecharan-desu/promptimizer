@@ -1,8 +1,9 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/lib/site";
+import { DOCS_URL, SITE_URL } from "@/lib/site";
 
-const paths = [
-  "",
+const mainPaths = ["", "/console", "/portal", "/account", "/login", "/signup", "/privacy", "/terms"];
+
+const docsPaths = [
   "/docs",
   "/docs/quickstart",
   "/docs/concepts",
@@ -16,21 +17,22 @@ const paths = [
   "/docs/guides/byok",
   "/docs/guides/benchmark",
   "/docs/portal",
-  "/console",
-  "/portal",
-  "/account",
-  "/login",
-  "/signup",
-  "/privacy",
-  "/terms",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
-  return paths.map((path) => ({
-    url: `${SITE_URL}${path || "/"}`,
-    lastModified: now,
-    changeFrequency: path.startsWith("/docs") ? "weekly" : path === "" ? "daily" : "monthly",
-    priority: path === "" ? 1 : path.startsWith("/docs") ? 0.8 : path === "/console" || path === "/portal" ? 0.7 : 0.5,
-  }));
+  return [
+    ...mainPaths.map((path) => ({
+      url: `${SITE_URL}${path || "/"}`,
+      lastModified: now,
+      changeFrequency: (path === "" ? "daily" : "monthly") as const,
+      priority: path === "" ? 1 : path === "/console" || path === "/portal" ? 0.7 : 0.5,
+    })),
+    ...docsPaths.map((path) => ({
+      url: `${DOCS_URL}${path}`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    })),
+  ];
 }

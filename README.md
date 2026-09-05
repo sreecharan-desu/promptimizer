@@ -7,8 +7,8 @@
 OpenAI-compatible middleware that classifies each request, routes it to the cheapest adequate model, applies prompt caching, and reports **cost saved versus always-frontier** alongside **quality** — so cheaper never means silently worse.
 
 **[Demo](https://www.promptimizer.site)** ·
-**[Docs](https://www.promptimizer.site/docs)** ·
-**[API](https://www.promptimizer.site/docs/api)** ·
+**[Docs](https://docs.promptimizer.site/docs)** ·
+**[API](https://docs.promptimizer.site/docs/api)** ·
 **[Portal](https://www.promptimizer.site/portal)**
 
 ---
@@ -136,9 +136,9 @@ npm test --workspace=@promptimizer/web
 
 ## Documentation
 
-- Product docs: [www.promptimizer.site/docs](https://www.promptimizer.site/docs)
-- API reference: [/docs/api](https://www.promptimizer.site/docs/api)
-- SDK: [/docs/sdk](https://www.promptimizer.site/docs/sdk)
+- Product docs: [docs.promptimizer.site/docs](https://docs.promptimizer.site/docs)
+- API reference: [/docs/api](https://docs.promptimizer.site/docs/api)
+- SDK: [/docs/sdk](https://docs.promptimizer.site/docs/sdk)
 - Local OpenAPI: `http://localhost:8000/docs`
 - Mintlify: `cd apps/docs && npx mintlify dev`
 

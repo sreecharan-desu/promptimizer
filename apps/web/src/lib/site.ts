@@ -1,6 +1,9 @@
 /** Canonical public site URL (no trailing slash). */
 export const SITE_HOST = "www.promptimizer.site";
 export const SITE_URL = `https://${SITE_HOST}`;
+export const DOCS_HOST = "docs.promptimizer.site";
+export const DOCS_URL = `https://${DOCS_HOST}`;
+export const DOCS_HOME = `${DOCS_URL}/docs`;
 export const API_URL = `${SITE_URL}/api`;
 export const DEFAULT_GATEWAY_URL = API_URL;
 

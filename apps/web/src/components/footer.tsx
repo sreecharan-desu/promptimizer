@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { DOCS_HOME } from "@/lib/site";
+
 const COLUMNS = [
   {
     title: "Product",
@@ -15,7 +17,7 @@ const COLUMNS = [
   },
   {
     title: "Developers",
-    links: [{ href: "/docs", label: "Docs" }],
+    links: [{ href: DOCS_HOME, label: "Docs" }],
   },
   {
     title: "Legal",
