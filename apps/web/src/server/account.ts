@@ -58,17 +58,10 @@ export async function createUser(input: { email: string; password: string; name:
   const sql = getSql();
   const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
   if (existing.length) throw Object.assign(new Error("An account with that email already exists."), { status: 409 });
-  const user = {
-    id: newId("usr"),
-    email,
-    name: input.name.trim() || email.split("@")[0],
-    password_hash: hashPassword(input.password),
-    email_verified_at: new Date(),
-  };
-  // Hackathon: skip email verification gate — accounts are usable immediately.
+  const user = { id: newId("usr"), email, name: input.name.trim() || email.split("@")[0], password_hash: hashPassword(input.password) };
   await sql`
-    INSERT INTO users (id, email, name, password_hash, email_verified_at)
-    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash}, ${user.email_verified_at})
+    INSERT INTO users (id, email, name, password_hash)
+    VALUES (${user.id}, ${user.email}, ${user.name}, ${user.password_hash})
   `;
   return publicUser(user);
 }
@@ -86,6 +79,12 @@ export async function loginUser(email: string, password: string) {
   }
   if (!row || !verifyPassword(password, hash)) {
     throw Object.assign(new Error("Email or password is wrong."), { status: 401 });
+  }
+  if (!asRecord(row).email_verified_at) {
+    throw Object.assign(new Error("Verify your email first. We can send another link."), {
+      status: 403,
+      code: "unverified",
+    });
   }
   return publicUser(row);
 }

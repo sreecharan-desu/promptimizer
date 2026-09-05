@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createUser, writeSessionCookie } from "@/server/account";
+import { createUser, deleteUser } from "@/server/account";
 import { authConfigured } from "@/server/db";
+import { sendVerificationEmail } from "@/server/email-auth";
+import { siteOrigin } from "@/server/google";
+import { mailConfigured } from "@/server/mail";
 import { clientIp, rateLimit } from "@/server/rate-limit";
 
 export async function POST(request: NextRequest) {
@@ -10,14 +13,25 @@ export async function POST(request: NextRequest) {
       { status: 503 },
     );
   }
+  if (!mailConfigured()) {
+    return NextResponse.json({ detail: "Email sending is not configured." }, { status: 503 });
+  }
   const limited = await rateLimit("auth", clientIp(request));
   if (limited) return limited;
+  let user: { id: string; email: string } | null = null;
   try {
     const body = await request.json();
-    const user = await createUser({ email: body.email ?? "", password: body.password ?? "", name: body.name ?? "" });
-    await writeSessionCookie(user.id);
-    return NextResponse.json({ user });
+    user = await createUser({ email: body.email ?? "", password: body.password ?? "", name: body.name ?? "" });
+    await sendVerificationEmail(user.id, user.email, siteOrigin(request));
+    return NextResponse.json({ verify: true, email: user.email });
   } catch (error) {
+    if (user) {
+      try {
+        await deleteUser(user.id);
+      } catch {
+        /* keep the original error */
+      }
+    }
     const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 400;
     return NextResponse.json(
       { detail: error instanceof Error ? error.message : "Could not create account." },

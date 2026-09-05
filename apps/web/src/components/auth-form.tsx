@@ -15,13 +15,13 @@ export function AuthForm({
   mode,
   next,
   configured,
+  mailReady,
   errorCode,
 }: {
   mode: "login" | "signup";
   next?: string;
   configured: boolean;
-  /** @deprecated Hackathon: email verification is off; kept for call-site compat. */
-  mailReady?: boolean;
+  mailReady: boolean;
   errorCode?: string;
 }) {
   const router = useRouter();
@@ -29,6 +29,7 @@ export function AuthForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(errorCode ? ERRORS[errorCode] ?? "Could not sign in." : null);
+  const [unverified, setUnverified] = useState(false);
   const [busy, setBusy] = useState(false);
   const dest = next && next.startsWith("/") ? next : "/console";
 
@@ -36,6 +37,7 @@ export function AuthForm({
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setUnverified(false);
     try {
       const response = await fetch(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
         method: "POST",
@@ -44,7 +46,12 @@ export function AuthForm({
       });
       const data = await response.json();
       if (!response.ok) {
+        if (data.code === "unverified") setUnverified(true);
         throw new Error(data.detail ?? "Request failed");
+      }
+      if (data.verify) {
+        router.push(`/verify?sent=1&email=${encodeURIComponent(email.trim().toLowerCase())}`);
+        return;
       }
       invalidateMe();
       await loadMe(true);
@@ -56,6 +63,23 @@ export function AuthForm({
       setBusy(false);
     }
   }
+
+  async function resend() {
+    setBusy(true);
+    setError(null);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      router.push(`/verify?sent=1&email=${encodeURIComponent(email.trim().toLowerCase())}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const emailSignupBlocked = mode === "signup" && !mailReady;
 
   return (
     <AuthPanel
@@ -80,63 +104,79 @@ export function AuthForm({
             or
             <span className="h-px flex-1 bg-primary/10" />
           </div>
-          <form onSubmit={submit} className="space-y-4">
-            {mode === "signup" ? (
+          {emailSignupBlocked ? (
+            <p className="rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-3 text-sm text-secondary">
+              Email signup needs GOOGLE_MAIL_USER and GOOGLE_MAIL_PASSWORD so we can send a verification link.
+            </p>
+          ) : (
+            <form onSubmit={submit} className="space-y-4">
+              {mode === "signup" ? (
+                <label className="block">
+                  <span className="text-sm text-secondary">Name</span>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
+                    placeholder="Ada Lovelace"
+                    className={AUTH_FIELD}
+                  />
+                </label>
+              ) : null}
               <label className="block">
-                <span className="text-sm text-secondary">Name</span>
+                <span className="text-sm text-secondary">Email</span>
                 <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                  placeholder="Ada Lovelace"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  placeholder="you@company.com"
                   className={AUTH_FIELD}
                 />
               </label>
-            ) : null}
-            <label className="block">
-              <span className="text-sm text-secondary">Email</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                placeholder="you@company.com"
-                className={AUTH_FIELD}
-              />
-            </label>
-            <div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="auth-password" className="text-sm text-secondary">
-                  Password
-                </label>
-                {mode === "login" ? (
-                  <Link href="/forgot-password" className="text-sm text-primary">
-                    Forgot password?
-                  </Link>
-                ) : null}
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="auth-password" className="text-sm text-secondary">
+                    Password
+                  </label>
+                  {mode === "login" ? (
+                    <Link href="/forgot-password" className="text-sm text-primary">
+                      Forgot password?
+                    </Link>
+                  ) : null}
+                </div>
+                <input
+                  id="auth-password"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  placeholder="At least 8 characters"
+                  className={AUTH_FIELD}
+                />
               </div>
-              <input
-                id="auth-password"
-                type="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                placeholder="At least 8 characters"
-                className={AUTH_FIELD}
-              />
-            </div>
-            {error ? <p className="text-sm text-error">{error}</p> : null}
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-60"
-            >
-              {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
-            </button>
-          </form>
+              {error ? <p className="text-sm text-error">{error}</p> : null}
+              {unverified ? (
+                <button
+                  type="button"
+                  onClick={resend}
+                  disabled={busy}
+                  className="text-sm text-primary disabled:opacity-60"
+                >
+                  Send another verification link
+                </button>
+              ) : null}
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex h-11 w-full items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-60"
+              >
+                {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
+              </button>
+            </form>
+          )}
         </div>
       )}
       <p className="mt-6 text-sm text-secondary">
@@ -162,22 +202,22 @@ export function AuthForm({
 
 function GoogleMark() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
       <path
-        fill="#4285F4"
-        d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"
+        fill="#FFC107"
+        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"
       />
       <path
-        fill="#34A853"
-        d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"
+        fill="#FF3D00"
+        d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"
       />
       <path
-        fill="#FBBC05"
-        d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"
+        fill="#4CAF50"
+        d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"
       />
       <path
-        fill="#EA4335"
-        d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"
+        fill="#1976D2"
+        d="M43.6 20.5H42V20H24v8h11.3c-1.1 3.2-3.5 5.7-6.7 7.2l6.3 5.3C38.4 37.4 44 31.5 44 24c0-1.2-.1-2.3-.4-3.5z"
       />
     </svg>
   );
