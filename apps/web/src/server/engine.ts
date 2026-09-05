@@ -1330,8 +1330,13 @@ export async function routeChat(
   session.stats.quality_fails += qualityFinal.degraded || qualityFinal.gate === "fail" ? 1 : 0;
   putSession(session);
 
-  // Store vectorized prompt→answer for future similarity lookups (skip empty / failed / pure replays).
-  if (!fullReplay && qualityFinal.gate === "pass" && text.trim().length >= 24) {
+  // Store vectorized prompt→answer for future similarity lookups.
+  // Allow short numeric answers ("4") — only skip empty / failed / pure replays.
+  const answerOk =
+    text.trim().length >= 24 ||
+    (/^\s*[\d.\-]+\s*$/.test(text) && text.trim().length > 0) ||
+    (text.trim().length >= 1 && text.trim().length < 24 && classification.complexity <= 2);
+  if (!fullReplay && qualityFinal.gate === "pass" && answerOk) {
     await rememberSemantic({
       prompt: userPrompt,
       answer: text,
