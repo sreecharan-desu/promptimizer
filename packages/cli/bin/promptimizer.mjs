@@ -28,16 +28,39 @@ const color = process.stdout.isTTY
 
 const ANSI_OK = Boolean(process.stdout.isTTY);
 
-/** Inline markdown → ANSI (bold, italic, code, links). */
+/** Inline markdown → ANSI (bold, italic, code, links). Strips markers even without a TTY. */
 function styleInline(text) {
   let s = String(text);
-  // code first so we don't style inside backticks
-  s = s.replace(/`([^`]+)`/g, (_, code) => color(ANSI.cyan, code));
-  s = s.replace(/\*\*([^*]+)\*\*/g, (_, t) => color(ANSI.bold, t));
-  s = s.replace(/__([^_]+)__/g, (_, t) => color(ANSI.bold, t));
-  s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, (_, t) => color(ANSI.dim, t));
-  s = s.replace(/(?<!_)_([^_\n]+)_(?!_)/g, (_, t) => color(ANSI.dim, t));
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => `${color(ANSI.blue, label)} ${color(ANSI.dim, `(${url})`)}`);
+  // Protect code spans first
+  const codes = [];
+  s = s.replace(/`([^`]+)`/g, (_, code) => {
+    const token = `\u0000C${codes.length}\u0000`;
+    codes.push(color(ANSI.cyan, code));
+    return token;
+  });
+  // Bold before italic so ** wins over *
+  s = s.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (_, t) => color(ANSI.bold, t));
+  s = s.replace(/__((?:[^_]|_(?!_))+?)__/g, (_, t) => color(ANSI.bold, t));
+  s = s.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, (_, t) => color(ANSI.dim, t));
+  s = s.replace(/(?<!_)_([^_\n]+?)_(?!_)/g, (_, t) => color(ANSI.dim, t));
+  s = s.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (_, label, url) => `${color(ANSI.blue, label)} ${color(ANSI.dim, `(${url})`)}`,
+  );
+  // Restore code
+  s = s.replace(/\u0000C(\d+)\u0000/g, (_, i) => codes[Number(i)] ?? "");
+  return s;
+}
+
+/** Soft-normalize messy model markdown before line parsing. */
+function normalizeMarkdownSource(source) {
+  let s = String(source).replace(/\r\n/g, "\n");
+  // Break glued heading markers: "---### Title" / "text### Title"
+  s = s.replace(/([^\n#])(#{1,6}\s)/g, "$1\n$2");
+  // Break glued thematic break before heading: "---###"
+  s = s.replace(/(-{3,}|_{3,}|\*{3,})(#{1,6}\s)/g, "$1\n$2");
+  // Ensure list markers start on their own line when jammed after text
+  s = s.replace(/([.:;!?])\s*([-*+]\s+\*\*)/g, "$1\n$2");
   return s;
 }
 
@@ -47,7 +70,7 @@ function styleInline(text) {
  */
 function renderMarkdown(source) {
   if (!source) return "";
-  const lines = String(source).replace(/\r\n/g, "\n").split("\n");
+  const lines = normalizeMarkdownSource(source).split("\n");
   const outLines = [];
   let i = 0;
   let inFence = false;
@@ -56,10 +79,10 @@ function renderMarkdown(source) {
   while (i < lines.length) {
     const line = lines[i];
 
-    if (line.startsWith("```")) {
+    if (line.trimStart().startsWith("```")) {
       if (!inFence) {
         inFence = true;
-        fenceLang = line.slice(3).trim();
+        fenceLang = line.trimStart().slice(3).trim();
         outLines.push(color(ANSI.dim, fenceLang ? `┌─ ${fenceLang}` : "┌─"));
       } else {
         inFence = false;
@@ -80,7 +103,7 @@ function renderMarkdown(source) {
       const level = line.match(/^#+/)[0].length;
       const title = line.replace(/^#{1,6}\s+/, "");
       const styled = styleInline(title);
-      outLines.push(level <= 2 ? color(ANSI.bold, styled) : styled);
+      outLines.push(level <= 2 ? color(ANSI.bold, styled) : color(ANSI.bold, styled));
       i += 1;
       continue;
     }
@@ -115,14 +138,13 @@ function renderMarkdown(source) {
     }
 
     if (line.includes("|") && line.trim().startsWith("|")) {
-      // simple table row — strip pipes, pad lightly
       const cells = line
         .split("|")
         .slice(1, -1)
         .map((c) => c.trim());
       if (cells.every((c) => /^:?-+:?$/.test(c))) {
         i += 1;
-        continue; // separator
+        continue;
       }
       outLines.push(`  ${cells.map((c) => styleInline(c)).join(color(ANSI.dim, " · "))}`);
       i += 1;
@@ -139,7 +161,6 @@ function renderMarkdown(source) {
     i += 1;
   }
 
-  // Trim trailing blank lines
   while (outLines.length && outLines[outLines.length - 1] === "") outLines.pop();
   return outLines.join("\n");
 }
@@ -149,8 +170,7 @@ function printAnswer(text) {
     out(color(ANSI.dim, "(empty)"));
     return;
   }
-  const rendered = ANSI_OK ? renderMarkdown(text) : text;
-  process.stdout.write(`${rendered}\n`);
+  process.stdout.write(`${renderMarkdown(text)}\n`);
 }
 
 function sleep(ms) {
@@ -175,17 +195,15 @@ async function streamAnswer(text, opts = {}) {
     out(color(ANSI.dim, "(empty)"));
     return;
   }
+  const rendered = renderMarkdown(text);
   if (!ANSI_OK) {
-    process.stdout.write(`${text}\n`);
+    process.stdout.write(`${rendered}\n`);
     return;
   }
-  const rendered = renderMarkdown(text);
   const cacheHit = Boolean(opts.cacheHit);
-  // ~chars per second for the visible body (escapes are free)
-  const cps = cacheHit ? 14_000 : opts.fast ? 9_000 : 5_500;
-  const chunkSize = Math.max(8, Math.floor(cps / 80));
+  const cps = cacheHit ? 16_000 : opts.fast ? 10_000 : 6_000;
+  const chunkSize = Math.max(12, Math.floor(cps / 90));
   let pending = "";
-  let visible = 0;
 
   for (const part of ansiChunks(rendered)) {
     if (part.startsWith("\x1b")) {
@@ -195,19 +213,16 @@ async function streamAnswer(text, opts = {}) {
     for (let i = 0; i < part.length; ) {
       const slice = part.slice(i, i + chunkSize);
       pending += slice;
-      visible += slice.length;
       i += slice.length;
       if (pending.length >= chunkSize || slice.includes("\n")) {
         process.stdout.write(pending);
         pending = "";
-        await sleep(Math.max(4, Math.round((1000 * chunkSize) / cps)));
+        await sleep(Math.max(3, Math.round((1000 * chunkSize) / cps)));
       }
     }
   }
   if (pending) process.stdout.write(pending);
   process.stdout.write("\n");
-  // silence unused when tiny answers finish in one tick
-  void visible;
 }
 
 function isCacheHit(meta) {
