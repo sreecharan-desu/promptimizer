@@ -284,16 +284,19 @@ function dedupeFleet(session: Session) {
   const unique = new Map<string, ModelInfo>();
   for (const m of session.models) {
     const conn = session.connections.find((c) => c.id === m.provider_id);
-    const providerId =
-      conn?.id ??
-      idByBase.get(normalizeBaseUrl(m.provider_id)) ??
-      m.provider_id;
+    const remappedId = idByBase.get(normalizeBaseUrl(m.provider_id));
+    // Drop orphan models — their host is no longer connected. Resurrected stale
+    // slugs (e.g. Baseten Model-API ids the account can no longer serve) were
+    // being routed to and rejected by providers.
+    if (!conn && !remappedId) continue;
+    const providerId = conn?.id ?? remappedId!;
+    const providerConn = conn ?? session.connections.find((c) => c.id === providerId);
     const key = `${providerId}::${m.id}`;
     if (!unique.has(key)) {
       unique.set(key, {
         ...m,
         provider_id: providerId,
-        provider_label: conn?.label ?? m.provider_label ?? providerId,
+        provider_label: providerConn?.label ?? m.provider_label ?? providerId,
       });
     }
   }
@@ -386,6 +389,13 @@ export function accountSessionId(userId: string) {
   return `acct_${userId}`;
 }
 
+/** Inverse of accountSessionId — the user an `acct_…` session belongs to, else null. */
+export function userIdFromSessionId(sessionId: string | null | undefined): string | null {
+  if (!sessionId?.startsWith("acct_")) return null;
+  const uid = sessionId.slice("acct_".length).trim();
+  return uid || null;
+}
+
 export async function createByokSession(
   input: { label?: string; base_url: string; api_key: string; provider?: string },
   sessionId?: string,
@@ -447,11 +457,14 @@ export async function createByokSession(
   const baseline = pickBaseline(mergeInto.models);
   mergeInto.baseline_model = baseline?.id ?? null;
   putSession(mergeInto);
+  // Fleet mutations must survive a cold start — await the Redis persist so a
+  // later connect/merge cannot read a stale pre-disconnect session.
+  await persistSession(mergeInto);
   return publicSession(mergeInto);
 }
 
 /** Remove one host from a multi-provider fleet. Needle matches id, label, or base URL. */
-export function disconnectProvider(session: Session, needle: string) {
+export async function disconnectProvider(session: Session, needle: string) {
   const n = needle.trim().toLowerCase();
   if (!n) {
     throw Object.assign(new Error("Provide a host id (e.g. baseten) or label."), { status: 400 });
@@ -476,12 +489,16 @@ export function disconnectProvider(session: Session, needle: string) {
     session.baseline_model = null;
     refreshSessionLabel(session);
     putSession(session);
+    // Await the persist: a dropped host must not resurface from a stale Redis snapshot.
+    await persistSession(session);
     return { session: publicSession(session), removed: conn };
   }
 
   refreshSessionLabel(session);
   session.baseline_model = pickBaseline(session.models)?.id ?? null;
   putSession(session);
+  // Await the persist: a dropped host must not resurface from a stale Redis snapshot.
+  await persistSession(session);
   return { session: publicSession(session), removed: conn };
 }
 
@@ -655,7 +672,12 @@ function pick(session: Session, classification: Classification, hint?: string) {
   return cheapest(session.models);
 }
 
-function nextFailoverModel(session: Session, failed: ModelInfo, tried: Set<string>) {
+function nextFailoverModel(
+  session: Session,
+  failed: ModelInfo,
+  tried: Set<string>,
+  avoidProvider?: string,
+) {
   const key = (m: ModelInfo) => `${m.provider_id}::${m.id}`;
   const pool = session.models
     .filter((m) => m.selected && !tried.has(key(m)))
@@ -663,8 +685,40 @@ function nextFailoverModel(session: Session, failed: ModelInfo, tried: Set<strin
       (a, b) =>
         TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) || blend(a) - blend(b),
     );
+  // On "model not servable" rejections prefer a different host first — many hosts
+  // list slugs the account cannot invoke (e.g. Baseten Model-API catalogs).
+  if (avoidProvider) {
+    const otherHost =
+      pool.find((m) => m.provider_id !== avoidProvider && m.tier === failed.tier) ??
+      pool.find((m) => m.provider_id !== avoidProvider);
+    if (otherHost) return otherHost;
+  }
   // Prefer same tier first, then any remaining.
   return pool.find((m) => m.tier === failed.tier) ?? pool[0] ?? null;
+}
+
+/** Provider rejections meaning "this model id is not servable here" — fail over, don't surface. */
+const MODEL_UNAVAILABLE_RE =
+  /not configured|function ['\"]?[0-9a-f-]{36}|not found for account|model [^\n]*not found|unknown model|does not exist|no such model|invalid model/i;
+
+function isModelUnavailableError(err: unknown) {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "model_unavailable" in err &&
+    Boolean((err as { model_unavailable?: boolean }).model_unavailable)
+  );
+}
+
+/** True when a failed provider call should be retried on another model. */
+function isRetryableProviderError(err: unknown) {
+  if (typeof err !== "object" || err === null) return false;
+  const rec = err as { model_unavailable?: boolean; retryable_404?: boolean; status?: number };
+  return (
+    Boolean(rec.model_unavailable) ||
+    Boolean(rec.retryable_404) ||
+    [408, 429, 500, 502, 503, 504].includes(Number(rec.status))
+  );
 }
 
 async function complete(
@@ -684,11 +738,15 @@ async function complete(
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
   const modelInfo = findModel(session, model, opts?.provider_id);
-  const conn =
-    session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
-    session.connections[0];
+  // Never silently fall back to connections[0] — a stale model id sent to the
+  // wrong host produced confusing "model not configured" errors.
+  const connId = opts?.provider_id || modelInfo?.provider_id;
+  const conn = connId ? session.connections.find((c) => c.id === connId) : undefined;
   if (!conn?.base_url || !conn.api_key) {
-    throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
+    throw Object.assign(
+      new Error(`No credentials for host ${connId || model} — model ${model} is not on a connected host.`),
+      { status: 400 },
+    );
   }
   const features = modelInfo?.supported_features ?? [];
   if (opts?.tools?.length && features.length && !features.some((f) => /tool|function/i.test(f))) {
@@ -711,10 +769,12 @@ async function complete(
   });
   if (!response.ok) {
     const text = await response.text();
-    throw Object.assign(new Error(parseProviderError(response.status, text)), {
+    const message = parseProviderError(response.status, text);
+    throw Object.assign(new Error(message), {
       status: response.status,
       provider_error: true,
       retryable_404: response.status === 404,
+      model_unavailable: response.status === 404 || MODEL_UNAVAILABLE_RE.test(message),
     });
   }
   return response.json();
@@ -744,15 +804,15 @@ async function completeOrFailover(
       return { payload, routed: current };
     } catch (err) {
       lastError = err;
-      const retryable =
-        typeof err === "object" &&
-        err &&
-        (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
-          ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
-      if (!retryable) throw err;
+      if (!isRetryableProviderError(err)) throw err;
       // Skip this model for this request only — do NOT permanently deselect
       // (that left sessions stuck on frontier after one 404/timeout).
-      const next = nextFailoverModel(session, current, tried);
+      const next = nextFailoverModel(
+        session,
+        current,
+        tried,
+        isModelUnavailableError(err) ? current.provider_id : undefined,
+      );
       if (!next) throw err;
       tried.add(`${next.provider_id}::${next.id}`);
       current = next;
@@ -773,11 +833,15 @@ async function* completeStreaming(
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
   const modelInfo = findModel(session, model, opts?.provider_id);
-  const conn =
-    session.connections.find((c) => c.id === (opts?.provider_id || modelInfo?.provider_id)) ??
-    session.connections[0];
+  // Never silently fall back to connections[0] — a stale model id sent to the
+  // wrong host produced confusing "model not configured" errors.
+  const connId = opts?.provider_id || modelInfo?.provider_id;
+  const conn = connId ? session.connections.find((c) => c.id === connId) : undefined;
   if (!conn?.base_url || !conn.api_key) {
-    throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
+    throw Object.assign(
+      new Error(`No credentials for host ${connId || model} — model ${model} is not on a connected host.`),
+      { status: 400 },
+    );
   }
   const response = await fetchWithTimeout(`${conn.base_url}/chat/completions`, {
     method: "POST",
@@ -794,10 +858,12 @@ async function* completeStreaming(
   });
   if (!response.ok) {
     const text = await response.text();
-    throw Object.assign(new Error(parseProviderError(response.status, text)), {
+    const message = parseProviderError(response.status, text);
+    throw Object.assign(new Error(message), {
       status: response.status,
       provider_error: true,
       retryable_404: response.status === 404,
+      model_unavailable: response.status === 404 || MODEL_UNAVAILABLE_RE.test(message),
     });
   }
   if (!response.body) {
@@ -1232,13 +1298,15 @@ export async function routeChat(
       const upgrade = cheapest(session.models, TIER_ORDER[tierIdx]);
       if (!upgrade || upgrade.id === routed.id) continue;
       escalated = true;
-      routed = upgrade;
-      payload = await complete(session, routed.id, textMessages, classification, {
-        provider_id: routed.provider_id,
+      // Escalations fail over too — a stale/unservable slug on the upgrade host
+      // must not fail the whole request.
+      const retry = await completeOrFailover(session, upgrade, textMessages, classification, {
         max_tokens: body.max_tokens ?? body.max_completion_tokens,
         tools: body.tools ?? body.functions,
         response_format: body.response_format,
       });
+      routed = retry.routed;
+      payload = retry.payload;
       text = payload.choices?.[0]?.message?.content ?? "";
       qualityVerdict = await evaluateQualityGate({
         answer: text,
