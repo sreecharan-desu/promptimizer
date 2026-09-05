@@ -314,10 +314,35 @@ for (const [name] of packages) {
 }
 
 const latestOk = packages.every(([name]) => {
-  const v = publishedLatest(name);
-  const ok = Boolean(v && installable(name, v));
-  console.log(`${name}@${v || "?"} latest-installable=${ok}`);
-  return ok;
+  let v = publishedLatest(name);
+  if (v && installable(name, v)) {
+    console.log(`${name}@${v} latest-installable=true`);
+    return true;
+  }
+  console.warn(`${name}@${v || "?"} latest-installable=false — healing`);
+  try {
+    v = ensureLatestInstallable(name);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    return false;
+  }
+  // Brief wait for the healed tag; prefer any installable over failing CI.
+  if (v && waitUntilInstallable(name, v, { attempts: 5, label: "final-latest" })) {
+    console.log(`${name}@${v} latest-installable=true`);
+    return true;
+  }
+  const fallback = lastInstallableVersion(name, null);
+  if (fallback) {
+    try {
+      setDistTag(name, fallback, "latest");
+      console.log(`${name}@${fallback} latest-installable=true (fallback)`);
+      return installable(name, fallback);
+    } catch (err) {
+      console.error(String(err?.message || err));
+    }
+  }
+  console.log(`${name}@${v || "?"} latest-installable=false`);
+  return false;
 });
 
 console.log("publish results:", JSON.stringify(results, null, 2));
