@@ -485,14 +485,22 @@ function gateway(flags, config) {
   return url.endsWith("/api") ? url : `${url}/api`;
 }
 
+/** Prefer explicit flags, then saved login config, then env (env often goes stale). */
+function resolveApiKey(flags, config) {
+  const fromFlags = String(flags.pmz || flags.key || flags.k || "").trim();
+  const fromConfig = String(config.apiKey || "").trim();
+  const fromEnv = String(process.env.PROMPTIMIZER_API_KEY || "").trim();
+  return fromFlags || fromConfig || fromEnv || "";
+}
+
 function requireKey(flags, config) {
-  const apiKey = flags.key || flags.k || process.env.PROMPTIMIZER_API_KEY || config.apiKey;
+  const apiKey = resolveApiKey(flags, config);
   if (!apiKey) die("Missing Promptimizer key. Run promptimizer login --key pmz_live_…");
-  return String(apiKey);
+  return apiKey;
 }
 
 function authFromConfig(flags, config) {
-  const apiKey = flags.pmz || process.env.PROMPTIMIZER_API_KEY || config.apiKey;
+  const apiKey = resolveApiKey(flags, config) || undefined;
   const sessionId = apiKey ? undefined : config.sessionId;
   if (!apiKey && !sessionId) {
     throw new Error("Not signed in. Run promptimizer login --key pmz_live_…");
@@ -503,7 +511,15 @@ function authFromConfig(flags, config) {
 async function loadSession(flags, config) {
   const gatewayURL = gateway(flags, config);
   const { apiKey, sessionId } = authFromConfig(flags, config);
-  return request("/v1/session", { gatewayURL, apiKey, sessionId });
+  try {
+    return await request("/v1/session", { gatewayURL, apiKey, sessionId });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const prefix = apiKey ? `${String(apiKey).slice(0, 12)}…` : "(session)";
+    throw Object.assign(new Error(`${msg}  [${gatewayURL} · ${prefix}]`), {
+      status: error && typeof error === "object" && "status" in error ? error.status : undefined,
+    });
+  }
 }
 
 function printMeta(result) {
@@ -644,13 +660,31 @@ async function completeStream(flags, config, messages) {
 }
 
 async function cmdLogin(flags) {
-  const apiKey = flags.key || flags.k || process.env.PROMPTIMIZER_API_KEY;
+  const apiKey = String(flags.key || flags.k || process.env.PROMPTIMIZER_API_KEY || "").trim();
   if (!apiKey) die("Missing --key. Create one at /account.");
   const config = readConfig();
-  const gatewayURL = gateway(flags, config);
+  let gatewayURL = gateway(flags, config);
+  // If env defaults to localhost but saved/config already points at hosted, keep hosted.
+  if (
+    !flags.url &&
+    !flags.u &&
+    /localhost|127\.0\.0\.1/.test(gatewayURL) &&
+    config.gatewayURL &&
+    !/localhost|127\.0\.0\.1/.test(String(config.gatewayURL))
+  ) {
+    gatewayURL = String(config.gatewayURL).replace(/\/$/, "");
+  }
+  if (!flags.url && !flags.u && /localhost|127\.0\.0\.1/.test(gatewayURL) && !config.gatewayURL) {
+    gatewayURL = "https://hackathon-omega-liart.vercel.app/api";
+  }
   await request("/v1/session", { apiKey, gatewayURL });
-  writeConfig({ ...config, gatewayURL, apiKey });
+  writeConfig({ ...config, gatewayURL, apiKey, sessionId: undefined });
   out(`${color(ANSI.green, "✓")} Saved  ${gatewayURL}`);
+  out(color(ANSI.dim, `  key ${apiKey.slice(0, 12)}…`));
+  if (process.env.PROMPTIMIZER_API_KEY && process.env.PROMPTIMIZER_API_KEY.trim() !== apiKey) {
+    out(color(ANSI.yellow, "  Note: $PROMPTIMIZER_API_KEY differs from the key you just saved."));
+    out(color(ANSI.dim, "  CLI prefers ~/.promptimizer/config.json. Unset the env var to avoid confusion."));
+  }
 }
 
 function cmdLogout() {
@@ -708,7 +742,8 @@ async function cmdConnect(flags, positional) {
     die("Missing provider key. Pass --key.");
   }
 
-  const apiKey = flags.pmz || process.env.PROMPTIMIZER_API_KEY || config.apiKey;
+  const apiKey = resolveApiKey(flags, config);
+  if (!apiKey) die("Not signed in. Run promptimizer login --key pmz_live_…");
   const session = await request("/v1/providers/connect", {
     method: "POST",
     gatewayURL,
