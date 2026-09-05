@@ -168,7 +168,10 @@ export const api = {
   chatStream: async (
     messages: Array<{ role: string; content: string }>,
     model = "auto",
-    handlers?: { onDelta?: (fullText: string, chunk: string) => void },
+    handlers?: {
+      onDelta?: (fullText: string, chunk: string) => void;
+      onEvent?: (event: Record<string, unknown>) => void;
+    },
   ): Promise<Record<string, unknown>> => {
     const headers = new Headers({ "Content-Type": "application/json" });
     const session = readSessionId();
@@ -215,6 +218,8 @@ export const api = {
           choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
           usage?: unknown;
           promptimizer?: unknown;
+          promptimizer_event?: { type?: string; model?: string; to_model?: string; reason?: string } &
+            Record<string, unknown>;
         };
         try {
           parsed = JSON.parse(data);
@@ -224,6 +229,16 @@ export const api = {
         if (parsed.error?.message) throw new Error(parsed.error.message);
         if (parsed.id) id = parsed.id;
         if (parsed.model) modelId = parsed.model;
+        if (parsed.promptimizer_event) {
+          const event = parsed.promptimizer_event;
+          handlers?.onEvent?.(event as Record<string, unknown>);
+          // Quality gate rejected the partial answer — a stronger model is re-streaming. Reset.
+          if (event.type === "escalation") {
+            text = "";
+            if (event.to_model) modelId = event.to_model;
+            handlers?.onDelta?.("", "");
+          }
+        }
         const delta = parsed.choices?.[0]?.delta?.content;
         if (delta) {
           text += delta;
