@@ -21,18 +21,17 @@ const docsPaths = [
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
-  return [
-    ...mainPaths.map((path) => ({
-      url: `${SITE_URL}${path || "/"}`,
-      lastModified: now,
-      changeFrequency: (path === "" ? "daily" : "monthly") as const,
-      priority: path === "" ? 1 : path === "/console" || path === "/portal" ? 0.7 : 0.5,
-    })),
-    ...docsPaths.map((path) => ({
-      url: `${DOCS_URL}${path}`,
-      lastModified: now,
-      changeFrequency: "weekly" as const,
-      priority: 0.8,
-    })),
-  ];
+  const main: MetadataRoute.Sitemap = mainPaths.map((path) => ({
+    url: `${SITE_URL}${path || "/"}`,
+    lastModified: now,
+    changeFrequency: path === "" ? "daily" : "monthly",
+    priority: path === "" ? 1 : path === "/console" || path === "/portal" ? 0.7 : 0.5,
+  }));
+  const docs: MetadataRoute.Sitemap = docsPaths.map((path) => ({
+    url: `${DOCS_URL}${path}`,
+    lastModified: now,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  }));
+  return [...main, ...docs];
 }
