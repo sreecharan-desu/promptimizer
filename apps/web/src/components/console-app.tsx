@@ -10,6 +10,7 @@ import {
   writeConsoleCache,
 } from "@/lib/console-cache";
 import { EmptyFleetSpot, KeySpot } from "./console-spots";
+import { MarkdownContent } from "./markdown-content";
 import { Donut, Meter, Pill, usd } from "./metrics";
 import { ModelIcon, ProviderIcon } from "./provider-icon";
 
@@ -1069,7 +1070,7 @@ function PlayPane({
           {answer ? (
             <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5">
               <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
-              <p className="mt-3 text-sm leading-relaxed text-primary whitespace-pre-wrap">{answer}</p>
+              <MarkdownContent className="mt-3">{answer}</MarkdownContent>
             </div>
           ) : null}
         </div>

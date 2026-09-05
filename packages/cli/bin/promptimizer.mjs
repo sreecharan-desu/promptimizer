@@ -26,6 +26,133 @@ const color = process.stdout.isTTY
   ? (code, text) => `${code}${text}${ANSI.reset}`
   : (_code, text) => text;
 
+const ANSI_OK = Boolean(process.stdout.isTTY);
+
+/** Inline markdown → ANSI (bold, italic, code, links). */
+function styleInline(text) {
+  let s = String(text);
+  // code first so we don't style inside backticks
+  s = s.replace(/`([^`]+)`/g, (_, code) => color(ANSI.cyan, code));
+  s = s.replace(/\*\*([^*]+)\*\*/g, (_, t) => color(ANSI.bold, t));
+  s = s.replace(/__([^_]+)__/g, (_, t) => color(ANSI.bold, t));
+  s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, (_, t) => color(ANSI.dim, t));
+  s = s.replace(/(?<!_)_([^_\n]+)_(?!_)/g, (_, t) => color(ANSI.dim, t));
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => `${color(ANSI.blue, label)} ${color(ANSI.dim, `(${url})`)}`);
+  return s;
+}
+
+/**
+ * Render markdown for the terminal. Keeps structure readable without extra deps.
+ * Headers, lists, fences, quotes, hr, tables (plain), paragraphs.
+ */
+function renderMarkdown(source) {
+  if (!source) return "";
+  const lines = String(source).replace(/\r\n/g, "\n").split("\n");
+  const outLines = [];
+  let i = 0;
+  let inFence = false;
+  let fenceLang = "";
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.startsWith("```")) {
+      if (!inFence) {
+        inFence = true;
+        fenceLang = line.slice(3).trim();
+        outLines.push(color(ANSI.dim, fenceLang ? `┌─ ${fenceLang}` : "┌─"));
+      } else {
+        inFence = false;
+        fenceLang = "";
+        outLines.push(color(ANSI.dim, "└─"));
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inFence) {
+      outLines.push(`  ${color(ANSI.cyan, line)}`);
+      i += 1;
+      continue;
+    }
+
+    if (/^#{1,6}\s+/.test(line)) {
+      const level = line.match(/^#+/)[0].length;
+      const title = line.replace(/^#{1,6}\s+/, "");
+      const styled = styleInline(title);
+      outLines.push(level <= 2 ? color(ANSI.bold, styled) : styled);
+      i += 1;
+      continue;
+    }
+
+    if (/^\s*([-*_] *){3,}\s*$/.test(line)) {
+      outLines.push(color(ANSI.dim, "  ───"));
+      i += 1;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const body = line.replace(/^\s*>\s?/, "");
+      outLines.push(`${color(ANSI.dim, "│")} ${styleInline(body)}`);
+      i += 1;
+      continue;
+    }
+
+    const ul = line.match(/^(\s*)([-*+])\s+(.*)$/);
+    if (ul) {
+      const indent = Math.min(Math.floor(ul[1].length / 2), 4);
+      outLines.push(`${"  ".repeat(indent)}${color(ANSI.magenta, "•")} ${styleInline(ul[3])}`);
+      i += 1;
+      continue;
+    }
+
+    const ol = line.match(/^(\s*)(\d+)[.)]\s+(.*)$/);
+    if (ol) {
+      const indent = Math.min(Math.floor(ol[1].length / 2), 4);
+      outLines.push(`${"  ".repeat(indent)}${color(ANSI.magenta, `${ol[2]}.`)} ${styleInline(ol[3])}`);
+      i += 1;
+      continue;
+    }
+
+    if (line.includes("|") && line.trim().startsWith("|")) {
+      // simple table row — strip pipes, pad lightly
+      const cells = line
+        .split("|")
+        .slice(1, -1)
+        .map((c) => c.trim());
+      if (cells.every((c) => /^:?-+:?$/.test(c))) {
+        i += 1;
+        continue; // separator
+      }
+      outLines.push(`  ${cells.map((c) => styleInline(c)).join(color(ANSI.dim, " · "))}`);
+      i += 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      outLines.push("");
+      i += 1;
+      continue;
+    }
+
+    outLines.push(styleInline(line));
+    i += 1;
+  }
+
+  // Trim trailing blank lines
+  while (outLines.length && outLines[outLines.length - 1] === "") outLines.pop();
+  return outLines.join("\n");
+}
+
+function printAnswer(text) {
+  if (!text) {
+    out(color(ANSI.dim, "(empty)"));
+    return;
+  }
+  const rendered = ANSI_OK ? renderMarkdown(text) : text;
+  process.stdout.write(`${rendered}\n`);
+}
+
 const COMMANDS = [
   ["", "Start interactive session (Gemini-style REPL)"],
   ["login", "Save a Promptimizer API key"],
@@ -335,7 +462,7 @@ async function complete(flags, config, messages) {
   });
 }
 
-/** Stream a completion; writes tokens to stdout as they arrive. Returns { text, result }. */
+/** Stream a completion; buffers tokens then returns { text, result }. */
 async function completeStream(flags, config, messages) {
   const gatewayURL = gateway(flags, config);
   const { apiKey, sessionId } = authFromConfig(flags, config);
@@ -371,33 +498,46 @@ async function completeStream(flags, config, messages) {
     promptimizer: undefined,
     choices: [{ message: { role: "assistant", content: "" } }],
   };
+  let spinTimer = null;
+  let spinFrame = 0;
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  if (ANSI_OK) {
+    spinTimer = setInterval(() => {
+      const frame = frames[spinFrame++ % frames.length];
+      process.stdout.write(`\r${color(ANSI.dim, `  ${frame} routing…`)}`);
+    }, 80);
+  }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n");
-    buffer = parts.pop() ?? "";
-    for (const line of parts) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const data = trimmed.slice(5).trim();
-      if (!data) continue;
-      if (data === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.error?.message) throw new Error(parsed.error.message);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) {
-          text += delta;
-          process.stdout.write(delta);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data) continue;
+        if (data === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error?.message) throw new Error(parsed.error.message);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) text += delta;
+          if (parsed.promptimizer) result.promptimizer = parsed.promptimizer;
+          if (parsed.usage) result.usage = parsed.usage;
+          if (parsed.model) result.model = parsed.model;
+        } catch (err) {
+          if (err instanceof Error && err.message && !err.message.includes("JSON")) throw err;
         }
-        if (parsed.promptimizer) result.promptimizer = parsed.promptimizer;
-        if (parsed.usage) result.usage = parsed.usage;
-        if (parsed.model) result.model = parsed.model;
-      } catch (err) {
-        if (err instanceof Error && err.message && !err.message.includes("JSON")) throw err;
       }
+    }
+  } finally {
+    if (spinTimer) {
+      clearInterval(spinTimer);
+      process.stdout.write("\r\x1b[2K");
     }
   }
 
@@ -545,8 +685,7 @@ async function cmdChat(flags, positional) {
   out();
   out(color(ANSI.magenta, "✦"));
   const { text, result } = await completeStream(flags, config, [{ role: "user", content: prompt }]);
-  if (!text) process.stdout.write(color(ANSI.dim, "(empty)"));
-  process.stdout.write("\n");
+  printAnswer(text);
   out();
   printMeta(result);
   out();
@@ -755,8 +894,7 @@ async function interactive(flags) {
       out(color(ANSI.magenta, "✦"));
       try {
         const { text, result } = await completeStream(flags, readConfig(), history);
-        if (!text) process.stdout.write(color(ANSI.dim, "(empty)"));
-        process.stdout.write("\n");
+        printAnswer(text);
         history.push({ role: "assistant", content: text });
         out();
         printMeta(result);
