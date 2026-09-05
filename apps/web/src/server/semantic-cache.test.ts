@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  canonicalizeSemanticPrompt,
   cosineSimilarity,
   embedText,
+  entitiesCompatible,
   extractNovelParts,
   findSimilar,
   normalizeCachePrompt,
@@ -30,6 +32,25 @@ describe("semantic cache vectors", () => {
     assert.ok(sim >= semanticFullHit(), `expected ≥${semanticFullHit()} got ${sim}`);
   });
 
+  it("canonicalizes math paraphrases to the same form", () => {
+    const forms = [
+      "What is 17 * 24?",
+      "What is 17 times 24?",
+      "Calculate 17 multiplied by 24",
+      "whats 17x24",
+      "Please compute 17 × 24",
+      "17 * 24 = ?",
+    ];
+    const canon = forms.map(canonicalizeSemanticPrompt);
+    for (const c of canon) assert.equal(c, "17 * 24", `got ${c}`);
+  });
+
+  it("rejects different numbers / negation as incompatible", () => {
+    assert.equal(entitiesCompatible("What is 17 * 24?", "What is 17 * 25?"), false);
+    assert.equal(entitiesCompatible("Is Paris the capital?", "Is Paris not the capital?"), false);
+    assert.equal(entitiesCompatible("What is 17 * 24?", "What is 24 * 17?"), true);
+  });
+
   it("replays full semantic hit for punctuation-only near-duplicates", async () => {
     const owner = `test-ellipsis-${Date.now()}`;
     await rememberSemantic({
@@ -44,6 +65,37 @@ describe("semantic cache vectors", () => {
     assert.equal(match?.mode, "full");
     assert.equal(match?.entry.answer, "408");
     assert.ok((match?.similarity ?? 0) >= semanticFullHit());
+  });
+
+  it("replays full hit for same-intent paraphrases", async () => {
+    const owner = `test-paraphrase-${Date.now()}`;
+    await rememberSemantic({
+      prompt: "What is 17 * 24?",
+      answer: "408",
+      model: "test-model",
+      tier: "economy",
+      quality: 0.95,
+      owner,
+    });
+    for (const q of ["What is 17 times 24?", "Calculate 17 multiplied by 24", "whats 17x24", "Please compute 17 × 24"]) {
+      const match = await findSimilar(q, owner);
+      assert.equal(match?.mode, "full", `${q} → ${match?.mode}`);
+      assert.equal(match?.entry.answer, "408");
+    }
+  });
+
+  it("does not replay when numbers differ", async () => {
+    const owner = `test-nums-${Date.now()}`;
+    await rememberSemantic({
+      prompt: "What is 17 * 24?",
+      answer: "408",
+      model: "test-model",
+      tier: "economy",
+      quality: 0.95,
+      owner,
+    });
+    const match = await findSimilar("What is 17 * 25?", owner);
+    assert.notEqual(match?.mode, "full");
   });
 
   it("extracts novel parts from a related prompt", () => {

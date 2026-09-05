@@ -4,6 +4,7 @@ import { cacheGet, cacheRemember, cacheSet, userCacheKey } from "./upstash";
 import {
   buildHybridMessages,
   findSimilar,
+  canonicalizeSemanticPrompt,
   normalizeCachePrompt,
   rememberSemantic,
   type SemanticMatch,
@@ -782,7 +783,7 @@ export function routeChatStream(
           owner,
           "prompt",
           routed.id,
-          normalizeCachePrompt(userPrompt).slice(0, 2000),
+          (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
         );
         const exactCached = await cacheGet<{
           choices?: Array<{ message?: { content?: string } }>;
@@ -1007,7 +1008,12 @@ export async function routeChat(
 
   const exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
   // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
-  const promptKey = userCacheKey(owner, "prompt", routed.id, normalizeCachePrompt(userPrompt).slice(0, 2000));
+  const promptKey = userCacheKey(
+    owner,
+    "prompt",
+    routed.id,
+    (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
+  );
 
   const seeded = opts?.seededCompletion;
   if (seeded?.payload) {

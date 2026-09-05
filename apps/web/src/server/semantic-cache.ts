@@ -21,6 +21,58 @@ export type SemanticMatch = {
 
 const DIM = 256;
 
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "to",
+  "of",
+  "in",
+  "on",
+  "for",
+  "and",
+  "or",
+  "at",
+  "by",
+  "as",
+  "it",
+  "this",
+  "that",
+  "with",
+  "from",
+  "what",
+  "whats",
+  "which",
+  "who",
+  "whom",
+  "how",
+  "why",
+  "when",
+  "where",
+  "please",
+  "kindly",
+  "just",
+  "me",
+  "my",
+  "your",
+  "you",
+  "i",
+  "we",
+  "only",
+  "reply",
+  "answer",
+  "number",
+  "result",
+  "value",
+  "equals",
+  "equal",
+]);
+
 function indexKey(owner?: string | null) {
   return userCacheKey(owner, "semantic", "index");
 }
@@ -29,15 +81,21 @@ function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
 
-/** Env: SEMANTIC_THRESHOLD (default 0.5), SEMANTIC_FULL_HIT (default 0.92). */
+/** Env: SEMANTIC_THRESHOLD (default 0.5), SEMANTIC_FULL_HIT (default 0.88). */
 export function semanticThreshold() {
   const n = Number(process.env.SEMANTIC_THRESHOLD ?? 0.5);
   return Number.isFinite(n) ? clamp01(n) : 0.5;
 }
 
 export function semanticFullHit() {
-  const n = Number(process.env.SEMANTIC_FULL_HIT ?? 0.92);
-  return Number.isFinite(n) ? clamp01(n) : 0.92;
+  const n = Number(process.env.SEMANTIC_FULL_HIT ?? 0.88);
+  return Number.isFinite(n) ? clamp01(n) : 0.88;
+}
+
+/** Soft floor for paraphrase full-hits when entities/negation also align. */
+export function semanticParaphraseHit() {
+  const n = Number(process.env.SEMANTIC_PARAPHRASE_HIT ?? 0.62);
+  return Number.isFinite(n) ? clamp01(n) : 0.62;
 }
 
 export function semanticEnabled() {
@@ -71,10 +129,98 @@ export function normalizeCachePrompt(text: string): string {
     .trim();
 }
 
+/**
+ * Fold paraphrases into a shared surface form for embedding + equality checks.
+ * "Calculate 17 multiplied by 24" → "17 * 24"
+ */
+export function canonicalizeSemanticPrompt(text: string): string {
+  let s = normalizeCachePrompt(text);
+  s = s
+    .replace(/\bmultiplied\s+by\b/g, "*")
+    .replace(/\btimes\b/g, "*")
+    .replace(/\bproduct\s+of\b/g, "*")
+    .replace(/\bdivided\s+by\b/g, "/")
+    .replace(/\bplus\b/g, "+")
+    .replace(/\bminus\b/g, "-")
+    .replace(/\badded\s+to\b/g, "+")
+    .replace(/\bsubtract(?:ed)?\s+from\b/g, "-");
+  // 17x24 / 17 x 24 → 17 * 24
+  s = s.replace(/(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)/g, "$1 * $2");
+  s = s.replace(/\b(?:please|kindly|compute|calculate|evaluate|solve|determine|find|tell\s+me|give\s+me|can\s+you|could\s+you)\b/g, " ");
+  s = s.replace(/\bwhat(?:'s|s)?\b/g, " ");
+  s = s.replace(/\b(?:is|are|the|a|an|of|to|for|result|answer|equals?|=)\b/g, " ");
+  s = s.replace(/\s*([*+/])\s*/g, " $1 ");
+  s = s.replace(/[^a-z0-9_*+./\s-]+/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+export type PromptEntities = {
+  numbers: string[];
+  ops: Array<"*" | "+" | "-" | "/">;
+  negated: boolean;
+  tokens: string[];
+};
+
+export function extractPromptEntities(text: string): PromptEntities {
+  const canon = canonicalizeSemanticPrompt(text);
+  const raw = normalizeCachePrompt(text);
+  const numbers = (canon.match(/\d+(?:\.\d+)?/g) ?? []).map(String);
+  const ops = (canon.match(/[*+/-]/g) ?? []) as Array<"*" | "+" | "-" | "/">;
+  const negated = /\b(not|never|no|without|isn't|aren't|wasn't|weren't|don't|doesn't|didn't|cannot|can't)\b/i.test(
+    raw,
+  );
+  const tokens = canon
+    .split(/[^a-z0-9]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t) && !/^\d+(?:\.\d+)?$/.test(t));
+  return { numbers, ops, negated, tokens };
+}
+
+function sortedJoin(xs: string[]) {
+  return [...xs].sort().join("\0");
+}
+
+function opsCommutative(ops: Array<"*" | "+" | "-" | "/">) {
+  return ops.length > 0 && ops.every((o) => o === "*" || o === "+");
+}
+
+/** True when replaying the cached answer is safe (same facts / no polarity flip). */
+export function entitiesCompatible(a: string, b: string): boolean {
+  const ea = extractPromptEntities(a);
+  const eb = extractPromptEntities(b);
+  if (ea.negated !== eb.negated) return false;
+
+  if (ea.numbers.length || eb.numbers.length) {
+    if (ea.numbers.length !== eb.numbers.length) return false;
+    const commutative =
+      (opsCommutative(ea.ops) && opsCommutative(eb.ops)) ||
+      (ea.ops.length === 0 && eb.ops.length === 0 && ea.numbers.length >= 2);
+    const numsOk = commutative
+      ? sortedJoin(ea.numbers) === sortedJoin(eb.numbers)
+      : ea.numbers.join("\0") === eb.numbers.join("\0");
+    if (!numsOk) return false;
+    if (ea.ops.length && eb.ops.length) {
+      const oa = sortedJoin(ea.ops);
+      const ob = sortedJoin(eb.ops);
+      if (!commutative && ea.ops.join("") !== eb.ops.join("")) return false;
+      if (commutative && oa !== ob) return false;
+    }
+    return true;
+  }
+
+  if (!ea.tokens.length || !eb.tokens.length) return false;
+  const setA = new Set(ea.tokens);
+  const setB = new Set(eb.tokens);
+  let inter = 0;
+  for (const t of setA) if (setB.has(t)) inter += 1;
+  const union = new Set([...setA, ...setB]).size || 1;
+  return inter / union >= 0.5 && inter >= Math.min(2, Math.min(setA.size, setB.size));
+}
+
 /** Lightweight hashed bag-of-tokens + char-trigrams → fixed vector (no external embed API). */
 export function embedText(text: string): number[] {
   const vec = new Float64Array(DIM);
-  const normalized = normalizeCachePrompt(text);
+  const normalized = canonicalizeSemanticPrompt(text) || normalizeCachePrompt(text);
   if (!normalized) return Array.from(vec);
 
   const tokens = normalized.split(/[^a-z0-9_+./-]+/).filter(Boolean);
@@ -161,37 +307,53 @@ export async function findSimilar(prompt: string, owner?: string | null): Promis
   if (!semanticEnabled()) return null;
   const embedding = embedText(prompt);
   const promptNorm = normalizeCachePrompt(prompt);
+  const promptCanon = canonicalizeSemanticPrompt(prompt);
   const index = await loadIndex(owner);
   if (!index.length) return null;
 
-  let best: SemanticEntry | null = null;
-  let bestSim = 0;
+  type Cand = { entry: SemanticEntry; sim: number; compatible: boolean; sameCanon: boolean; sameNorm: boolean };
+  let bestAny: Cand | null = null;
+  let bestSafe: Cand | null = null;
+
   for (const entry of index) {
     if (!entry?.answer) continue;
-    // Re-embed from stored prompt so lookup stays correct after normalize/embed tweaks.
     const entryVec = entry.prompt ? embedText(entry.prompt) : entry.embedding;
     if (!entryVec?.length) continue;
-    const sameNorm = promptNorm && promptNorm === normalizeCachePrompt(entry.prompt);
-    const sim = sameNorm ? 1 : cosineSimilarity(embedding, entryVec);
-    if (sim > bestSim) {
-      bestSim = sim;
-      best = entry;
-    }
+    const sameNorm = Boolean(promptNorm && promptNorm === normalizeCachePrompt(entry.prompt));
+    const sameCanon = Boolean(promptCanon && promptCanon === canonicalizeSemanticPrompt(entry.prompt));
+    const compatible = sameNorm || sameCanon || entitiesCompatible(prompt, entry.prompt);
+    const sim = sameNorm || sameCanon ? 1 : cosineSimilarity(embedding, entryVec);
+    const cand: Cand = { entry, sim, compatible, sameCanon, sameNorm };
+    if (!bestAny || sim > bestAny.sim) bestAny = cand;
+    if (compatible && (!bestSafe || sim > bestSafe.sim)) bestSafe = cand;
   }
-  if (!best) return null;
+
+  const pick = bestSafe ?? bestAny;
+  if (!pick) return null;
 
   const threshold = semanticThreshold();
   const full = semanticFullHit();
-  const { novel, shared_ratio } = extractNovelParts(prompt, best.prompt);
-  const sameAsBest = Boolean(promptNorm && promptNorm === normalizeCachePrompt(best.prompt));
+  const paraphrase = semanticParaphraseHit();
+  const { novel, shared_ratio } = extractNovelParts(prompt, pick.entry.prompt);
 
-  if (bestSim >= full || sameAsBest) {
-    return { entry: best, similarity: sameAsBest ? 1 : bestSim, mode: "full", novel: "", shared_ratio };
+  // Never full/hybrid-replay across incompatible entities (e.g. 17*24 vs 17*25).
+  if (!pick.compatible) {
+    return { entry: pick.entry, similarity: pick.sim, mode: "miss", novel: prompt, shared_ratio };
   }
-  if (bestSim >= threshold) {
-    return { entry: best, similarity: bestSim, mode: "hybrid", novel, shared_ratio };
+
+  if (pick.sameNorm || pick.sameCanon || pick.sim >= full || (pick.sim >= paraphrase && pick.compatible)) {
+    return {
+      entry: pick.entry,
+      similarity: pick.sameNorm || pick.sameCanon ? 1 : pick.sim,
+      mode: "full",
+      novel: "",
+      shared_ratio,
+    };
   }
-  return { entry: best, similarity: bestSim, mode: "miss", novel: prompt, shared_ratio };
+  if (pick.sim >= threshold) {
+    return { entry: pick.entry, similarity: pick.sim, mode: "hybrid", novel, shared_ratio };
+  }
+  return { entry: pick.entry, similarity: pick.sim, mode: "miss", novel: prompt, shared_ratio };
 }
 
 export async function rememberSemantic(input: {
