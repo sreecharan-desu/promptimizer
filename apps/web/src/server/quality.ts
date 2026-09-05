@@ -58,16 +58,19 @@ export function judgeSampleRate() {
 function includesNeedle(blob: string, needle: string) {
   const n = needle.trim().toLowerCase();
   if (!n) return true;
-  if (n.startsWith("/") && n.lastIndexOf("/") > 0) {
+  // Regex needles: cap length to avoid ReDoS; substring fallback otherwise.
+  if (n.startsWith("/") && n.lastIndexOf("/") > 0 && n.length <= 120) {
     try {
       const last = n.lastIndexOf("/");
-      const re = new RegExp(n.slice(1, last), n.slice(last + 1) || "i");
+      const body = n.slice(1, last);
+      if (body.length > 80) return blob.includes(n);
+      const re = new RegExp(body, (n.slice(last + 1) || "i").slice(0, 5));
       return re.test(blob);
     } catch {
-      return blob.includes(n);
+      return blob.includes(n.replace(/^\/|\/[a-z]*$/gi, ""));
     }
   }
-  return blob.includes(n);
+  return blob.includes(n.startsWith("/") ? n.replace(/^\/|\/[a-z]*$/gi, "") : n);
 }
 
 function promptLooksLikeCode(prompt: string) {

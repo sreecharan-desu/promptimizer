@@ -16,8 +16,13 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-2 pl-5">
           <li>
             <strong className="text-primary">Provider API keys</strong> — encrypted at rest with a server secret
-            (AES-GCM) in our database when you are signed in, so your fleet survives across devices. Keys are never
-            written to browser localStorage or application logs.
+            (AES-GCM) in Postgres when you are signed in, and encrypted again when a BYOK session is cached in Redis
+            so ephemeral fleets stay sealed across Vercel instances. Keys are never written to browser localStorage or
+            application logs.
+          </li>
+          <li>
+            <strong className="text-primary">Google sign-in</strong> — if you use Google, we may link an existing
+            password account that already uses the same verified email address.
           </li>
           <li>
             <strong className="text-primary">Prompts &amp; routing metadata</strong> — recent prompts (truncated) and

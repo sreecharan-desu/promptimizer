@@ -86,7 +86,17 @@ references/       Optimizer research reference (not runtime)
 | Quality gate | [`apps/web/src/server/quality.ts`](apps/web/src/server/quality.ts) |
 | Routing metrics | [`apps/web/src/server/routing-metrics.ts`](apps/web/src/server/routing-metrics.ts) |
 
-**Stack:** Next.js 15 · Node 22 · FastAPI / Python 3.12 · Upstash Redis · Postgres · Docker Compose / Vercel
+**Stack:** Next.js 15 · Node 22 · FastAPI / Python 3.12 (optional self-host twin) · Upstash Redis · Postgres · Docker Compose / Vercel
+
+**Demo engine:** Production on Vercel runs the Next.js `/api/v1` router. FastAPI is an optional Compose twin with critical parity (routing, cache, savings, stream) — not a second full product.
+
+### Judge demo (90 seconds)
+
+1. Sign in → Connect a provider key in `/console`
+2. Easy prompt (`What is 17 * 24?`) → economy tier, quality pass
+3. Hard prompt (system design / multi-constraint) → escalate toward frontier; both hops billed
+4. Paraphrase the easy ask → semantic / cache replay labeled `cache_replay`
+5. Open Savings → actual vs always-frontier ledger
 
 ---
 

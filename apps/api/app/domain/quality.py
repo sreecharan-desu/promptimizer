@@ -69,13 +69,32 @@ def structure_score(pred: str, difficulty: int) -> float:
     return min(1.0, score)
 
 
+_REFUSAL = re.compile(
+    r"i don't know|too complex|as a small model|can't help|cannot help|"
+    r"i'm unable|i am unable|as an ai",
+    re.I,
+)
+_HEDGE = re.compile(r"\b(maybe|perhaps|not sure|i think|might be|possibly)\b", re.I)
+
+
 def looks_degraded(pred: str, difficulty: int) -> bool:
-    text = pred.strip().lower()
+    text = pred.strip()
     if not text:
         return True
-    if difficulty >= 4 and len(text) < 80:
+    lower = text.lower()
+    if _REFUSAL.search(lower):
         return True
-    if any(p in text for p in ("i don't know", "cannot help", "as a small model", "too complex")):
+    # Thin answers for hard prompts (L1–2 allow short correct answers).
+    min_len = 80 if difficulty >= 4 else 36 if difficulty >= 3 else 1
+    if len(text) < min_len:
+        return True
+    # Hedging on complex prompts is a soft fail signal.
+    if difficulty >= 4 and _HEDGE.search(lower) and len(text) < 160:
+        return True
+    # Truncation / unfinished code fence.
+    ends_mid_word = bool(re.search(r"\b[a-z]{1,2}$", text, re.I))
+    ends_sentence = bool(re.search(r"[.!?)]$", text))
+    if re.search(r"```[^`]*$", text) or (len(text) > 200 and ends_mid_word and not ends_sentence):
         return True
     return False
 

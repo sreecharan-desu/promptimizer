@@ -100,6 +100,10 @@ Runs every task routed and (optionally) again on the baseline model. Summary inc
 
 Session totals.
 
+## GET /v1/savings
+
+Alias of `/v1/analytics` (SDK / CLI ledger).
+
 ## GET /health
 
 FastAPI liveness + cache stats.

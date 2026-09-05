@@ -1,4 +1,5 @@
 import { classifyText, difficultyTier, type Classification } from "promptimizer";
+import { createHash } from "crypto";
 import { BENCHMARK, PRICING } from "./data";
 import { cacheGet, cacheRemember, cacheSet, clearOwnerCaches, userCacheKey } from "./upstash";
 import {
@@ -97,12 +98,12 @@ function lookupPrice(modelId: string) {
   const short = lower.includes("/") ? lower.split("/").pop()! : lower;
   const exact = Object.entries(PRICING).find(([key]) => {
     const k = key.toLowerCase();
-    return k === lower || k === short || k.endsWith(`/${short}`) || short.endsWith(k);
+    return k === lower || k === short || k.endsWith(`/${short}`) || short === k;
   });
   if (exact) return exact[1];
-  // Prefer longest catalog key contained in the model id (avoids weak short matches).
+  // Prefer longest catalog key only when it is a clear path segment (≥8 chars).
   const contained = Object.entries(PRICING)
-    .filter(([key]) => key.length >= 6 && lower.includes(key.toLowerCase()))
+    .filter(([key]) => key.length >= 8 && (lower.includes(`/${key.toLowerCase()}`) || lower.endsWith(key.toLowerCase())))
     .sort((a, b) => b[0].length - a[0].length)[0];
   return contained?.[1];
 }
@@ -233,6 +234,15 @@ function fleetFrom(
 }
 
 function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
+  const pricingKnown =
+    model.pricing_source === "estimate" || model.pricing_source === "unknown"
+      ? false
+      : model.pricing_known !== false;
+  const pricing = buildPricing({
+    prompt_per_1m: model.input_per_1m,
+    completion_per_1m: model.output_per_1m,
+    known: pricingKnown,
+  });
   return {
     provider_id: model.provider_id || providerId,
     model_id: model.id,
@@ -240,10 +250,7 @@ function toProfile(model: ModelInfo, providerId = "provider"): ModelProfile {
     description: model.description ?? null,
     context_length: model.context_length ?? null,
     max_completion_tokens: model.max_completion_tokens ?? null,
-    pricing: buildPricing({
-      prompt_per_1m: model.input_per_1m,
-      completion_per_1m: model.output_per_1m,
-    }),
+    pricing,
     supported_features: model.supported_features ?? [],
     supported_sampling_parameters: [],
     input_modalities: model.input_modalities?.length ? model.input_modalities : ["text"],
@@ -519,6 +526,8 @@ function costOf(
   const baselineUsd = (promptTokens / 1e6) * bin + (completionTokens / 1e6) * bout;
 
   if (opts?.fullReplay) {
+    // Infra replay: no new provider spend, but label honestly — savings vs always-frontier
+    // are "routing+cache avoided generation", not free magic.
     const routingSaved = baselineUsd - fullRouted;
     return {
       actual_usd: 0,
@@ -528,6 +537,7 @@ function costOf(
       routing_saved_usd: routingSaved,
       cache_discount_usd: fullRouted,
       wasted_usd: 0,
+      cache_replay: true,
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       cached_tokens: promptTokens + completionTokens,
@@ -586,8 +596,9 @@ function lookupCachedPrice(modelId: string): number | null {
   return null;
 }
 
-function scoreAnswer(pred: string, gold: string, must: string[], difficulty: number) {
-  return scoreAnswerLike(pred, gold || "", difficulty, Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62), must);
+function scoreAnswer(pred: string, gold: string, must: string[], difficulty: number, prompt = "") {
+  // Score structure against the user prompt, not the gold reference text.
+  return scoreAnswerLike(pred, prompt || gold || "", difficulty, Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62), must);
 }
 
 function findModel(session: Session, modelId: string, providerId?: string | null) {
@@ -661,7 +672,13 @@ async function complete(
   model: string,
   messages: Array<{ role: string; content: string }>,
   _classification: Classification,
-  opts?: { max_tokens?: number; provider_id?: string; temperature?: number },
+  opts?: {
+    max_tokens?: number;
+    provider_id?: string;
+    temperature?: number;
+    tools?: unknown[];
+    response_format?: { type?: string } | null;
+  },
 ) {
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
@@ -672,6 +689,10 @@ async function complete(
     session.connections[0];
   if (!conn?.base_url || !conn.api_key) {
     throw Object.assign(new Error(`No credentials for host ${opts?.provider_id || model}.`), { status: 400 });
+  }
+  const features = modelInfo?.supported_features ?? [];
+  if (opts?.tools?.length && features.length && !features.some((f) => /tool|function/i.test(f))) {
+    throw Object.assign(new Error(`Model ${model} does not advertise tool calling.`), { status: 400 });
   }
   const response = await fetchWithTimeout(`${conn.base_url}/chat/completions`, {
     method: "POST",
@@ -684,6 +705,8 @@ async function complete(
       messages,
       ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+      ...(opts?.tools?.length ? { tools: opts.tools } : {}),
+      ...(opts?.response_format ? { response_format: opts.response_format } : {}),
     }),
   });
   if (!response.ok) {
@@ -702,7 +725,12 @@ async function completeOrFailover(
   start: ModelInfo,
   messages: Array<{ role: string; content: string }>,
   classification: Classification,
-  opts?: { max_tokens?: number; temperature?: number },
+  opts?: {
+    max_tokens?: number;
+    temperature?: number;
+    tools?: unknown[];
+    response_format?: { type?: string } | null;
+  },
 ) {
   const tried = new Set<string>([`${start.provider_id}::${start.id}`]);
   let current = start;
@@ -719,8 +747,8 @@ async function completeOrFailover(
       const retryable =
         typeof err === "object" &&
         err &&
-        "retryable_404" in err &&
-        Boolean((err as { retryable_404?: boolean }).retryable_404);
+        (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
+          ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
       if (!retryable) throw err;
       current.selected = false;
       const next = nextFailoverModel(session, current, tried);
@@ -814,8 +842,8 @@ function sseEncode(data: unknown) {
 }
 
 /**
- * OpenAI-compatible SSE stream. Tokens flush as the provider generates them.
- * Final chunk carries usage + promptimizer meta (same shape as non-stream).
+ * OpenAI-compatible SSE stream.
+ * Buffers via routeChat (gate + escalate) then emits only the final answer chunks.
  */
 export function routeChatStream(
   session: Session,
@@ -828,153 +856,24 @@ export function routeChatStream(
     async start(controller) {
       const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
       try {
-        // Resolve routing + caches via the non-stream path only when already cached;
-        // for live calls we stream from the provider for low TTFT.
-        const textMessages = body.messages.map((m) => ({
-          role: m.role,
-          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
-        }));
-        const userPrompt =
-          [...textMessages].reverse().find((m) => m.role === "user")?.content ??
-          textMessages.map((m) => m.content).join("\n");
-        const classification = classifyText(userPrompt);
-        let routed =
-          body.model && body.model !== "auto" && body.model !== "promptimizer"
-            ? session.models.find((m) => m.id === body.model)
-            : pick(session, classification, body.model);
-        if (!routed) {
-          push({ error: { message: "No selected models.", type: "invalid_request_error" } });
-          push("[DONE]");
-          controller.close();
-          return;
-        }
-
-        const owner = opts?.cacheOwner ?? session.id;
-        const exactKey = userCacheKey(
-          owner,
-          "exact",
-          JSON.stringify({ m: textMessages, model: routed.id }),
-        );
-        const promptKey = userCacheKey(
-          owner,
-          "prompt",
-          routed.id,
-          (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
-        );
-        const exactCached = await cacheGet<{
-          choices?: Array<{ message?: { content?: string } }>;
-          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-          id?: string;
-          object?: string;
-          created?: number;
-          model?: string;
-        }>(exactKey);
-        const promptCached = exactCached
-          ? undefined
-          : await cacheGet<{
-              choices?: Array<{ message?: { content?: string } }>;
-              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-              id?: string;
-              object?: string;
-              created?: number;
-              model?: string;
-            }>(promptKey);
-        const cached = exactCached ?? promptCached;
-        let text = "";
-        let fromCache = false;
-
-        if (cached?.choices?.[0]?.message?.content) {
-          fromCache = true;
-          text = cached.choices[0].message.content;
-          for (const part of text.match(/.{1,24}/g) ?? [text]) {
-            push({
-              id: `chatcmpl-stream-${Date.now()}`,
-              object: "chat.completion.chunk",
-              created: Math.floor(Date.now() / 1000),
-              model: routed.id,
-              choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
-            });
-          }
-        } else {
-          const stream = completeStreaming(session, routed.id, textMessages, classification, {
-            provider_id: routed.provider_id,
-          });
-          let next = await stream.next();
-          while (!next.done) {
-            const delta = next.value;
-            text += delta;
-            push({
-              id: `chatcmpl-stream-${Date.now()}`,
-              object: "chat.completion.chunk",
-              created: Math.floor(Date.now() / 1000),
-              model: routed.id,
-              choices: [{ index: 0, delta: { content: delta }, finish_reason: null }],
-            });
-            next = await stream.next();
-          }
-          text = next.value || text;
-        }
-
-        // Seed routeChat with the stream result — do NOT warm-then-re-read, or every live
-        // stream falsely reports exact_cache_hit after writing the keys we just created.
-        const seededPayload = fromCache && cached
-          ? {
-              id: cached.id ?? `chatcmpl-stream-${Date.now()}`,
-              object: cached.object ?? "chat.completion",
-              created: cached.created ?? Math.floor(Date.now() / 1000),
-              model: cached.model ?? routed.id,
-              choices: [
-                {
-                  index: 0,
-                  message: { role: "assistant" as const, content: text },
-                  finish_reason: "stop" as const,
-                },
-              ],
-              usage: {
-                prompt_tokens: cached.usage?.prompt_tokens ?? tokens(JSON.stringify(textMessages)),
-                completion_tokens: cached.usage?.completion_tokens ?? tokens(text),
-                total_tokens:
-                  cached.usage?.total_tokens ??
-                  tokens(JSON.stringify(textMessages)) + tokens(text),
-              },
-            }
-          : {
-              id: `chatcmpl-stream-${Date.now()}`,
-              object: "chat.completion",
-              created: Math.floor(Date.now() / 1000),
-              model: routed.id,
-              choices: [
-                {
-                  index: 0,
-                  message: { role: "assistant" as const, content: text },
-                  finish_reason: "stop" as const,
-                },
-              ],
-              usage: {
-                prompt_tokens: tokens(JSON.stringify(textMessages)),
-                completion_tokens: tokens(text),
-                total_tokens: tokens(JSON.stringify(textMessages)) + tokens(text),
-              },
-            };
-
-        if (!fromCache && text) {
-          await cacheSet(exactKey, seededPayload);
-          await cacheSet(promptKey, seededPayload);
-        }
-
-        const final = await routeChat(session, { ...body, model: routed.id }, {
-          ...opts,
-          seededCompletion: {
-            payload: seededPayload,
-            exactHit: fromCache && Boolean(exactCached),
-            promptHit: fromCache && Boolean(promptCached),
-          },
-        });
+        const final = await routeChat(session, body, opts);
         if (hooks?.onComplete) await hooks.onComplete(final);
+        const text = String(final.choices?.[0]?.message?.content ?? "");
+        const id = final.id ?? `chatcmpl-stream-${Date.now()}`;
+        const created = Math.floor(Date.now() / 1000);
+        for (const part of text.match(/.{1,48}/g) ?? (text ? [text] : [])) {
+          push({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model: final.model,
+            choices: [{ index: 0, delta: { content: part }, finish_reason: null }],
+          });
+        }
         push({
-          id: final.id ?? `chatcmpl-stream-${Date.now()}`,
+          id,
           object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
+          created,
           model: final.model,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
           usage: final.usage,
@@ -1079,18 +978,37 @@ export async function routeChat(
   const userPrompt =
     [...textMessages].reverse().find((m) => m.role === "user")?.content ?? prompt;
 
+  // Safety lane: medical/legal/compliance topics need at least standard tier.
+  if (
+    /\b(hipaa|gdpr|lawsuit|malpractice|refund policy|medical advice|legal advice)\b/i.test(userPrompt) ||
+    classification.category === "safety_sensitive"
+  ) {
+    const minIdx = TIER_ORDER.indexOf("standard");
+    if (TIER_ORDER.indexOf(classification.recommended_tier) < minIdx) {
+      classification.recommended_tier = "standard";
+      classification.complexity = Math.max(classification.complexity, 3);
+    }
+  }
+
   let semantic: SemanticMatch | null = null;
   let semanticMode: "full" | "hybrid" | "miss" | "off" = "off";
   let exactHit = false;
   let promptHit = false;
   let payload: Awaited<ReturnType<typeof complete>> | undefined;
+  let gateSampleCostUsd = 0;
 
-  const exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
-  // Last-user-turn cache: repeating "hi" in a multi-turn REPL still hits even though full history differs.
-  const promptKey = userCacheKey(
+  const conversationDigest = createHash("sha256")
+    .update(JSON.stringify(textMessages.map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }))))
+    .digest("hex")
+    .slice(0, 24);
+
+  let exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
+  // Prompt cache scopes by conversation digest so multi-turn "hi" cannot steal unrelated answers.
+  let promptKey = userCacheKey(
     owner,
     "prompt",
     routed.id,
+    conversationDigest,
     (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
   );
 
@@ -1113,12 +1031,13 @@ export async function routeChat(
       semanticMode = semantic?.mode ?? "miss";
 
       if (semantic?.mode === "full") {
-        // High similarity → replay cached answer path (no provider call).
+        const cachedModel = findModel(session, semantic.entry.model) ?? routed;
+        routed = cachedModel;
         payload = {
           id: `chatcmpl-semantic-${Date.now()}`,
           object: "chat.completion",
           created: Math.floor(Date.now() / 1000),
-          model: routed.id,
+          model: semantic.entry.model || routed.id,
           choices: [
             {
               index: 0,
@@ -1133,7 +1052,6 @@ export async function routeChat(
           },
         };
       } else if (semantic?.mode === "hybrid") {
-        // Similar shared path from cache; novel parts drive model selection + completion.
         const novelComplexity = Math.min(
           5,
           Math.max(
@@ -1141,7 +1059,6 @@ export async function routeChat(
             semantic.novel.length > 280 ? classification.complexity + 1 : classification.complexity,
           ),
         );
-        // Prefer a capable model for novel/dissimilar work when the delta looks hard.
         if (novelComplexity >= 4 || semantic.shared_ratio < 0.35) {
           const stronger =
             cheapest(session.models, "frontier") ??
@@ -1159,20 +1076,29 @@ export async function routeChat(
         const hybrid = await completeOrFailover(session, routed, hybridMessages, classification);
         routed = hybrid.routed;
         payload = hybrid.payload;
-        await cacheSet(exactKey, payload);
-        await cacheSet(promptKey, payload);
       } else {
-        const live = await completeOrFailover(session, routed, textMessages, classification);
+        const live = await completeOrFailover(session, routed, textMessages, classification, {
+          max_tokens: body.max_tokens ?? body.max_completion_tokens,
+          tools: body.tools ?? body.functions,
+          response_format: body.response_format,
+        });
         routed = live.routed;
         payload = live.payload;
-        await cacheSet(exactKey, payload);
-        await cacheSet(promptKey, payload);
       }
     } else if (promptHit && !exactHit) {
-      // Count as prompt-level cache hit (same last user text).
       semanticMode = "full";
     }
   }
+
+  // Recompute keys after hybrid / failover may have changed the model.
+  exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed.id }));
+  promptKey = userCacheKey(
+    owner,
+    "prompt",
+    routed.id,
+    conversationDigest,
+    (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
+  );
 
   let escalated = false;
   let escalationReason: string | null = null;
@@ -1190,7 +1116,8 @@ export async function routeChat(
 
   const requestOrdinal = nextRequestOrdinal(session.id);
   const runAudit = shouldRunAccuracyAudit(requestOrdinal);
-  const cacheSkipEscalate = exactHit || promptHit || semanticMode === "full";
+  // Cache hits still run the gate; failed cached answers may escalate and regenerate.
+  const fromCacheReplay = exactHit || promptHit || semanticMode === "full";
 
   const bodyExtra = body as { must_include?: string[]; must_not_include?: string[] };
   const mustInclude = Array.isArray(bodyExtra.must_include) ? bodyExtra.must_include : undefined;
@@ -1202,6 +1129,9 @@ export async function routeChat(
       temperature,
       max_tokens,
     });
+    const pt = samplePayload.usage?.prompt_tokens ?? tokens(prompt);
+    const ct = samplePayload.usage?.completion_tokens ?? tokens(String(samplePayload.choices?.[0]?.message?.content ?? ""));
+    gateSampleCostUsd += costOf(routed!, baseline, pt, ct, 0).actual_usd;
     return String(samplePayload.choices?.[0]?.message?.content ?? "");
   };
 
@@ -1224,6 +1154,10 @@ export async function routeChat(
       classification,
       { provider_id: judgeInfo?.provider_id, max_tokens: 120, temperature: 0 },
     );
+    const jModel = judgeInfo ?? routed!;
+    const pt = judgePayload.usage?.prompt_tokens ?? tokens(q + answer);
+    const ct = judgePayload.usage?.completion_tokens ?? tokens(String(judgePayload.choices?.[0]?.message?.content ?? ""));
+    gateSampleCostUsd += costOf(jModel, baseline, pt, ct, 0).actual_usd;
     return String(judgePayload.choices?.[0]?.message?.content ?? "");
   };
 
@@ -1233,7 +1167,7 @@ export async function routeChat(
     complexity: classification.complexity,
     must_include: mustInclude,
     must_not_include: mustNotInclude,
-    allow_expensive: !cacheSkipEscalate,
+    allow_expensive: true,
     session_mode: session.mode,
     routed_model: routed!.id,
     fleet: session.models,
@@ -1251,7 +1185,7 @@ export async function routeChat(
     };
   }
 
-  const shouldEscalate = !cacheSkipEscalate && qualityVerdict.escalate;
+  const shouldEscalate = qualityVerdict.escalate;
 
   // First-attempt cost (for P2 waste accounting — accumulate if we escalate).
   let firstAttemptCost = costOf(
@@ -1260,43 +1194,50 @@ export async function routeChat(
     payload.usage?.prompt_tokens ?? tokens(prompt),
     payload.usage?.completion_tokens ?? tokens(text),
     prefixHit ? tokens(prefixKey) : 0,
+    { fullReplay: fromCacheReplay && !shouldEscalate },
   );
 
   if (shouldEscalate) {
     escalationReason = qualityVerdict.reasons.find((r) => r.includes("structured"))
       ? "structured_output_validation_failed"
       : qualityVerdict.reasons[0] || "quality_gate_failed";
-    const nextTier = TIER_ORDER[TIER_ORDER.indexOf(routed!.tier) + 1];
-    const upgrade = nextTier
-      ? cheapest(session.models, nextTier)
-      : cheapest(
-          session.models.filter((m) => TIER_ORDER.indexOf(m.tier) > TIER_ORDER.indexOf(routed!.tier)),
-        );
-    if (upgrade && upgrade.id !== routed.id) {
+    // Invalidate poisoned cache entries before regenerating.
+    if (fromCacheReplay) {
+      exactHit = false;
+      promptHit = false;
+      if (semanticMode === "full") semanticMode = "miss";
+    }
+    let tierIdx = TIER_ORDER.indexOf(routed!.tier);
+    while (tierIdx < TIER_ORDER.length - 1 && qualityVerdict.escalate) {
+      tierIdx += 1;
+      const upgrade = cheapest(session.models, TIER_ORDER[tierIdx]);
+      if (!upgrade || upgrade.id === routed.id) continue;
       escalated = true;
       routed = upgrade;
       payload = await complete(session, routed.id, textMessages, classification, {
         provider_id: routed.provider_id,
+        max_tokens: body.max_tokens ?? body.max_completion_tokens,
+        tools: body.tools ?? body.functions,
+        response_format: body.response_format,
       });
       text = payload.choices?.[0]?.message?.content ?? "";
-      await cacheSet(exactKey, payload);
-      await cacheSet(promptKey, payload);
       qualityVerdict = await evaluateQualityGate({
         answer: text,
         prompt: userPrompt,
         complexity: classification.complexity,
         must_include: mustInclude,
         must_not_include: mustNotInclude,
-        allow_expensive: false,
+        allow_expensive: tierIdx < TIER_ORDER.length - 1,
         session_mode: session.mode,
-        force_no_judge: true,
+        force_no_judge: tierIdx >= TIER_ORDER.length - 1,
       });
+      if (qualityVerdict.gate === "pass") break;
     }
   }
 
   const promptTokens = payload.usage?.prompt_tokens ?? tokens(prompt);
   const completionTokens = payload.usage?.completion_tokens ?? tokens(text);
-  const fullReplay = exactHit || promptHit || semanticMode === "full";
+  const fullReplay = (exactHit || promptHit || semanticMode === "full") && !escalated;
   let cost = costOf(routed, baseline, promptTokens, completionTokens, prefixHit ? tokens(prefixKey) : 0, {
     fullReplay,
   });
@@ -1305,12 +1246,23 @@ export async function routeChat(
     wastedUsd = firstAttemptCost.actual_usd;
     cost = {
       ...cost,
-      actual_usd: cost.actual_usd + wastedUsd,
-      saved_usd: cost.baseline_usd - (cost.actual_usd + wastedUsd),
-      wasted_usd: wastedUsd,
+      actual_usd: cost.actual_usd + wastedUsd + gateSampleCostUsd,
+      saved_usd: cost.baseline_usd - (cost.actual_usd + wastedUsd + gateSampleCostUsd),
+      wasted_usd: wastedUsd + gateSampleCostUsd,
     };
   } else {
-    cost = { ...cost, wasted_usd: 0 };
+    cost = {
+      ...cost,
+      actual_usd: cost.actual_usd + gateSampleCostUsd,
+      saved_usd: cost.baseline_usd - (cost.actual_usd + gateSampleCostUsd),
+      wasted_usd: gateSampleCostUsd,
+    };
+  }
+
+  // Persist completion cache only after a passing gate (never poison with fails).
+  if (qualityVerdict.gate === "pass" && text.trim() && !fullReplay) {
+    await cacheSet(exactKey, payload);
+    await cacheSet(promptKey, payload);
   }
 
   const qualityFinal = {
@@ -1341,9 +1293,10 @@ export async function routeChat(
   session.stats.escalations += escalated ? 1 : 0;
   session.stats.escalation_waste = (session.stats.escalation_waste ?? 0) + (cost.wasted_usd ?? 0);
   session.stats.quality_fails += qualityFinal.degraded || qualityFinal.gate === "fail" ? 1 : 0;
+  putSession(session);
 
   // Store vectorized prompt→answer for future similarity lookups (skip empty / failed / pure replays).
-  if (!anyCacheHit && qualityFinal.gate === "pass" && text.trim().length >= 24) {
+  if (!fullReplay && qualityFinal.gate === "pass" && text.trim().length >= 24) {
     await rememberSemantic({
       prompt: userPrompt,
       answer: text,
@@ -1390,6 +1343,7 @@ export async function routeChat(
       estimated_cost_usd: decision?.estimated_cost_usd ?? null,
       estimated_quality: decision?.estimated_quality ?? null,
       cache_hit: anyCacheHit,
+      cache_replay: Boolean((cost as { cache_replay?: boolean }).cache_replay),
       prefix_cache_hit: prefixHit,
       exact_cache_hit: exactHit,
       prompt_cache_hit: promptHit,
@@ -1421,6 +1375,7 @@ export async function routeChat(
       },
       latency_ms: Date.now() - started,
       rationale,
+      quality_guard: process.env.QUALITY_GUARD !== "false",
     },
   };
 }
@@ -1577,11 +1532,12 @@ export async function runBenchmark(session: Session, opts?: { repeat_factor?: nu
           task.gold,
           task.must_include,
           task.difficulty,
+          task.prompt,
         );
         // pass must_not when available
         const withNot = scoreAnswerLike(
           text,
-          task.gold,
+          task.prompt,
           task.difficulty,
           Number(process.env.QUALITY_ESCALATE_THRESHOLD ?? 0.62),
           task.must_include,
@@ -1727,9 +1683,12 @@ export async function runBenchmark(session: Session, opts?: { repeat_factor?: nu
   };
   const routerAvg = qualityCache.avg_quality;
   const frontierCurve = buildFrontierCurveFn(weakScores, strongScores, 11);
+  // Measured gate-off = blend of frontier curve with economy-only (weak) quality — not fabricated.
+  const weakAvgQ =
+    weakScores.length > 0 ? weakScores.reduce((a, b) => a + b, 0) / weakScores.length : 0;
   const gateOffCurve = frontierCurve.map((pt) => ({
     frontier_call_pct: pt.frontier_call_pct,
-    quality: pt.quality * 0.92,
+    quality: pt.frontier_call_pct * pt.quality + (1 - pt.frontier_call_pct) * weakAvgQ,
   }));
   const metrics = {
     pgr: pgrFn(routerAvg, weakAvg, strongAvg),

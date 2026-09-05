@@ -1,4 +1,4 @@
-from app.domain.quality import score_answer
+from app.domain.quality import looks_degraded, score_answer
 
 
 def test_gold_match_scores_high():
@@ -21,3 +21,14 @@ def test_thin_hard_answer_is_degraded():
     )
     assert score.degraded
     assert score.score < 0.62
+
+
+def test_looks_degraded_refusal_and_thin():
+    assert looks_degraded("", 3)
+    assert looks_degraded("I don't know", 2)
+    assert looks_degraded("Too complex for me.", 4)
+    assert looks_degraded("short", 4)
+    assert not looks_degraded(
+        "Paris is the capital of France and a major European city.",
+        1,
+    )

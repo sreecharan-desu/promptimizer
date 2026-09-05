@@ -6,6 +6,7 @@ import secrets
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -37,15 +38,18 @@ class ProviderSession:
     fleet: dict[str, Any]
     baseline_model: str | None
     created_at: float
-    stats: dict[str, Any] = field(default_factory=lambda: {
-        "requests": 0,
-        "actual_usd": 0.0,
-        "baseline_usd": 0.0,
-        "saved_usd": 0.0,
-        "cache_hits": 0,
-        "escalations": 0,
-        "quality_fails": 0,
-    })
+    stats: dict[str, Any] = field(
+        default_factory=lambda: {
+            "requests": 0,
+            "actual_usd": 0.0,
+            "baseline_usd": 0.0,
+            "saved_usd": 0.0,
+            "cache_hits": 0,
+            "escalations": 0,
+            "quality_fails": 0,
+            "escalation_waste": 0.0,
+        }
+    )
 
     def api_key(self) -> str:
         return _fernet().decrypt(self.api_key_encrypted.encode()).decode()
@@ -68,7 +72,8 @@ class ProviderSession:
 
 class SessionStore:
     def __init__(self) -> None:
-        self._memory: dict[str, str] = {}
+        # memory: session_id -> (json, expires_at)
+        self._memory: dict[str, tuple[str, float]] = {}
         self._redis = None
         settings = get_settings()
         if settings.cache_backend == "redis":
@@ -85,17 +90,24 @@ class SessionStore:
 
     def put(self, session: ProviderSession) -> None:
         raw = json.dumps(asdict(session))
+        ttl = self._ttl()
         if self._redis is not None:
-            self._redis.setex(f"pm:sess:{session.id}", self._ttl(), raw)
+            self._redis.setex(f"pm:sess:{session.id}", ttl, raw)
             return
-        self._memory[session.id] = raw
+        self._memory[session.id] = (raw, time.time() + ttl)
 
     def get(self, session_id: str) -> ProviderSession | None:
         raw = None
         if self._redis is not None:
             raw = self._redis.get(f"pm:sess:{session_id}")
         else:
-            raw = self._memory.get(session_id)
+            entry = self._memory.get(session_id)
+            if entry is None:
+                return None
+            raw, expires_at = entry
+            if time.time() > expires_at:
+                self._memory.pop(session_id, None)
+                return None
         if not raw:
             return None
         data = json.loads(raw)
@@ -146,7 +158,14 @@ def public_session(session: ProviderSession) -> dict[str, Any]:
 
 
 def _mask_url(url: str) -> str:
-    return url
+    """Strip credentials and query/fragment; keep scheme/host/path only."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        netloc = f"{host}:{parts.port}" if parts.port else host
+        return urlunsplit((parts.scheme, netloc, parts.path.rstrip("/") or parts.path, "", ""))
+    except Exception:
+        return "***"
 
 
 def update_session_fleet(

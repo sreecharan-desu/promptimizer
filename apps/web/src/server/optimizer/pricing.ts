@@ -31,16 +31,19 @@ export function buildPricing(input: {
   prompt_per_1m?: number | null;
   completion_per_1m?: number | null;
   cache_read_per_1m?: number | null;
+  /** When false, numbers may be estimates — never treat as catalog-known. Default: true if both sides present. */
+  known?: boolean;
 }): ModelPricing {
   const prompt = fromPerMillion(input.prompt_per_1m ?? null);
   const completion = fromPerMillion(input.completion_per_1m ?? null);
+  const hasNums = Boolean(prompt && completion);
   return {
     prompt,
     completion,
     input_cache_read: fromPerMillion(input.cache_read_per_1m ?? null),
     image: null,
     request: null,
-    known: Boolean(prompt && completion),
+    known: input.known === undefined ? hasNums : Boolean(input.known && hasNums),
   };
 }
 

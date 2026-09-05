@@ -1,4 +1,4 @@
-import { cacheGet, cacheSet, cacheScope } from "./upstash";
+import { cacheScope } from "./upstash";
 
 type Bucket = { count: number; reset: number };
 
@@ -14,9 +14,18 @@ function limitFor(kind: "auth" | "chat" | "connect") {
   return Number(process.env.RATE_LIMIT_CHAT ?? 120);
 }
 
+function blocked(reset: number) {
+  return new Response(JSON.stringify({ detail: "Rate limit exceeded. Try again shortly." }), {
+    status: 429,
+    headers: {
+      "content-type": "application/json",
+      "retry-after": String(Math.max(1, Math.ceil((reset - Date.now()) / 1000))),
+    },
+  });
+}
+
 /**
- * Fixed-window rate limit. Returns null when allowed, or a Response when blocked.
- * Uses Upstash when configured, else in-process memory (per instance).
+ * Fixed-window rate limit. Uses atomic INCR when Upstash REST is configured.
  */
 export async function rateLimit(
   kind: "auth" | "chat" | "connect",
@@ -28,25 +37,27 @@ export async function rateLimit(
   const bucketKey = `pm:rl:${kind}:${id}`;
   const now = Date.now();
 
-  const remote = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-  if (remote) {
-    const cur = (await cacheGet<Bucket>(bucketKey)) ?? { count: 0, reset: now + window };
-    if (cur.reset < now) {
-      cur.count = 0;
-      cur.reset = now + window;
-    }
-    cur.count += 1;
-    await cacheSet(bucketKey, cur, { ttlSeconds: Math.ceil(window / 1000) });
-    if (cur.count > limit) {
-      return new Response(JSON.stringify({ detail: "Rate limit exceeded. Try again shortly." }), {
-        status: 429,
-        headers: {
-          "content-type": "application/json",
-          "retry-after": String(Math.max(1, Math.ceil((cur.reset - now) / 1000))),
-        },
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (url && token) {
+    try {
+      const incr = await fetch(`${url}/incr/${encodeURIComponent(bucketKey)}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      const body = (await incr.json()) as { result?: number };
+      const count = Number(body.result ?? 0);
+      if (count === 1) {
+        await fetch(`${url}/pexpire/${encodeURIComponent(bucketKey)}/${window}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+      if (count > limit) {
+        return blocked(now + window);
+      }
+      return null;
+    } catch {
+      /* fall through to memory */
     }
-    return null;
   }
 
   const cur = memory.get(bucketKey) ?? { count: 0, reset: now + window };
@@ -56,15 +67,7 @@ export async function rateLimit(
   }
   cur.count += 1;
   memory.set(bucketKey, cur);
-  if (cur.count > limit) {
-    return new Response(JSON.stringify({ detail: "Rate limit exceeded. Try again shortly." }), {
-      status: 429,
-      headers: {
-        "content-type": "application/json",
-        "retry-after": String(Math.max(1, Math.ceil((cur.reset - now) / 1000))),
-      },
-    });
-  }
+  if (cur.count > limit) return blocked(cur.reset);
   return null;
 }
 

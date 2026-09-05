@@ -48,4 +48,5 @@ def extract_requirements(
         requires_vision=has_vision,
         minimum_context_tokens=max(0, len(blob) // 4 + 512),
         minimum_output_tokens=int(max_out),
+        task_type=TaskType.VISION if has_vision else task,
     )

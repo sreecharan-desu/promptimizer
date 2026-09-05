@@ -17,19 +17,25 @@ class CostBreakdown:
     prompt_tokens: int
     completion_tokens: int
     cached_tokens: int
+    wasted_usd: float = 0.0
+    cache_replay: bool = False
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "actual_usd": round(self.actual_usd, 8),
             "baseline_usd": round(self.baseline_usd, 8),
             "saved_usd": round(self.saved_usd, 8),
             "saved_pct": round(self.saved_pct, 2),
             "routing_saved_usd": round(self.routing_saved_usd, 8),
             "cache_discount_usd": round(self.cache_discount_usd, 8),
+            "wasted_usd": round(self.wasted_usd, 8),
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "cached_tokens": self.cached_tokens,
         }
+        if self.cache_replay:
+            out["cache_replay"] = True
+        return out
 
 
 def estimate_tokens(text: str) -> int:
@@ -55,21 +61,42 @@ def compute_cost(
     completion_tokens: int,
     cached_tokens: int = 0,
     cache_discount: float = 0.5,
+    full_replay: bool = False,
+    wasted_usd: float = 0.0,
 ) -> CostBreakdown:
     rin, rout = price_pair(routed)
     bin_, bout = price_pair(baseline)
     billable_prompt = max(0, prompt_tokens - cached_tokens)
     cached = max(0, min(cached_tokens, prompt_tokens))
+    full_routed = (prompt_tokens / 1_000_000) * rin + (completion_tokens / 1_000_000) * rout
+    baseline_cost = (prompt_tokens / 1_000_000) * bin_ + (completion_tokens / 1_000_000) * bout
+
+    if full_replay:
+        # Infra replay: no new provider spend; label savings honestly vs always-frontier.
+        routing_saved = baseline_cost - full_routed
+        return CostBreakdown(
+            actual_usd=0.0,
+            baseline_usd=baseline_cost,
+            saved_usd=baseline_cost,
+            saved_pct=100.0 if baseline_cost > 0 else 0.0,
+            routing_saved_usd=routing_saved,
+            cache_discount_usd=full_routed,
+            wasted_usd=0.0,
+            cache_replay=True,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_tokens=prompt_tokens + completion_tokens,
+        )
+
     actual = (
         (billable_prompt / 1_000_000) * rin
         + (cached / 1_000_000) * rin * cache_discount
         + (completion_tokens / 1_000_000) * rout
     )
-    baseline_cost = (prompt_tokens / 1_000_000) * bin_ + (completion_tokens / 1_000_000) * bout
-    full_routed = (prompt_tokens / 1_000_000) * rin + (completion_tokens / 1_000_000) * rout
-    cache_discount_usd = max(0.0, full_routed - actual)
-    routing_saved = max(0.0, baseline_cost - full_routed)
-    saved = max(0.0, baseline_cost - actual)
+    actual += wasted_usd
+    cache_discount_usd = full_routed - (actual - wasted_usd)
+    routing_saved = baseline_cost - full_routed
+    saved = baseline_cost - actual
     pct = (saved / baseline_cost * 100) if baseline_cost > 0 else 0.0
     return CostBreakdown(
         actual_usd=actual,
@@ -78,6 +105,8 @@ def compute_cost(
         saved_pct=pct,
         routing_saved_usd=routing_saved,
         cache_discount_usd=cache_discount_usd,
+        wasted_usd=wasted_usd,
+        cache_replay=False,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cached_tokens=cached,

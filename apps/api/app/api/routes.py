@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
+import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import require_session
+from app.core.rate_limit import rate_limit_chat, rate_limit_connect
 from app.core.sessions import (
     ProviderSession,
     create_byok_session,
@@ -48,6 +53,7 @@ class ChatBody(BaseModel):
     level_override: int | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    quality_profiles: dict[str, Any] | None = None
 
 
 class ClassifyBody(BaseModel):
@@ -57,6 +63,59 @@ class ClassifyBody(BaseModel):
 
 class BenchmarkBody(BaseModel):
     compare_always_frontier: bool = True
+
+
+def _analytics_payload(session: ProviderSession) -> dict[str, Any]:
+    stats = session.stats
+    baseline = stats.get("baseline_usd") or 0
+    return {
+        "session": public_session(session),
+        "cache": cache.stats(),
+        "saved_pct": round((stats.get("saved_usd") or 0) / baseline * 100, 2) if baseline else 0,
+    }
+
+
+def _sse_encode(data: Any) -> str:
+    if isinstance(data, str):
+        return f"data: {data}\n\n"
+    return f"data: {json.dumps(data)}\n\n"
+
+
+async def _buffer_then_sse(final: dict[str, Any]) -> AsyncIterator[str]:
+    """Mirror Next routeChatStream: route fully, then emit final answer chunks."""
+    text = ""
+    try:
+        text = str(final.get("choices", [{}])[0].get("message", {}).get("content") or "")
+    except Exception:
+        text = ""
+    cid = final.get("id") or f"chatcmpl-stream-{int(time.time() * 1000)}"
+    created = int(final.get("created") or time.time())
+    model = final.get("model")
+    parts = re.findall(r".{1,48}", text, flags=re.S) if text else ([] if not text else [text])
+    if text and not parts:
+        parts = [text]
+    for part in parts:
+        yield _sse_encode(
+            {
+                "id": cid,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": part}, "finish_reason": None}],
+            }
+        )
+    yield _sse_encode(
+        {
+            "id": cid,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": final.get("usage"),
+            "promptimizer": final.get("promptimizer"),
+        }
+    )
+    yield _sse_encode("[DONE]")
 
 
 @router.get("/health")
@@ -70,7 +129,10 @@ async def providers() -> dict[str, Any]:
 
 
 @router.post("/v1/providers/connect")
-async def connect(body: ConnectBody) -> dict[str, Any]:
+async def connect(
+    body: ConnectBody,
+    _: None = Depends(rate_limit_connect),
+) -> dict[str, Any]:
     if body.mode == "mock" or body.provider in {"simulator", "mock"}:
         raise HTTPException(
             status_code=400,
@@ -155,25 +217,39 @@ async def classify(body: ClassifyBody) -> dict[str, Any]:
 async def chat_completions(
     body: ChatBody,
     session: ProviderSession = Depends(require_session),
-) -> dict[str, Any]:
+    _: None = Depends(rate_limit_chat),
+) -> Any:
     extra: dict[str, Any] = {}
     if body.temperature is not None:
         extra["temperature"] = body.temperature
     if body.max_tokens is not None:
         extra["max_tokens"] = body.max_tokens
     try:
-        return await route_chat(
+        result = await route_chat(
             session,
             messages=body.messages,
-            stream=body.stream,
+            stream=False,
             level_override=body.level_override,
             model_hint=body.model,
             extra=extra,
+            quality_profiles=body.quality_profiles,
         )
     except RoutingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except ProviderError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+
+    if body.stream:
+        return StreamingResponse(
+            _buffer_then_sse(result),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    return result
 
 
 @router.get("/v1/benchmark")
@@ -300,10 +376,10 @@ async def run_benchmark(
 
 @router.get("/v1/analytics")
 async def analytics(session: ProviderSession = Depends(require_session)) -> dict[str, Any]:
-    stats = session.stats
-    baseline = stats.get("baseline_usd") or 0
-    return {
-        "session": public_session(session),
-        "cache": cache.stats(),
-        "saved_pct": round((stats.get("saved_usd") or 0) / baseline * 100, 2) if baseline else 0,
-    }
+    return _analytics_payload(session)
+
+
+@router.get("/v1/savings")
+async def savings(session: ProviderSession = Depends(require_session)) -> dict[str, Any]:
+    """Alias of /v1/analytics — same session savings shape."""
+    return _analytics_payload(session)

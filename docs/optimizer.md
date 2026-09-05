@@ -19,4 +19,4 @@ Production gateway: Next.js [`apps/web/src/server/engine.ts`](../apps/web/src/se
 
 ## Deferred
 
-LangGraph orchestration, external Qdrant/OpenAI embedding providers, Ragas, LangSmith — see `references/llm-cost-optimizer/`. Live similarity cache uses local hashed vectors in Redis/memory (`SEMANTIC_THRESHOLD`, default 0.5).
+LangGraph orchestration, external Ragas, LangSmith — see `references/llm-cost-optimizer/`. Live similarity cache uses NVIDIA `nemotron-3-embed-1b` (2048-d) via Qdrant when configured, else local hashed vectors in Redis/memory (`SEMANTIC_THRESHOLD`, default 0.5).

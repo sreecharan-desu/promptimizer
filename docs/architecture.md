@@ -7,9 +7,9 @@ Promptimizer is a middleware router, not a new model vendor.
 3. **Classify** — transparent features → complexity 1–5 and `P(quality|small)`.
 4. **Requirements** — tools / vision / structured output / size derived from the chat body.
 5. **Route** — if benchmark quality profiles exist: cheapest known-price model that clears capability + `MIN_QUALITY` (`quality_profile`). Else labeled `bootstrap_heuristic` (tier pick).
-6. **Cache** — SHA-256 exact message+model pairs; system/prefix remember for discount. Upstash/Redis — not Qdrant on the hot path.
-7. **Guard** — thin, refusing, or failed structured answers escalate; `escalation_reason` recorded.
-8. **Score / ledger** — gold overlap on benchmarks; live `usage_events` + `routing_events` for savings.
+6. **Cache** — SHA-256 exact message+model pairs; conversation-scoped prompt keys; system/prefix remember for discount. Semantic similarity via Redis and optional Qdrant (NVIDIA 2048-d when configured).
+7. **Guard** — quality gate (deterministic → optional self-consistency → judge); escalate through tiers; bill failed hops and gate samples; never cache failing answers.
+8. **Score / ledger** — gold overlap on benchmarks; live `usage_events` + `routing_events` for savings; `cache_replay` labeled when infra replay costs $0.
 
 **Production gateway:** Next.js `/api/v1` on Vercel ([`apps/web`](../apps/web)).  
 **Self-host twin:** FastAPI ([`apps/api`](../apps/api)).  

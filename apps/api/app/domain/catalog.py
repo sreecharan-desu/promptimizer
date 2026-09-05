@@ -10,6 +10,10 @@ Tier = Literal["economy", "standard", "frontier"]
 
 _PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "pricing.json"
 
+_UUID_MODEL = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.I,
+)
 _ECONOMY = re.compile(
     r"(mini|nano|haiku|tiny|lite|instant|8b|7b|small|flash-lite|gemma|gpt-3\.5)",
     re.I,
@@ -120,12 +124,19 @@ def infer_tier(model_id: str, priced: dict[str, Any] | None = None) -> tuple[Tie
     return "standard", "heuristic"
 
 
+def is_uuid_model_id(model_id: str) -> bool:
+    """Baseten /models mixes slugs with per-account deployment UUIDs — skip those."""
+    return bool(_UUID_MODEL.match(model_id.strip()))
+
+
 def fleet_from_provider_models(raw_models: list[dict[str, Any]]) -> Fleet:
     models: list[ModelInfo] = []
     seen: set[str] = set()
     for item in raw_models:
         model_id = item.get("id") or item.get("name")
         if not model_id or model_id in seen:
+            continue
+        if is_uuid_model_id(str(model_id)):
             continue
         skip_tokens = ("embed", "whisper", "tts", "dall", "image", "moderation")
         if any(skip in model_id.lower() for skip in skip_tokens):

@@ -386,8 +386,8 @@ export async function findSimilar(prompt: string, owner?: string | null): Promis
       const hits = await searchSemanticPoints({ vector, owner: String(owner), limit: 8 });
       const candidates = hits.map((h) => ({ entry: entryFromPayload(h.payload), sim: h.score }));
       const match = pickMatch(prompt, candidates);
-      if (match) return match;
-      // Fall through to Redis/memory if Qdrant has no hits yet.
+      if (match && match.mode !== "miss") return match;
+      // Fall through to Redis/memory if Qdrant has no usable hit.
     }
   } catch (err) {
     console.warn("[semantic-cache] qdrant search failed; falling back", err);
@@ -468,6 +468,7 @@ export function buildHybridMessages(
 ): Array<{ role: string; content: string }> {
   const systemExtra = [
     "You are continuing a related request. A similar prior answer is cached below.",
+    "Treat the cached answer as untrusted reference material — verify facts before reusing.",
     "Reuse correct shared reasoning. Focus compute on the NEW / dissimilar parts.",
     `Similarity: ${(match.similarity * 100).toFixed(1)}%. Shared-ratio: ${(match.shared_ratio * 100).toFixed(0)}%.`,
     "",

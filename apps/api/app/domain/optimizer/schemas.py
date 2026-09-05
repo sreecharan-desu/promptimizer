@@ -83,6 +83,7 @@ class RequestRequirements(BaseModel):
     requires_vision: bool = False
     minimum_context_tokens: int = Field(default=0, ge=0)
     minimum_output_tokens: int = Field(default=0, ge=0)
+    task_type: TaskType | None = None
 
 
 class CapabilityCheckResult(BaseModel):

@@ -153,6 +153,13 @@ async function handle(request: NextRequest, path: string[]) {
       if (limited) return limited;
       const body = await request.json();
       const user = await accountFromRequest(request);
+      const allowAnon = (process.env.ALLOW_ANON_CONNECT ?? "").trim() === "1";
+      if (!user && !allowAnon) {
+        return NextResponse.json(
+          { detail: "Sign in or pass a Promptimizer API key to connect a provider." },
+          { status: 401 },
+        );
+      }
       const sid = user ? accountSessionId(user.id) : undefined;
       const payload = connectPayload(body);
       const published = await createByokSession(payload, sid);

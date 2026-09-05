@@ -46,3 +46,6 @@ htmlcov
 
 # redis dumps
 dump.rdb
+
+# qdrant local volume
+qdrant_storage/

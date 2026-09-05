@@ -140,6 +140,13 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
 export async function deleteUser(userId: string) {
   await ensureSchema();
   await getSql()`DELETE FROM users WHERE id = ${userId}`;
+  try {
+    const { destroySession, accountSessionId, invalidateOwnerCaches } = await import("./engine");
+    await invalidateOwnerCaches(userId);
+    await destroySession(accountSessionId(userId), userId);
+  } catch {
+    /* best-effort Redis wipe */
+  }
 }
 
 export async function setPassword(userId: string, password: string) {
@@ -327,8 +334,12 @@ export async function upsertProviderConnection(userId: string, session: Persista
 /** Drop one persisted host by base URL (and optional connection id match on fleet). */
 export async function deleteProviderConnection(userId: string, baseUrl: string) {
   await ensureSchema();
-  const base = baseUrl.replace(/\/$/, "");
-  await getSql()`DELETE FROM providers WHERE user_id = ${userId} AND base_url = ${base}`;
+  const base = baseUrl.replace(/\/$/, "").toLowerCase();
+  await getSql()`
+    DELETE FROM providers
+    WHERE user_id = ${userId}
+      AND lower(regexp_replace(base_url, '/$', '')) = ${base}
+  `;
 }
 
 export async function loadDefaultProvider(userId: string): Promise<SavedProvider | null> {

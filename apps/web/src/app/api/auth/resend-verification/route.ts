@@ -3,6 +3,7 @@ import { authConfigured } from "@/server/db";
 import { requestVerification } from "@/server/email-auth";
 import { siteOrigin } from "@/server/google";
 import { mailConfigured } from "@/server/mail";
+import { clientIp, rateLimit } from "@/server/rate-limit";
 
 const OK = { detail: "If that email needs verification, we sent a link." };
 
@@ -10,6 +11,8 @@ export async function POST(request: NextRequest) {
   if (!authConfigured() || !mailConfigured()) {
     return NextResponse.json(OK);
   }
+  const limited = await rateLimit("auth", clientIp(request));
+  if (limited) return limited;
   try {
     const body = await request.json();
     const email = typeof body.email === "string" ? body.email : "";

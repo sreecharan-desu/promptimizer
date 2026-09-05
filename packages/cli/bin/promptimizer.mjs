@@ -565,10 +565,19 @@ async function completeStream(flags, config, messages) {
     body: JSON.stringify({ messages, stream: true }),
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    const detail =
-      typeof data === "object" && data && "detail" in data ? String(data.detail) : response.statusText;
-    throw Object.assign(new Error(detail), { status: response.status });
+    // Fall back to non-stream JSON when the gateway rejects SSE (or any stream error).
+    const fallback = await fetch(`${gatewayURL}/v1/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ messages, stream: false }),
+    });
+    const data = await fallback.json().catch(() => ({}));
+    if (!fallback.ok) {
+      const detail =
+        typeof data === "object" && data && "detail" in data ? String(data.detail) : fallback.statusText;
+      throw Object.assign(new Error(detail), { status: fallback.status });
+    }
+    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data };
   }
   if (!response.body) {
     const data = await response.json();

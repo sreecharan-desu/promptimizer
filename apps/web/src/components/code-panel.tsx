@@ -152,7 +152,7 @@ function TerminalBody() {
         <span className="tok-cmd">npx promptimizer-cli savings</span>
       </p>
       <p className="tok-out">
-        saved <span className="tok-num">80%</span> vs always-frontier · <span className="tok-num">31</span> requests
+        saved vs always-frontier · see <span className="tok-cmd">savings</span> for live totals
       </p>
       <p>
         <span className="tok-prompt">➜</span> <span className="tok-path">~</span>{" "}

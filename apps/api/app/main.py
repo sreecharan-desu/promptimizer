@@ -20,7 +20,18 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-origins = {settings.web_origin, "http://localhost:3000", "http://127.0.0.1:3000"}
+origins: set[str] = {
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+}
+# WEB_ORIGIN may be a single origin or comma-separated list.
+for part in (settings.web_origin or "").split(","):
+    cleaned = part.strip().rstrip("/")
+    if cleaned:
+        origins.add(cleaned)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(origins),

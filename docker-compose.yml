@@ -50,12 +50,29 @@ services:
       dockerfile: apps/web/Dockerfile
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
-      SEMANTIC_BACKEND: python
+      # Web runs its own Qdrant path when QDRANT_URL + NVIDIA are set (not disabled by SEMANTIC_BACKEND).
+      SEMANTIC_BACKEND: shared
+      SEMANTIC_CACHE: "true"
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-promptimizer_semantic_2048}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b}
+      EMBEDDING_DIM: "2048"
+      REDIS_URL: redis://redis:6379/0
+      ALLOW_ANON_CONNECT: ${ALLOW_ANON_CONNECT:-1}
     depends_on:
       api:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
 
   qdrant:
     image: qdrant/qdrant
