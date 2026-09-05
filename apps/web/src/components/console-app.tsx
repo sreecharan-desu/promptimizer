@@ -796,7 +796,7 @@ function FleetPane({
                 </span>
               </div>
               <div className="mt-3">
-                <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} />
+                <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} variant="wide" />
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-secondary">
                 <div>
@@ -859,8 +859,8 @@ function FleetPane({
                       {host}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} />
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <TierPicker value={model.tier} onPick={(tier) => onTier(model.id, tier)} variant="compact" />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-secondary tabular">
                     {fmtPer1m(model.input_per_1m)}
@@ -922,27 +922,62 @@ function FleetPane({
   );
 }
 
+const TIER_OPTIONS = [
+  { id: "economy", short: "Eco", label: "Economy" },
+  { id: "standard", short: "Std", label: "Standard" },
+  { id: "frontier", short: "Front", label: "Frontier" },
+] as const;
+
 function TierPicker({
   value,
   onPick,
+  variant = "compact",
 }: {
   value: string;
   onPick: (tier: "economy" | "standard" | "frontier") => void;
+  /** compact = single-row for tables; wide = equal 3-col for mobile cards */
+  variant?: "compact" | "wide";
 }) {
+  const wide = variant === "wide";
   return (
-    <div className="inline-flex max-w-full flex-wrap rounded-full border border-primary/[0.08] p-0.5">
-      {(["economy", "standard", "frontier"] as const).map((tier) => (
-        <button
-          key={tier}
-          type="button"
-          onClick={() => onPick(tier)}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
-            value === tier ? "bg-primary text-background" : "text-primary/50 hover:text-primary"
-          }`}
-        >
-          {tier}
-        </button>
-      ))}
+    <div
+      role="radiogroup"
+      aria-label="Model tier"
+      className={
+        wide
+          ? "grid w-full grid-cols-3 gap-1 rounded-xl border border-primary/[0.08] bg-background/60 p-1"
+          : "inline-flex max-w-full flex-nowrap items-center rounded-full border border-primary/[0.08] bg-background/40 p-0.5"
+      }
+    >
+      {TIER_OPTIONS.map((tier) => {
+        const selected = value === tier.id;
+        return (
+          <button
+            key={tier.id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            title={tier.label}
+            onClick={() => onPick(tier.id)}
+            className={
+              wide
+                ? `rounded-lg px-2 py-2 text-center text-[12px] font-medium transition-colors duration-150 ${
+                    selected
+                      ? "bg-primary text-background shadow-sm"
+                      : "text-primary/55 hover:bg-primary/[0.04] hover:text-primary"
+                  }`
+                : `shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-tight transition-colors duration-150 ${
+                    selected
+                      ? "bg-primary text-background"
+                      : "text-primary/45 hover:text-primary"
+                  }`
+            }
+          >
+            <span className={wide ? "sm:hidden" : ""}>{tier.short}</span>
+            {wide ? <span className="hidden sm:inline">{tier.label}</span> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
