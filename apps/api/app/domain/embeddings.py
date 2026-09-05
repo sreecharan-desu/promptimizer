@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import httpx
+import asyncio
+
+from openai import OpenAI
 
 from app.core.config import get_settings
 
@@ -23,36 +25,32 @@ def embedding_dim() -> int:
     return NVIDIA_DIM if embedding_configured() else 256
 
 
-async def embed_query(text: str) -> list[float]:
+def _client() -> OpenAI:
     settings = get_settings()
+    api_key = (settings.nvidia_api_key or settings.embedding_api_key or "").strip()
+    if not api_key:
+        raise RuntimeError("NVIDIA_API_KEY / EMBEDDING_API_KEY required for semantic embeddings")
+    base = (settings.embedding_base_url or DEFAULT_BASE).rstrip("/")
+    return OpenAI(api_key=api_key, base_url=base, timeout=60.0)
+
+
+def _embed_sync(text: str) -> list[float]:
+    settings = get_settings()
+    model = settings.embedding_model or DEFAULT_MODEL
+    response = _client().embeddings.create(
+        input=text[:8000],
+        model=model,
+        encoding_format="float",
+    )
+    vector = response.data[0].embedding if response.data else None
+    if not vector:
+        raise RuntimeError("Embedding response missing vector")
+    return list(vector)
+
+
+async def embed_query(text: str) -> list[float]:
     trimmed = (text or "").strip()
     dim = embedding_dim()
     if not trimmed:
         return [0.0] * dim
-
-    api_key = (settings.nvidia_api_key or settings.embedding_api_key or "").strip()
-    if not api_key:
-        raise RuntimeError("NVIDIA_API_KEY / EMBEDDING_API_KEY required for semantic embeddings")
-
-    base = (settings.embedding_base_url or DEFAULT_BASE).rstrip("/")
-    model = settings.embedding_model or DEFAULT_MODEL
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{base}/embeddings",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "input": trimmed[:8000],
-                "model": model,
-                "encoding_format": "float",
-            },
-        )
-        if response.status_code >= 400:
-            raise RuntimeError(f"Embedding failed ({response.status_code}): {response.text[:300]}")
-        data = response.json()
-        vector = (data.get("data") or [{}])[0].get("embedding")
-        if not vector:
-            raise RuntimeError("Embedding response missing vector")
-        return list(vector)
+    return await asyncio.to_thread(_embed_sync, trimmed)
