@@ -4,7 +4,7 @@
   "description": "Interactive Promptimizer CLI — Gemini-style REPL for quality-aware routing.",
   "type": "module",
   "bin": {
-    "promptimizer": "./bin/promptimizer.mjs"
+    "promptimizer": "bin/promptimizer.mjs"
   },
   "files": [
     "bin",

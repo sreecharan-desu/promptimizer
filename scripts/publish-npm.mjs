@@ -63,6 +63,15 @@ function publish(name, dir) {
   console.log(`${name} ${version}`);
   try {
     run("npm publish --access public", dir);
+    // Guard against registry metadata without a tarball (breaks @latest installs).
+    const tarball = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
+    const status = execSync(`curl -s -o /dev/null -w "%{http_code}" ${JSON.stringify(tarball)}`, {
+      encoding: "utf8",
+    }).trim();
+    if (status !== "200") {
+      throw new Error(`${name}@${version} published but tarball returned HTTP ${status}: ${tarball}`);
+    }
+    console.log(`${name}@${version} tarball ok`);
   } finally {
     writeFileSync(join(dir, "package.json"), original);
   }
