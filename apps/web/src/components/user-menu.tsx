@@ -43,12 +43,6 @@ export function UserMenu({ user, onLogout }: { user: User; onLogout: () => void 
           <Link href="/console" role="menuitem" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm text-primary hover:bg-primary/[0.04]">
             Console
           </Link>
-          <Link href="/account" role="menuitem" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm text-primary hover:bg-primary/[0.04]">
-            API keys
-          </Link>
-          <Link href="/portal" role="menuitem" onClick={() => setOpen(false)} className="block px-3 py-2 text-sm text-primary hover:bg-primary/[0.04]">
-            Savings
-          </Link>
           <button
             type="button"
             role="menuitem"

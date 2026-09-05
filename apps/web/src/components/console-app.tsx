@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type Session } from "@/lib/api";
@@ -37,11 +38,17 @@ const TABS = [
   ["eval", "Eval"],
 ] as const;
 
+const DOCK_LINKS = [
+  { href: "/portal", label: "Savings", icon: "savings" as const },
+  { href: "/account", label: "API keys", icon: "keys" as const },
+];
+
 const FIELD =
   "mt-2 h-11 w-full rounded-xl border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent";
 
 type Tab = (typeof TABS)[number][0];
 type Bench = Awaited<ReturnType<typeof api.benchmark>>;
+type DockLinkIconName = (typeof DOCK_LINKS)[number]["icon"];
 
 export function ConsoleApp() {
   const [tab, setTab] = useState<Tab>("connect");
@@ -253,6 +260,23 @@ export function ConsoleApp() {
               </button>
             );
           })}
+          <div className="mx-1 hidden h-px bg-primary/10 lg:block" aria-hidden />
+          <div className="mx-0.5 w-px self-stretch bg-primary/10 lg:hidden" aria-hidden />
+          {DOCK_LINKS.map(({ href, label, icon }) => (
+            <Link
+              key={href}
+              href={href}
+              title={label}
+              aria-label={label}
+              className="group relative flex size-11 items-center justify-center rounded-[1.15rem] text-primary/40 transition-all duration-200 ease-out hover:bg-primary/[0.05] hover:text-primary"
+            >
+              <DockLinkIcon name={icon} className="size-5 transition-transform duration-200 group-hover:scale-105" />
+              <span className="sr-only">{label}</span>
+              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
+                {label}
+              </span>
+            </Link>
+          ))}
         </nav>
       </aside>
 
@@ -387,6 +411,34 @@ function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
     <svg {...common}>
       <path d="M4.5 18.5V7.2A2.2 2.2 0 0 1 6.7 5h7.1A2.2 2.2 0 0 1 16 7.2v6.1a2.2 2.2 0 0 1-2.2 2.2H8.2L4.5 18.5z" />
       <path d="M9 10h4.5M9 13h2.5" />
+    </svg>
+  );
+}
+
+function DockLinkIcon({ name, className }: { name: DockLinkIconName; className?: string }) {
+  const common = {
+    className,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.75,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
+  if (name === "savings") {
+    return (
+      <svg {...common}>
+        <path d="M12 3v18" />
+        <path d="M16.5 7.5c-.8-1.2-2-1.9-4.5-1.9-3.1 0-5 1.7-5 3.9s1.7 3.4 5.2 4.1c3.4.7 5.3 1.9 5.3 4.3s-2.1 4.1-5.5 4.1c-2.6 0-4.1-.9-5.1-2.3" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M15.5 8.5a3.5 3.5 0 1 0-3.2 3.48V13.5" />
+      <path d="M12.3 13.5h5.2a2 2 0 0 1 2 2v1" />
+      <path d="M14.5 19.5h.01M17 19.5h.01M19.5 19.5h.01" />
     </svg>
   );
 }
