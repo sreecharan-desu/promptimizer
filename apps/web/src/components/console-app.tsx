@@ -563,99 +563,238 @@ function ConnectPane({
   onFetch: () => void;
   onDisconnect: (providerId: string) => void;
 }) {
+  const connected = connectedIds.has(host.id);
+  const canFetch = Boolean(apiKey.trim() && (host.id !== "custom" || baseUrl.trim()));
+  const connectedHosts = HOSTS.filter((h) => connectedIds.has(h.id));
+
   return (
-    <div className="space-y-4">
-      <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Step 01</p>
-            <h2 className="mt-1 font-display text-xl font-medium tracking-tight text-primary">Your keys</h2>
-            <p className="mt-1 max-w-xl text-sm text-secondary">
-              Connect hosts one at a time. Checkmarks stay — fetch another to merge fleets. Routing picks across all.
+    <div className="space-y-5">
+      <section className="relative overflow-hidden rounded-[1.35rem] border border-primary/[0.06] bg-card px-5 py-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:px-6 sm:py-6">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.55]"
+          style={{
+            background:
+              "radial-gradient(ellipse 70% 80% at 100% 0%, hsl(var(--accent) / 0.09), transparent 55%), radial-gradient(ellipse 50% 60% at 0% 100%, hsl(var(--primary) / 0.03), transparent 50%)",
+          }}
+          aria-hidden
+        />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-6 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-background">
+                1
+              </span>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Connect hosts</p>
+            </div>
+            <h2 className="mt-2 font-display text-2xl font-medium tracking-tight text-primary">Your keys</h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-secondary">
+              Pick a provider, paste its key, and fetch models. Connected hosts stay in the fleet — add more anytime;
+              routing chooses across all of them.
             </p>
-            {fleetSummary ? <p className="mt-2 text-sm text-primary">{fleetSummary}</p> : null}
+            {fleetSummary ? (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-primary/[0.05] px-3 py-1 text-[13px] font-medium text-primary">
+                <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                {fleetSummary}
+              </p>
+            ) : (
+              <p className="mt-3 text-[13px] text-secondary">No hosts yet — start with any provider below.</p>
+            )}
           </div>
-          <div className="hidden sm:block">
+          <div className="hidden w-44 shrink-0 lg:block xl:w-52">
             <KeySpot />
           </div>
         </div>
 
-        <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Filter hosts" className={FIELD} />
+        {connectedHosts.length > 0 ? (
+          <div className="relative mt-5 border-t border-primary/[0.06] pt-4">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Live in fleet</p>
+            <ul className="mt-2.5 flex flex-wrap gap-2">
+              {connectedHosts.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(item)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                      item.id === host.id
+                        ? "border-primary bg-primary text-background"
+                        : "border-accent/35 bg-background text-primary hover:border-accent/60"
+                    }`}
+                  >
+                    <ProviderIcon id={item.id} className="size-3.5" invert={item.id === host.id} />
+                    {item.label}
+                    <span className={item.id === host.id ? "opacity-70" : "text-accent"}>✓</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {hosts.map((item) => {
-            const active = item.id === host.id;
-            const connected = connectedIds.has(item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onPick(item)}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                  active
-                    ? "bg-primary text-background"
-                    : connected
-                      ? "text-primary shadow-[inset_0_0_0_1px_hsl(var(--accent)/0.45)]"
-                      : "text-primary/50 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:text-primary"
-                }`}
-              >
-                <ProviderIcon id={item.id} className="size-3.5" invert={active} />
-                {item.label}
-                {connected ? <span aria-hidden="true" className="text-[11px] opacity-80">✓</span> : null}
-              </button>
-            );
-          })}
-        </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)] lg:items-start">
+        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-4 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Providers</p>
+              <p className="mt-0.5 text-sm text-primary">Choose a host to configure</p>
+            </div>
+            <p className="text-[12px] tabular text-secondary">
+              {hosts.length}
+              {query.trim() ? ` match` : ` available`}
+            </p>
+          </div>
 
-        {host.id === "custom" ? (
-          <label className="mt-5 block text-sm text-secondary">
-            Base URL
+          <label className="relative mt-4 block">
+            <span className="sr-only">Filter hosts</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-secondary" aria-hidden>
+              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="M16 16l4 4" strokeLinecap="round" />
+              </svg>
+            </span>
             <input
-              value={baseUrl}
-              onChange={(e) => onBaseUrl(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              placeholder="Search OpenAI, Groq, Baseten…"
+              className={`${FIELD} !mt-0 pl-9`}
+            />
+          </label>
+
+          <div className="connect-host-scroll mt-4 max-h-[22rem] overflow-y-auto pr-1 sm:max-h-[26rem]">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {hosts.map((item) => {
+                const active = item.id === host.id;
+                const isLive = connectedIds.has(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onPick(item)}
+                    className={`group relative flex flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
+                      active
+                        ? "border-primary bg-primary text-background shadow-[0_10px_28px_-18px_rgba(0,0,0,0.55)]"
+                        : isLive
+                          ? "border-accent/40 bg-background text-primary hover:border-accent/70"
+                          : "border-primary/[0.08] bg-background/70 text-primary hover:border-primary/20 hover:bg-background"
+                    }`}
+                  >
+                    <span className="flex w-full items-center justify-between gap-2">
+                      <ProviderIcon id={item.id} className="size-5" invert={active} />
+                      {isLive ? (
+                        <span
+                          className={`text-[10px] font-medium uppercase tracking-wide ${
+                            active ? "text-background/70" : "text-accent"
+                          }`}
+                        >
+                          Live
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className={`text-[13px] font-medium leading-tight ${active ? "" : "text-primary"}`}>
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {hosts.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-primary/15 px-4 py-8 text-center text-sm text-secondary">
+                No hosts match “{query.trim()}”.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6 lg:sticky lg:top-24">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Credentials</p>
+              <div className="mt-1.5 flex items-center gap-2.5">
+                <span className="flex size-9 items-center justify-center rounded-xl border border-primary/[0.08] bg-background">
+                  <ProviderIcon id={host.id} className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="truncate font-display text-lg font-medium tracking-tight text-primary">{host.label}</h3>
+                  <p className="text-[12px] text-secondary">{connected ? "Already in fleet" : "Not connected yet"}</p>
+                </div>
+              </div>
+            </div>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                connected ? "bg-success/15 text-success" : "bg-primary/[0.06] text-secondary"
+              }`}
+            >
+              {connected ? "Connected" : "Ready"}
+            </span>
+          </div>
+
+          {host.id === "custom" ? (
+            <label className="mt-5 block text-sm text-secondary">
+              Base URL
+              <input
+                value={baseUrl}
+                onChange={(e) => onBaseUrl(e.target.value)}
+                placeholder="https://api.example.com/v1"
+                className={FIELD}
+              />
+            </label>
+          ) : (
+            <div className="mt-5 rounded-xl border border-primary/[0.06] bg-background/80 px-3.5 py-3">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-secondary">Endpoint</p>
+              <p className="mt-1 break-all font-mono text-[12.5px] leading-relaxed text-primary/80">{host.base_url}</p>
+            </div>
+          )}
+
+          <label className="mt-4 block text-sm text-secondary">
+            API key
+            <span className="ml-1 font-normal text-secondary/70">
+              {connected ? "· reconnect to refresh models" : "· stays in this browser session"}
+            </span>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => onKey(e.target.value)}
+              placeholder={host.hint || "sk-…"}
+              autoComplete="off"
               className={FIELD}
             />
           </label>
-        ) : (
-          <p className="mt-5 flex items-center gap-2 truncate font-mono text-[13px] text-secondary">
-            <ProviderIcon id={host.id} className="size-4 shrink-0" />
-            <span className="truncate">{host.base_url}</span>
-          </p>
-        )}
 
-        <label className="mt-4 block text-sm text-secondary">
-          API key{connectedIds.has(host.id) ? " (reconnect to refresh models)" : ""}
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => onKey(e.target.value)}
-            placeholder={host.hint || "sk-..."}
-            className={FIELD}
-          />
-        </label>
-
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onFetch}
-            disabled={busy || !apiKey.trim() || (host.id === "custom" && !baseUrl.trim())}
-            className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-primary text-sm font-medium text-background disabled:opacity-50"
-          >
-            {busy ? "Fetching…" : connectedIds.has(host.id) ? "Refresh models" : "Fetch models"}
-          </button>
-          {connectedIds.has(host.id) ? (
+          <div className="mt-6 flex flex-col gap-2.5">
             <button
               type="button"
-              onClick={() => onDisconnect(host.id)}
-              disabled={busy}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-primary/15 px-4 text-sm font-medium text-primary disabled:opacity-50"
+              onClick={onFetch}
+              disabled={busy || !canFetch}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-background transition-opacity disabled:opacity-40"
             >
-              Remove host
+              {busy ? (
+                <>
+                  <span className="size-3.5 animate-pulse rounded-full bg-background/70" aria-hidden />
+                  Fetching models…
+                </>
+              ) : connected ? (
+                "Refresh models"
+              ) : (
+                "Fetch models"
+              )}
             </button>
-          ) : null}
-        </div>
-      </section>
+            {connected ? (
+              <button
+                type="button"
+                onClick={() => onDisconnect(host.id)}
+                disabled={busy}
+                className="inline-flex h-11 items-center justify-center rounded-full border border-primary/12 text-sm font-medium text-primary transition-colors hover:border-error/30 hover:text-error disabled:opacity-50"
+              >
+                Remove host
+              </button>
+            ) : (
+              <p className="text-center text-[12px] text-secondary">
+                Keys are sent to your session only — never stored in our catalog.
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

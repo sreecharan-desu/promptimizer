@@ -303,26 +303,45 @@ async function saveIndex(owner: string | null | undefined, rows: SemanticEntry[]
   await cacheSet(indexKey(owner), rows.slice(-max));
 }
 
-export async function findSimilar(prompt: string, owner?: string | null): Promise<SemanticMatch | null> {
-  if (!semanticEnabled()) return null;
-  const embedding = embedText(prompt);
+function entryFromPayload(p: {
+  prompt: string;
+  answer: string;
+  model: string;
+  tier: string;
+  quality: number;
+  created_at: number;
+  entry_id: string;
+}): SemanticEntry {
+  return {
+    id: p.entry_id,
+    prompt: p.prompt,
+    embedding: [],
+    answer: p.answer,
+    model: p.model,
+    tier: p.tier,
+    quality: p.quality,
+    created_at: p.created_at,
+  };
+}
+
+function pickMatch(
+  prompt: string,
+  candidates: Array<{ entry: SemanticEntry; sim: number }>,
+): SemanticMatch | null {
+  if (!candidates.length) return null;
   const promptNorm = normalizeCachePrompt(prompt);
   const promptCanon = canonicalizeSemanticPrompt(prompt);
-  const index = await loadIndex(owner);
-  if (!index.length) return null;
 
   type Cand = { entry: SemanticEntry; sim: number; compatible: boolean; sameCanon: boolean; sameNorm: boolean };
   let bestAny: Cand | null = null;
   let bestSafe: Cand | null = null;
 
-  for (const entry of index) {
+  for (const { entry, sim: rawSim } of candidates) {
     if (!entry?.answer) continue;
-    const entryVec = entry.prompt ? embedText(entry.prompt) : entry.embedding;
-    if (!entryVec?.length) continue;
     const sameNorm = Boolean(promptNorm && promptNorm === normalizeCachePrompt(entry.prompt));
     const sameCanon = Boolean(promptCanon && promptCanon === canonicalizeSemanticPrompt(entry.prompt));
     const compatible = sameNorm || sameCanon || entitiesCompatible(prompt, entry.prompt);
-    const sim = sameNorm || sameCanon ? 1 : cosineSimilarity(embedding, entryVec);
+    const sim = sameNorm || sameCanon ? 1 : rawSim;
     const cand: Cand = { entry, sim, compatible, sameCanon, sameNorm };
     if (!bestAny || sim > bestAny.sim) bestAny = cand;
     if (compatible && (!bestSafe || sim > bestSafe.sim)) bestSafe = cand;
@@ -336,7 +355,6 @@ export async function findSimilar(prompt: string, owner?: string | null): Promis
   const paraphrase = semanticParaphraseHit();
   const { novel, shared_ratio } = extractNovelParts(prompt, pick.entry.prompt);
 
-  // Never full/hybrid-replay across incompatible entities (e.g. 17*24 vs 17*25).
   if (!pick.compatible) {
     return { entry: pick.entry, similarity: pick.sim, mode: "miss", novel: prompt, shared_ratio };
   }
@@ -354,6 +372,39 @@ export async function findSimilar(prompt: string, owner?: string | null): Promis
     return { entry: pick.entry, similarity: pick.sim, mode: "hybrid", novel, shared_ratio };
   }
   return { entry: pick.entry, similarity: pick.sim, mode: "miss", novel: prompt, shared_ratio };
+}
+
+export async function findSimilar(prompt: string, owner?: string | null): Promise<SemanticMatch | null> {
+  if (!semanticEnabled()) return null;
+
+  // Qdrant path (Cloud / self-hosted) when configured.
+  try {
+    const { qdrantConfigured, searchSemanticPoints } = await import("./qdrant-semantic");
+    if (qdrantConfigured() && owner) {
+      const { embedQuery } = await import("./embeddings");
+      const vector = await embedQuery(prompt, embedText);
+      const hits = await searchSemanticPoints({ vector, owner: String(owner), limit: 8 });
+      const candidates = hits.map((h) => ({ entry: entryFromPayload(h.payload), sim: h.score }));
+      const match = pickMatch(prompt, candidates);
+      if (match) return match;
+      // Fall through to Redis/memory if Qdrant has no hits yet.
+    }
+  } catch (err) {
+    console.warn("[semantic-cache] qdrant search failed; falling back", err);
+  }
+
+  const embedding = embedText(prompt);
+  const index = await loadIndex(owner);
+  if (!index.length) return null;
+
+  const candidates: Array<{ entry: SemanticEntry; sim: number }> = [];
+  for (const entry of index) {
+    if (!entry?.answer) continue;
+    const entryVec = entry.prompt ? embedText(entry.prompt) : entry.embedding;
+    if (!entryVec?.length) continue;
+    candidates.push({ entry, sim: cosineSimilarity(embedding, entryVec) });
+  }
+  return pickMatch(prompt, candidates);
 }
 
 export async function rememberSemantic(input: {
@@ -376,9 +427,39 @@ export async function rememberSemantic(input: {
     quality: input.quality,
     created_at: Date.now(),
   };
-  const index = await loadIndex(input.owner);
-  index.push(entry);
-  await saveIndex(input.owner, index);
+
+  let wroteQdrant = false;
+  try {
+    const { qdrantConfigured, upsertSemanticPoint } = await import("./qdrant-semantic");
+    if (qdrantConfigured() && input.owner) {
+      const { embedQuery, embeddingBackend } = await import("./embeddings");
+      const vector = await embedQuery(input.prompt, embedText);
+      await upsertSemanticPoint({
+        vector,
+        payload: {
+          prompt: entry.prompt,
+          answer: entry.answer,
+          model: entry.model,
+          tier: entry.tier,
+          quality: entry.quality,
+          owner: String(input.owner),
+          created_at: entry.created_at,
+          entry_id: entry.id,
+          embed_backend: embeddingBackend(),
+        },
+      });
+      wroteQdrant = true;
+    }
+  } catch (err) {
+    console.warn("[semantic-cache] qdrant upsert failed; falling back to redis", err);
+  }
+
+  // Always keep a Redis/memory copy as hot fallback (and for unit tests without Qdrant).
+  if (!wroteQdrant || process.env.SEMANTIC_DUAL_WRITE !== "0") {
+    const index = await loadIndex(input.owner);
+    index.push(entry);
+    await saveIndex(input.owner, index);
+  }
 }
 
 export function buildHybridMessages(

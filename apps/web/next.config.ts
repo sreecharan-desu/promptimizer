@@ -26,7 +26,7 @@ if (existsSync(envFile)) {
 const nextConfig: NextConfig = {
   output: "standalone",
   transpilePackages: ["promptimizer"],
-  serverExternalPackages: ["nodemailer"],
+  serverExternalPackages: ["nodemailer", "@qdrant/js-client-rest"],
   outputFileTracingRoot: root,
   experimental: {
     staleTimes: {
