@@ -1,4 +1,4 @@
-import { API_URL, DOCS_HOME, DOCS_URL, SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
+import { API_URL, DOCS_HOME, DOCS_URL, GITHUB_URL, SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 
 export function JsonLd() {
   const graph = {
@@ -13,7 +13,7 @@ export function JsonLd() {
           "@type": "ImageObject",
           url: `${SITE_URL}/icon.svg`,
         },
-        sameAs: ["https://github.com/sreecharan-desu/promptimizer"],
+        sameAs: [GITHUB_URL],
       },
       {
         "@type": "WebSite",
@@ -53,7 +53,7 @@ export function JsonLd() {
         downloadUrl: "https://www.npmjs.com/package/promptimizer",
         installUrl: `${DOCS_URL}/docs/quickstart`,
         discussionUrl: `${DOCS_URL}/docs/api`,
-        codeRepository: "https://github.com/sreecharan-desu/promptimizer",
+        codeRepository: GITHUB_URL,
         provider: { "@id": `${SITE_URL}/#organization` },
       },
       {

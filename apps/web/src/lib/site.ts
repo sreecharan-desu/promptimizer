@@ -6,6 +6,7 @@ export const DOCS_URL = `https://${DOCS_HOST}`;
 export const DOCS_HOME = `${DOCS_URL}/docs`;
 export const API_URL = `${SITE_URL}/api`;
 export const DEFAULT_GATEWAY_URL = API_URL;
+export const GITHUB_URL = "https://github.com/sreecharan-desu/promptimizer";
 
 export const SITE_NAME = "Promptimizer";
 export const SITE_TAGLINE = "Quality-aware LLM cost optimizer";

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { DOCS_HOME, SITE_URL } from "@/lib/site";
+import { DOCS_HOME, GITHUB_URL, SITE_URL } from "@/lib/site";
 import { AuthNav } from "./auth-nav";
+import { GitHubIcon, GitHubLink } from "./github-link";
 import { Mark } from "./mark";
 
 function docsActive(pathname: string) {
@@ -37,6 +38,7 @@ export function Header() {
           >
             Docs
           </Link>
+          <GitHubLink className="mr-1 inline-flex size-9 items-center justify-center rounded-full text-primary/50 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary" />
           <AuthNav />
         </div>
 
@@ -60,6 +62,16 @@ export function Header() {
             >
               Docs
             </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center gap-2 py-2 text-sm font-medium text-primary/70"
+            >
+              <GitHubIcon className="size-4" />
+              GitHub
+            </a>
             <div className="mt-3 flex items-center gap-3">
               <AuthNav />
             </div>

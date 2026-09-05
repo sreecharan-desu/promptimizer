@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { DOCS_HOME } from "@/lib/site";
+import { DOCS_HOME, GITHUB_URL } from "@/lib/site";
+import { GitHubLink } from "./github-link";
 
 const COLUMNS = [
   {
@@ -17,7 +18,10 @@ const COLUMNS = [
   },
   {
     title: "Developers",
-    links: [{ href: DOCS_HOME, label: "Docs" }],
+    links: [
+      { href: DOCS_HOME, label: "Docs" },
+      { href: GITHUB_URL, label: "GitHub" },
+    ],
   },
   {
     title: "Legal",
@@ -63,6 +67,7 @@ export function Footer() {
         <div>
           <p className="font-display text-sm font-medium tracking-tight text-primary">Promptimizer</p>
           <p className="mt-3 text-sm text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+          <GitHubLink className="mt-4 inline-flex size-8 items-center justify-center rounded-full text-primary/40 transition-colors hover:text-primary" />
         </div>
         {compact ? null : (
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
@@ -72,9 +77,20 @@ export function Footer() {
                 <ul className="mt-3 space-y-2">
                   {column.links.map((link) => (
                     <li key={link.href}>
-                      <Link href={link.href} className="text-sm text-primary/50 transition-colors hover:text-primary">
-                        {link.label}
-                      </Link>
+                      {link.href.startsWith("http") ? (
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary/50 transition-colors hover:text-primary"
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <Link href={link.href} className="text-sm text-primary/50 transition-colors hover:text-primary">
+                          {link.label}
+                        </Link>
+                      )}
                     </li>
                   ))}
                 </ul>
