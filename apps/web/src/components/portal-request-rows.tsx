@@ -93,12 +93,12 @@ function RequestDetail({ row }: { row: UsageEvent }) {
   const steps = routingSteps(row);
 
   return (
-    <div className="rounded-xl bg-white p-5 text-zinc-900 shadow-sm ring-1 ring-zinc-200/80">
+    <div className="rounded-xl bg-white p-5 text-zinc-900 shadow-sm ring-1 ring-zinc-200/80 sm:p-6">
       <div className="grid gap-6 lg:grid-cols-2">
         <section>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Prompt</p>
           {row.prompt ? (
-            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-zinc-50 px-3 py-2.5 font-sans text-[13px] leading-relaxed text-zinc-800">
+            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-zinc-100 bg-zinc-50 px-3.5 py-3 font-sans text-[13px] leading-relaxed text-zinc-800">
               {row.prompt}
             </pre>
           ) : (
@@ -113,7 +113,7 @@ function RequestDetail({ row }: { row: UsageEvent }) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">How routing worked</p>
           <ol className="mt-2 list-none space-y-2 text-[13px] leading-relaxed text-zinc-700">
             {steps.map((step) => (
-              <li key={step} className="rounded-lg bg-zinc-50 px-3 py-2">
+              <li key={step} className="rounded-lg border border-zinc-100 bg-zinc-50 px-3.5 py-2.5">
                 {step}
               </li>
             ))}
@@ -124,9 +124,9 @@ function RequestDetail({ row }: { row: UsageEvent }) {
         </section>
       </div>
 
-      <section className="mt-6">
+      <section className="mt-6 border-t border-zinc-100 pt-5">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Cost analysis</p>
-        <div className="mt-2 rounded-lg bg-zinc-50 px-3 py-1">
+        <div className="mt-2 rounded-lg border border-zinc-100 bg-zinc-50 px-3.5 py-1">
           <CostRow
             label="Frontier baseline"
             value={usd(row.baseline_usd)}
@@ -191,24 +191,22 @@ export function RecentRequestRows({ rows }: { rows: UsageEvent[] }) {
         const open = openId === row.id;
         return (
           <tbody key={row.id} className="border-t border-primary/5">
-            <tr className={open ? "bg-primary/[0.02]" : undefined}>
+            <tr
+              className={`cursor-pointer transition-colors ${open ? "bg-primary/[0.03]" : "hover:bg-primary/[0.02]"}`}
+              onClick={() => setOpenId(open ? null : row.id)}
+            >
               <td className="px-4 py-3 text-secondary">
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() => setOpenId(open ? null : row.id)}
-                  className="inline-flex items-center gap-2 text-left text-secondary transition-colors hover:text-primary"
-                >
+                <div className="inline-flex items-center gap-2.5">
                   <span
-                    className={`inline-flex size-5 shrink-0 items-center justify-center rounded border border-primary/15 text-[10px] text-primary transition-transform ${
-                      open ? "rotate-90" : ""
+                    className={`inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-card text-[11px] font-medium text-primary transition-colors ${
+                      open ? "border-accent/40 bg-accent/10 text-accent" : ""
                     }`}
                     aria-hidden
                   >
-                    ▸
+                    {open ? "−" : "+"}
                   </span>
                   <LocalWhen iso={row.created_at} />
-                </button>
+                </div>
               </td>
               <td className="px-4 py-3 font-mono text-[12px] text-primary">{row.model}</td>
               <td className="px-4 py-3">
@@ -246,19 +244,12 @@ export function RecentRequestRows({ rows }: { rows: UsageEvent[] }) {
                   !row.quality_audit ? (
                     <span className="text-secondary">—</span>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(open ? null : row.id)}
-                    className="ml-1 text-[11px] font-medium text-primary/70 underline-offset-2 hover:text-primary hover:underline"
-                  >
-                    {open ? "Hide detail" : "Expand"}
-                  </button>
                 </div>
               </td>
             </tr>
             {open ? (
               <tr>
-                <td colSpan={7} className="bg-primary/[0.015] px-4 pb-4 pt-1">
+                <td colSpan={7} className="bg-primary/[0.015] px-4 pb-4 pt-1" onClick={(e) => e.stopPropagation()}>
                   <RequestDetail row={row} />
                 </td>
               </tr>

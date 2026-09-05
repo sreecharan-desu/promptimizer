@@ -184,6 +184,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
         <div className="mt-10 overflow-hidden rounded-2xl border border-primary/[0.06]">
           <div className="border-b border-primary/[0.06] bg-card px-4 py-3">
             <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Recent requests</p>
+            <p className="mt-0.5 text-xs text-secondary/80">Click a row to open prompt, routing, and cost detail</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-sm">
