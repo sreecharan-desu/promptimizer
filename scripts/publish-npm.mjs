@@ -64,10 +64,16 @@ function publish(name, dir) {
   try {
     run("npm publish --access public", dir);
     // Guard against registry metadata without a tarball (breaks @latest installs).
+    // npm can 404 briefly after publish — retry before failing the workflow.
     const tarball = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
-    const status = execSync(`curl -s -o /dev/null -w "%{http_code}" ${JSON.stringify(tarball)}`, {
-      encoding: "utf8",
-    }).trim();
+    let status = "000";
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      status = execSync(`curl -s -o /dev/null -w "%{http_code}" ${JSON.stringify(tarball)}`, {
+        encoding: "utf8",
+      }).trim();
+      if (status === "200") break;
+      execSync(`sleep ${Math.min(12, attempt * 2)}`);
+    }
     if (status !== "200") {
       throw new Error(`${name}@${version} published but tarball returned HTTP ${status}: ${tarball}`);
     }

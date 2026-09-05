@@ -49,3 +49,6 @@ dump.rdb
 
 # qdrant local volume
 qdrant_storage/
+
+# local eval artifacts
+tmp/
