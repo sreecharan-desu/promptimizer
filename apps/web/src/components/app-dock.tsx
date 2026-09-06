@@ -1,6 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import {
+  Plug,
+  Server,
+  SquareTerminal,
+  PiggyBank,
+  KeyRound,
+} from "lucide-react";
 
 export type DockTabId = "connect" | "fleet" | "play" | "savings" | "keys";
 
@@ -109,61 +116,23 @@ export function AppDock({ activeTab, onTabChange }: AppDockProps) {
 }
 
 function DockIcon({ tab, className }: { tab: DockTabId; className?: string }) {
-  const common = {
+  const iconProps = {
     className,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.6,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
+    size: 18,
+    strokeWidth: 1.75,
     "aria-hidden": true as const,
   };
 
-  if (tab === "connect") {
-    return (
-      <svg {...common}>
-        <path d="M8 5v5M12 5v5" />
-        <path d="M6 10h8v2.5a4 4 0 0 1-4 4H9" />
-        <path d="M9 16.5v2.5M6.5 19h5" />
-      </svg>
-    );
+  switch (tab) {
+    case "connect":
+      return <Plug {...iconProps} />;
+    case "fleet":
+      return <Server {...iconProps} />;
+    case "play":
+      return <SquareTerminal {...iconProps} />;
+    case "savings":
+      return <PiggyBank {...iconProps} />;
+    case "keys":
+      return <KeyRound {...iconProps} />;
   }
-
-  if (tab === "fleet") {
-    return (
-      <svg {...common}>
-        <rect x="4.5" y="4.5" width="6" height="6" rx="1" />
-        <rect x="13.5" y="4.5" width="6" height="6" rx="1" />
-        <rect x="4.5" y="13.5" width="6" height="6" rx="1" />
-        <path d="M16.5 14v5M14 16.5h5" />
-      </svg>
-    );
-  }
-
-  if (tab === "savings") {
-    return (
-      <svg {...common}>
-        <path d="M5 19.5h14" />
-        <path d="M7 16v-4M12 16V7M17 16v-6" />
-      </svg>
-    );
-  }
-
-  if (tab === "keys") {
-    return (
-      <svg {...common}>
-        <circle cx="8.5" cy="11.5" r="3.5" />
-        <path d="m11 14 5 5M16 19h3" />
-      </svg>
-    );
-  }
-
-  // "play" (Playground)
-  return (
-    <svg {...common}>
-      <path d="m6.5 8 3.5 3.5-3.5 3.5" />
-      <path d="M12.5 15h5" />
-    </svg>
-  );
 }
