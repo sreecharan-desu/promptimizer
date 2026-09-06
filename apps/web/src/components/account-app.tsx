@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AppDock } from "./app-dock";
 import { UserAvatar } from "./avatar";
 import { CodePanel } from "./code-panel";
 
@@ -53,7 +54,10 @@ export function AccountApp({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
+      <AppDock activeTab="keys" />
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+        <div className="mx-auto max-w-4xl">
       <section className="metric-surface relative overflow-hidden rounded-[1.35rem] p-6 sm:p-8">
         <div className="pointer-events-none absolute -right-16 -top-20 size-64 rounded-full bg-accent/[0.08] blur-3xl" aria-hidden="true" />
         <div className="relative flex items-center gap-3">
@@ -143,6 +147,8 @@ export function AccountApp({
       <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.035em] text-primary">Use a key</h2>
       <p className="mt-1 mb-6 text-sm text-secondary">SDK, CLI, or curl against the hosted API.</p>
       <CodePanel />
+        </div>
+      </div>
     </div>
   );
 }

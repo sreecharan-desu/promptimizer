@@ -7,10 +7,15 @@ export const metadata = {
   title: "Console",
 };
 
-export default async function ConsolePage() {
+export default async function ConsolePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tab?: string }>;
+}) {
   if (authConfigured()) {
     const user = await getCurrentUser();
     if (!user) redirect("/login?next=/console");
   }
-  return <ConsoleApp />;
+  const params = searchParams ? await searchParams : undefined;
+  return <ConsoleApp initialTab={params?.tab} />;
 }

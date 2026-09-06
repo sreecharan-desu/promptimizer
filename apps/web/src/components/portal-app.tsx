@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { SavingsSummary } from "@/server/account";
+import { AppDock } from "./app-dock";
 import { Donut, Meter, MetricCard, MiniBars, Pill, Sparkline, pct, usd } from "./metrics";
 import { RecentRequestsPanel } from "./portal-recent-requests";
 
@@ -32,17 +33,20 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
   const auditPasses = savings.quality_audit_passes ?? 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Usage intelligence</p>
-          <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.045em] text-primary">Savings</h1>
-          <p className="mt-3 max-w-xl leading-7 text-secondary">
-            Estimated provider spend versus always-frontier
-            {user.name || user.email ? ` · ${user.name || user.email}` : ""}. Exact, prefix, and similarity cache —
-            plus a live quality gate. No routing fee — savings come from cheaper models and cache.
-          </p>
-        </div>
+    <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
+      <AppDock activeTab="savings" />
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Usage intelligence</p>
+              <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.045em] text-primary">Savings</h1>
+              <p className="mt-3 max-w-xl leading-7 text-secondary">
+                Estimated provider spend versus always-frontier
+                {user.name || user.email ? ` · ${user.name || user.email}` : ""}. Exact, prefix, and similarity cache —
+                plus a live quality gate. No routing fee — savings come from cheaper models and cache.
+              </p>
+            </div>
         <Pill tone={savings.requests ? "good" : "neutral"}>
           {savings.requests ? `${savings.requests} requests recorded` : "No traffic yet"}
         </Pill>
@@ -196,6 +200,8 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
       ) : (
         <RecentRequestsPanel rows={savings.recent} />
       )}
+        </div>
+      </div>
     </div>
   );
 }

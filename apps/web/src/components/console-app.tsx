@@ -10,6 +10,7 @@ import {
   restoreForSession,
   writeConsoleCache,
 } from "@/lib/console-cache";
+import { AppDock } from "./app-dock";
 import { EmptyFleetSpot, KeySpot } from "./console-spots";
 import { MarkdownContent } from "./markdown-content";
 import { Donut, Meter, Pill, usd } from "./metrics";
@@ -35,23 +36,21 @@ const TABS = [
   ["connect", "Connect"],
   ["fleet", "Fleet"],
   ["play", "Playground"],
-  ["eval", "Eval"],
 ] as const;
-
-const DOCK_LINKS = [
-  { href: "/portal", label: "Savings", icon: "savings" as const },
-  { href: "/account", label: "API keys", icon: "keys" as const },
-];
 
 const FIELD =
   "mt-2 h-11 w-full rounded-xl border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent";
 
 type Tab = (typeof TABS)[number][0];
 type Bench = Awaited<ReturnType<typeof api.benchmark>>;
-type DockLinkIconName = (typeof DOCK_LINKS)[number]["icon"];
 
-export function ConsoleApp() {
-  const [tab, setTab] = useState<Tab>("connect");
+export function ConsoleApp({ initialTab }: { initialTab?: string }) {
+  const [tab, setTab] = useState<Tab>(() => {
+    if (initialTab && (initialTab === "connect" || initialTab === "fleet" || initialTab === "play")) {
+      return initialTab;
+    }
+    return "connect";
+  });
   const [hostId, setHostId] = useState("baseten");
   const [query, setQuery] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -91,6 +90,21 @@ export function ConsoleApp() {
     });
   }
 
+  function handleTabChange(nextTab: Tab) {
+    setTab(nextTab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }
+
+  useEffect(() => {
+    if (initialTab && (initialTab === "connect" || initialTab === "fleet" || initialTab === "play")) {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
+
   useEffect(() => {
     api
       .session()
@@ -104,15 +118,17 @@ export function ConsoleApp() {
           if (cached.prompt) setPrompt(cached.prompt);
           if (cached.benchAt) setBenchCachedAt(cached.bench ? cached.benchAt : null);
           const restoredTab = TABS.some(([id]) => id === cached.tab) ? (cached.tab as Tab) : "fleet";
-          setTab(restoredTab === "connect" && s.models.length ? "fleet" : restoredTab);
-        } else {
+          if (!initialTab || !TABS.some(([id]) => id === initialTab)) {
+            setTab(restoredTab === "connect" && s.models.length ? "fleet" : restoredTab);
+          }
+        } else if (!initialTab) {
           setTab("fleet");
         }
       })
       .catch(() => {
         if (readSessionId()) clearSessionId();
       });
-  }, []);
+  }, [initialTab]);
 
   useEffect(() => {
     if (!session) return;
@@ -254,54 +270,7 @@ export function ConsoleApp() {
   return (
     <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
       {/* Floating side dock — not a full-height sidebar */}
-      <aside
-        className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 lg:bottom-auto lg:left-4 lg:top-[calc(50%+0.5rem)] lg:translate-x-0 lg:-translate-y-1/2"
-        aria-label="Console"
-      >
-        <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-2xl border border-primary/[0.1] bg-card/95 p-1.5 shadow-[0_14px_36px_-24px_rgba(0,0,0,0.45)] backdrop-blur-md lg:flex-col lg:gap-1 lg:p-1.5">
-          {TABS.map(([id, label]) => {
-            const active = tab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                title={label}
-                aria-label={label}
-                aria-current={active ? "page" : undefined}
-                onClick={() => setTab(id)}
-                className={`group relative flex size-10 items-center justify-center rounded-xl transition-colors duration-150 ${
-                  active
-                    ? "bg-primary text-background"
-                    : "text-primary/45 hover:bg-primary/[0.05] hover:text-primary"
-                }`}
-              >
-                <DockIcon tab={id} className="size-[18px]" />
-                <span className="sr-only">{label}</span>
-                <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
-                  {label}
-                </span>
-              </button>
-            );
-          })}
-          <div className="mx-1 hidden h-px bg-primary/10 lg:block" aria-hidden />
-          <div className="mx-0.5 w-px self-stretch bg-primary/10 lg:hidden" aria-hidden />
-          {DOCK_LINKS.map(({ href, label, icon }) => (
-            <Link
-              key={href}
-              href={href}
-              title={label}
-              aria-label={label}
-              className="group relative flex size-10 items-center justify-center rounded-xl text-primary/45 transition-colors duration-150 hover:bg-primary/[0.05] hover:text-primary"
-            >
-              <DockLinkIcon name={icon} className="size-[18px]" />
-              <span className="sr-only">{label}</span>
-              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
-                {label}
-              </span>
-            </Link>
-          ))}
-        </nav>
-      </aside>
+      <AppDock activeTab={tab} onTabChange={handleTabChange} />
 
       {/* Main stage — offset for the floating dock */}
       <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
@@ -383,86 +352,9 @@ export function ConsoleApp() {
             )
           ) : null}
 
-          {tab === "eval" ? (
-            hasFleet ? <EvalPane /> : <NeedSession onConnect={() => setTab("connect")} />
-          ) : null}
         </div>
       </div>
     </div>
-  );
-}
-
-function DockIcon({ tab, className }: { tab: Tab; className?: string }) {
-  const common = {
-    className,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.6,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true as const,
-  };
-  if (tab === "connect") {
-    return (
-      <svg {...common}>
-        <path d="M8 5v5M12 5v5" />
-        <path d="M6 10h8v2.5a4 4 0 0 1-4 4H9" />
-        <path d="M9 16.5v2.5M6.5 19h5" />
-      </svg>
-    );
-  }
-  if (tab === "fleet") {
-    return (
-      <svg {...common}>
-        <rect x="4.5" y="4.5" width="6" height="6" rx="1" />
-        <rect x="13.5" y="4.5" width="6" height="6" rx="1" />
-        <rect x="4.5" y="13.5" width="6" height="6" rx="1" />
-        <path d="M16.5 14v5M14 16.5h5" />
-      </svg>
-    );
-  }
-  if (tab === "eval") {
-    return (
-      <svg {...common}>
-        <path d="M5 18.5h14" />
-        <path d="m6.5 15 3.5-4 2.75 2.5L17.5 7" />
-        <path d="M14.5 7h3v3" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <path d="m6.5 8 3.5 3.5-3.5 3.5" />
-      <path d="M12.5 15h5" />
-    </svg>
-  );
-}
-
-function DockLinkIcon({ name, className }: { name: DockLinkIconName; className?: string }) {
-  const common = {
-    className,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.6,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true as const,
-  };
-  if (name === "savings") {
-    return (
-      <svg {...common}>
-        <path d="M5 19.5h14" />
-        <path d="M7 16v-4M12 16V7M17 16v-6" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <circle cx="8.5" cy="11.5" r="3.5" />
-      <path d="m11 14 5 5M16 19h3" />
-    </svg>
   );
 }
 
