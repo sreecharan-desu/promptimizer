@@ -105,17 +105,17 @@ export function Table({ headers, rows }: { headers: string[]; rows: string[][] }
   );
 }
 
-export function Pre({ children, label }: { children: string; label?: string }) {
-  return (
-    <div className="mt-5 overflow-hidden rounded-xl border border-primary/[0.08] bg-card">
-      {label ? (
-        <div className="border-b border-primary/[0.06] px-4 py-2 font-mono text-[11px] text-secondary">{label}</div>
-      ) : null}
-      <pre className="overflow-x-auto bg-codeblock p-4 font-mono text-[13px] leading-relaxed text-primary/80">
-        <code>{children}</code>
-      </pre>
-    </div>
-  );
+import { CodeBlock } from "@/components/docs/code-block";
+
+export function Pre({ children, label }: { children: ReactNode; label?: string }) {
+  const codeString =
+    typeof children === "string"
+      ? children
+      : Array.isArray(children)
+        ? children.map((c) => (typeof c === "string" ? c : String(c ?? ""))).join("")
+        : String(children ?? "");
+
+  return <CodeBlock code={codeString} label={label} />;
 }
 
 export function Endpoint({ method, path }: { method: string; path: string }) {
