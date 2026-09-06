@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CodePanel } from "@/components/code-panel";
+import { HomeBottomCta } from "@/components/home-bottom-cta";
 import { HomeFeatures } from "@/components/home-features";
 import { ProviderIcon } from "@/components/provider-icon";
 import { UnizHero } from "@/components/uniz-hero";
@@ -92,14 +93,7 @@ export default function HomePage() {
                 Connect a provider, create a key, and send your first intelligently-routed request in minutes.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/signup" className="inline-flex h-11 items-center rounded-xl bg-background px-5 text-sm font-semibold text-primary transition-transform hover:-translate-y-0.5">
-                Create an account
-              </Link>
-              <a href={`${DOCS_URL}/docs/sdk`} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 items-center rounded-xl border border-white/15 px-5 text-sm font-semibold text-background transition-colors hover:bg-white/10">
-                Explore the SDK
-              </a>
-            </div>
+            <HomeBottomCta />
           </div>
         </div>
       </section>

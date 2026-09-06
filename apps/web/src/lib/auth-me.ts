@@ -1,9 +1,23 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 export type AuthMe = {
   user: { id?: string; name: string; email: string; avatarUrl?: string | null } | null;
   configured: boolean;
 };
+
+export function useAuthMe() {
+  const [me, setMe] = useState<AuthMe | null>(() => getCachedMe());
+
+  useEffect(() => {
+    const unsub = subscribeMe(setMe);
+    void loadMe();
+    return unsub;
+  }, []);
+
+  return me;
+}
 
 let cached: AuthMe | null = null;
 let inflight: Promise<AuthMe> | null = null;

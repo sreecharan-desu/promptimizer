@@ -20,10 +20,10 @@ export function Header() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
-      <div className="site-nav relative mx-auto flex h-12 max-w-6xl items-center justify-between rounded-2xl border border-slate-200/90 bg-white/95 px-3 sm:px-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl backdrop-saturate-150 dark:border-slate-800 dark:bg-slate-950/95 dark:shadow-[0_10px_40px_rgb(0,0,0,0.6)]">
-        <Link href={homeHref} className="flex items-center gap-2.5 text-slate-900 dark:text-white">
+      <div className="site-nav relative mx-auto flex h-12 max-w-6xl items-center justify-between rounded-2xl border border-slate-200/90 bg-white/98 px-3 sm:px-4 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/98 dark:shadow-[0_10px_40px_rgb(0,0,0,0.6)]">
+        <Link href={homeHref} className="flex items-center gap-2.5 text-slate-950 dark:text-white">
           <Mark className="h-8 w-8" />
-          <span className="font-display text-[16px] font-bold tracking-tight text-slate-900 dark:text-white">
+          <span className="font-display text-[16px] font-bold tracking-tight text-slate-950 dark:text-white">
             Promptimizer
           </span>
         </Link>
