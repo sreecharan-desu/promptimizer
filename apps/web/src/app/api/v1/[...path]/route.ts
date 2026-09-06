@@ -104,7 +104,7 @@ function promptFromBody(body: { messages?: Array<{ role?: string; content?: unkn
 }
 
 async function resolve(request: NextRequest) {
-  const token = bearer(request);
+  const token = bearer(request) || request.headers.get("x-promptimizer-session")?.trim();
   if (token?.startsWith("pmz_")) {
     const user = await userFromApiKey(token);
     if (!user) {
@@ -112,16 +112,16 @@ async function resolve(request: NextRequest) {
     }
     return { user, session: await sessionForUser(user.id) };
   }
+  if (authConfigured()) {
+    const user = await getCurrentUser();
+    if (user) return { user, session: await sessionForUser(user.id) };
+  }
   if (token) {
     const session = await getSession(token);
     if (session) {
       const user = authConfigured() ? await getCurrentUser() : null;
       return { user, session };
     }
-  }
-  if (authConfigured()) {
-    const user = await getCurrentUser();
-    if (user) return { user, session: await sessionForUser(user.id) };
   }
   return { user: null, session: null };
 }
@@ -185,7 +185,7 @@ async function handle(request: NextRequest, path: string[]) {
       const limited = await rateLimit("connect", clientIp(request));
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
-      const needle = String(body.provider ?? body.id ?? body.host ?? "").trim();
+      const needle = String(body.provider ?? body.id ?? body.host ?? body.base_url ?? "").trim();
       const actor = await resolve(request);
       if ("error" in actor && actor.error) return actor.error;
       if (!actor.session) {
@@ -198,10 +198,24 @@ async function handle(request: NextRequest, path: string[]) {
       const ownerId =
         actor.user?.id ?? userIdFromSessionId(actor.session.id) ?? null;
       const owner = ownerId ?? actor.session.id;
+
+      // Invalidate Redis completion & semantic caches immediately
       await invalidateOwnerCaches(owner);
+      if (actor.session.id && actor.session.id !== owner) {
+        await invalidateOwnerCaches(actor.session.id);
+      }
+
       if (ownerId) {
+        const acctSid = accountSessionId(ownerId);
+        // If the actor session was a separate session id (e.g. sess_...), sync the account session in Redis too
+        if (actor.session.id !== acctSid) {
+          const acctSession = await getSession(acctSid);
+          if (acctSession) {
+            await disconnectProvider(acctSession, needle).catch(() => {});
+          }
+        }
         await deleteProviderConnection(ownerId, removed.base_url);
-        const live = await getSession(accountSessionId(ownerId));
+        const live = await getSession(acctSid);
         if (live && live.mode === "byok") {
           await persistMultiProviderSession(ownerId, live);
         }

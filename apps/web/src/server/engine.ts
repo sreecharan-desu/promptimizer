@@ -1,4 +1,4 @@
-import { classifyText, difficultyTier, type Classification } from "promptimizer";
+import { PROVIDERS, classifyText, difficultyTier, type Classification } from "promptimizer";
 import { createHash } from "crypto";
 import { BENCHMARK, PRICING } from "./data";
 import { cacheGet, cacheRemember, cacheSet, clearOwnerCaches, userCacheKey } from "./upstash";
@@ -476,27 +476,42 @@ export async function disconnectProvider(session: Session, needle: string) {
   if (!n) {
     throw Object.assign(new Error("Provide a host id (e.g. baseten) or label."), { status: 400 });
   }
+  const cleanNeedle = n.replace(/^https?:\/\//, "").replace(/\/$/, "");
   const conn = session.connections.find(
     (c) =>
       c.id.toLowerCase() === n ||
+      c.id.toLowerCase() === cleanNeedle ||
       c.label.toLowerCase() === n ||
       c.base_url.toLowerCase().includes(n) ||
-      c.label.toLowerCase().replace(/\s+/g, "") === n.replace(/\s+/g, ""),
+      normalizeBaseUrl(c.base_url) === normalizeBaseUrl(n) ||
+      normalizeBaseUrl(c.base_url).replace(/^https?:\/\//, "") === cleanNeedle ||
+      c.label.toLowerCase().replace(/\s+/g, "") === n.replace(/\s+/g, "") ||
+      (n === "custom" && !PROVIDERS.some((p) => p.id.toLowerCase() === c.id.toLowerCase())),
   );
   if (!conn) {
-    const known = session.connections.map((c) => c.id).join(", ") || "(none)";
+    const known = session.connections.map((c) => `${c.label} (${c.id})`).join(", ") || "(none)";
     throw Object.assign(new Error(`Host "${needle}" not connected. Connected: ${known}`), { status: 404 });
   }
 
-  session.connections = session.connections.filter((c) => c.id !== conn.id);
-  session.models = session.models.filter((m) => m.provider_id !== conn.id);
+  const removedId = conn.id;
+  const removedBase = normalizeBaseUrl(conn.base_url);
+  session.connections = session.connections.filter(
+    (c) => c.id !== removedId && normalizeBaseUrl(c.base_url) !== removedBase,
+  );
+  session.models = session.models.filter(
+    (m) =>
+      m.provider_id !== removedId &&
+      normalizeBaseUrl(m.provider_id) !== removedBase &&
+      !(removedId === "custom" && m.provider_label?.toLowerCase() === "custom"),
+  );
+  dedupeFleet(session);
 
   if (!session.connections.length) {
     session.models = [];
     session.baseline_model = null;
     refreshSessionLabel(session);
     putSession(session);
-    // Await the persist: a dropped host must not resurface from a stale Redis snapshot.
+    // Await the persist: a dropped host and its models must not resurface from Redis.
     await persistSession(session);
     return { session: publicSession(session), removed: conn };
   }
@@ -504,7 +519,7 @@ export async function disconnectProvider(session: Session, needle: string) {
   refreshSessionLabel(session);
   session.baseline_model = pickBaseline(session.models)?.id ?? null;
   putSession(session);
-  // Await the persist: a dropped host must not resurface from a stale Redis snapshot.
+  // Await the persist: a dropped host and its models must not resurface from Redis.
   await persistSession(session);
   return { session: publicSession(session), removed: conn };
 }

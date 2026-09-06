@@ -48,6 +48,28 @@ describe("fleet hygiene", () => {
     assert.equal(after.models.length, 0);
   });
 
+  it("disconnects custom provider by 'custom', id, or base_url and purges models from redis", async () => {
+    mockModelsFetch(["custom/llama-3.3-70b", "custom/deepseek-r1"]);
+    const sid = `acct_custom_purge_${Date.now()}`;
+    const s = await createByokSession({ label: "Custom", base_url: "https://custom.host.io/v1", api_key: "k" }, sid);
+    assert.equal(s.connections.length, 1);
+    assert.equal(s.models.length, 2);
+
+    const session: any = await getSession(sid);
+    assert.equal(session.models.length, 2);
+
+    // Disconnect passing "custom" needle
+    const { session: after, removed } = await disconnectProvider(session, "custom");
+    assert.equal(removed.base_url, "https://custom.host.io/v1");
+    assert.equal(after.connections.length, 0);
+    assert.equal(after.models.length, 0);
+
+    // Verify session in store / Redis is also completely purged
+    const reloaded: any = await getSession(sid);
+    assert.equal(reloaded.connections.length, 0);
+    assert.equal(reloaded.models.length, 0);
+  });
+
   it("drops orphan models whose host is no longer connected", async () => {
     mockModelsFetch(["m-8b", "m-70b"]);
     const sid = `acct_orph_${Date.now()}`;

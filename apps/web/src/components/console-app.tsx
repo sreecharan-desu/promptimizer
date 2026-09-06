@@ -308,7 +308,7 @@ export function ConsoleApp({ initialTab }: { initialTab?: string }) {
               query={query}
               baseUrl={baseUrl}
               apiKey={apiKey}
-              connectedIds={new Set((session?.connections ?? []).map((c) => c.id))}
+              connections={session?.connections ?? []}
               fleetSummary={
                 hasFleet
                   ? `${session!.label} · ${session!.models.length} models across ${session!.connections?.length ?? 1} host(s)`
@@ -328,7 +328,7 @@ export function ConsoleApp({ initialTab }: { initialTab?: string }) {
 
           {tab === "fleet" ? (
             hasFleet ? (
-              <FleetPane session={session!} />
+              <FleetPane session={session!} onDisconnect={disconnectHost} />
             ) : (
               <NeedSession onConnect={() => setTab("connect")} />
             )
@@ -527,7 +527,7 @@ function ConnectPane({
   query,
   baseUrl,
   apiKey,
-  connectedIds,
+  connections,
   fleetSummary,
   onQuery,
   onPick,
@@ -542,7 +542,7 @@ function ConnectPane({
   query: string;
   baseUrl: string;
   apiKey: string;
-  connectedIds: Set<string>;
+  connections: Array<{ id: string; label: string; base_url: string }>;
   fleetSummary: string | null;
   onQuery: (v: string) => void;
   onPick: (item: (typeof HOSTS)[number]) => void;
@@ -551,9 +551,36 @@ function ConnectPane({
   onFetch: () => void;
   onDisconnect: (providerId: string) => void;
 }) {
-  const connected = connectedIds.has(host.id);
+  const customConnections = useMemo(() => {
+    return connections.filter((c) => !PROVIDERS.some((p) => p.id.toLowerCase() === c.id.toLowerCase()));
+  }, [connections]);
+
+  const activeCustomConn = useMemo(() => {
+    if (host.id !== "custom") return null;
+    const clean = baseUrl.trim().toLowerCase().replace(/\/$/, "").replace(/^https?:\/\//, "");
+    if (clean) {
+      return (
+        customConnections.find(
+          (c) =>
+            c.base_url.toLowerCase().replace(/\/$/, "").replace(/^https?:\/\//, "") === clean ||
+            c.id.toLowerCase() === clean,
+        ) ?? null
+      );
+    }
+    return customConnections[0] ?? null;
+  }, [host.id, baseUrl, customConnections]);
+
+  const connected =
+    host.id === "custom"
+      ? Boolean(activeCustomConn)
+      : connections.some((c) => c.id.toLowerCase() === host.id.toLowerCase());
+
+  const disconnectTarget =
+    host.id === "custom"
+      ? (activeCustomConn?.id ?? activeCustomConn?.base_url ?? baseUrl.trim())
+      : host.id;
+
   const canFetch = Boolean(apiKey.trim() && (host.id !== "custom" || baseUrl.trim()));
-  const connectedHosts = HOSTS.filter((h) => connectedIds.has(h.id));
 
   return (
     <div className="space-y-5">
@@ -593,27 +620,73 @@ function ConnectPane({
           </div>
         </div>
 
-        {connectedHosts.length > 0 ? (
+        {connections.length > 0 ? (
           <div className="relative mt-5 border-t border-primary/[0.06] pt-4">
             <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Live in fleet</p>
             <ul className="mt-2.5 flex flex-wrap gap-2">
-              {connectedHosts.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(item)}
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                      item.id === host.id
-                        ? "border-primary bg-primary text-background"
-                        : "border-accent/35 bg-background text-primary hover:border-accent/60"
-                    }`}
-                  >
-                    <ProviderIcon id={item.id} className="size-3.5" invert={item.id === host.id} />
-                    {item.label}
-                    <span className={item.id === host.id ? "opacity-70" : "text-accent"}>✓</span>
-                  </button>
-                </li>
-              ))}
+              {connections.map((item) => {
+                const isSelected =
+                  item.id === host.id ||
+                  (host.id === "custom" && activeCustomConn?.id === item.id);
+                return (
+                  <li key={item.id}>
+                    <div
+                      className={`group inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm transition-colors ${
+                        isSelected
+                          ? "border-primary bg-primary text-background"
+                          : "border-accent/35 bg-background text-primary hover:border-accent/60"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const match = HOSTS.find((h) => h.id.toLowerCase() === item.id.toLowerCase());
+                          if (match) {
+                            onPick(match);
+                          } else {
+                            const customHost = HOSTS.find((h) => h.id === "custom") ?? HOSTS[HOSTS.length - 1];
+                            onPick(customHost);
+                            onBaseUrl(item.base_url);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5"
+                        title={`${item.label} · ${item.base_url}`}
+                      >
+                        <ProviderIcon id={item.id} className="size-3.5" invert={isSelected} />
+                        <span>{item.label}</span>
+                        {item.id !== item.label.toLowerCase() && !PROVIDERS.some((p) => p.id === item.id) ? (
+                          <span
+                            className={`max-w-[150px] truncate font-mono text-[11px] ${
+                              isSelected ? "opacity-75" : "text-secondary"
+                            }`}
+                          >
+                            {item.base_url.replace(/^https?:\/\//, "")}
+                          </span>
+                        ) : null}
+                        <span className={isSelected ? "opacity-75" : "text-accent"}>✓</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDisconnect(item.id);
+                        }}
+                        title={`Disconnect ${item.label}`}
+                        aria-label={`Disconnect ${item.label}`}
+                        className={`ml-0.5 rounded-full p-0.5 transition-colors ${
+                          isSelected
+                            ? "text-background/70 hover:bg-background/20 hover:text-background"
+                            : "text-secondary hover:bg-error/10 hover:text-error"
+                        }`}
+                      >
+                        <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
@@ -652,12 +725,20 @@ function ConnectPane({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {hosts.map((item) => {
                 const active = item.id === host.id;
-                const isLive = connectedIds.has(item.id);
+                const isLive =
+                  item.id === "custom"
+                    ? customConnections.length > 0
+                    : connections.some((c) => c.id.toLowerCase() === item.id.toLowerCase());
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => onPick(item)}
+                    onClick={() => {
+                      onPick(item);
+                      if (item.id === "custom" && customConnections.length > 0 && !baseUrl) {
+                        onBaseUrl(customConnections[0].base_url);
+                      }
+                    }}
                     className={`group relative flex flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
                       active
                         ? "border-primary bg-primary text-background shadow-[0_10px_28px_-18px_rgba(0,0,0,0.55)]"
@@ -702,8 +783,16 @@ function ConnectPane({
                   <ProviderIcon id={host.id} className="size-5" />
                 </span>
                 <div className="min-w-0">
-                  <h3 className="truncate font-display text-lg font-medium tracking-tight text-primary">{host.label}</h3>
-                  <p className="text-[12px] text-secondary">{connected ? "Already in fleet" : "Not connected yet"}</p>
+                  <h3 className="truncate font-display text-lg font-medium tracking-tight text-primary">
+                    {host.id === "custom" && activeCustomConn ? activeCustomConn.label : host.label}
+                  </h3>
+                  <p className="text-[12px] text-secondary">
+                    {connected
+                      ? host.id === "custom" && activeCustomConn
+                        ? `Live: ${activeCustomConn.base_url.replace(/^https?:\/\//, "")}`
+                        : "Already in fleet"
+                      : "Not connected yet"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -769,7 +858,7 @@ function ConnectPane({
             {connected ? (
               <button
                 type="button"
-                onClick={() => onDisconnect(host.id)}
+                onClick={() => onDisconnect(disconnectTarget)}
                 disabled={busy}
                 className="inline-flex h-11 items-center justify-center rounded-full border border-primary/12 text-sm font-medium text-primary transition-colors hover:border-error/30 hover:text-error disabled:opacity-50"
               >
@@ -789,8 +878,10 @@ function ConnectPane({
 
 function FleetPane({
   session,
+  onDisconnect,
 }: {
   session: Session;
+  onDisconnect: (providerId: string) => void;
 }) {
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(0);
@@ -870,11 +961,22 @@ function FleetPane({
                   {hostCounts.map((h) => (
                     <span
                       key={h.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-primary/[0.08] bg-background px-2.5 py-1 text-[11px] text-primary"
+                      className="group inline-flex items-center gap-1.5 rounded-full border border-primary/[0.08] bg-background pl-2.5 pr-1.5 py-1 text-[11px] text-primary"
                     >
                       <ProviderIcon id={h.id} className="size-3.5" />
-                      {h.label}
-                      <span className="text-secondary">{h.count}</span>
+                      <span>{h.label}</span>
+                      <span className="rounded-full bg-primary/[0.05] px-1.5 py-0.5 text-[10px] text-secondary">{h.count}</span>
+                      <button
+                        type="button"
+                        onClick={() => onDisconnect(h.id)}
+                        title={`Disconnect ${h.label}`}
+                        aria-label={`Disconnect ${h.label}`}
+                        className="ml-0.5 rounded-full p-0.5 text-secondary transition-colors hover:bg-error/10 hover:text-error"
+                      >
+                        <svg viewBox="0 0 16 16" className="size-3" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                        </svg>
+                      </button>
                     </span>
                   ))}
                 </div>
