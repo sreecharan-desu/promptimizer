@@ -640,16 +640,20 @@ function parseProviderError(status: number, body: string): string {
       detail?: unknown;
       title?: string;
       message?: string;
-      error?: { message?: string };
+      error?: string | { message?: string };
     };
+    const errorMsg = typeof j.error === "string" ? j.error : j.error?.message;
     const detail =
       typeof j.detail === "string"
         ? j.detail
         : j.detail != null
           ? JSON.stringify(j.detail)
-          : j.error?.message || j.message || "";
+          : errorMsg || j.message || "";
     if (/function ['"]?[0-9a-f-]{36}/i.test(detail) || /not found for account/i.test(detail)) {
       return `Model unavailable on this host (${status}): ${detail}. Refresh models — stale Baseten deployment ids are skipped automatically.`;
+    }
+    if (/payment status|insufficient_quota|billing|credit/i.test(detail)) {
+      return `Upstream provider billing error (${status}): ${detail}. Please check your payment status or account credits on your provider dashboard (e.g. Baseten at baseten.co).`;
     }
     if (detail) return j.title ? `${j.title}: ${detail}` : detail;
   } catch {
@@ -724,7 +728,7 @@ function isRetryableProviderError(err: unknown) {
   return (
     Boolean(rec.model_unavailable) ||
     Boolean(rec.retryable_404) ||
-    [408, 429, 500, 502, 503, 504].includes(Number(rec.status))
+    [402, 408, 429, 500, 502, 503, 504].includes(Number(rec.status))
   );
 }
 
