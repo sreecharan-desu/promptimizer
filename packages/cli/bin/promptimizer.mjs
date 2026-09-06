@@ -663,7 +663,7 @@ async function completeStream(flags, config, messages) {
               streamed = false; // previous output is being replaced — next model streams fresh
             }
           }
-          const delta = parsed.choices?.[0]?.delta?.content;
+          const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content;
           if (delta) {
             if (!streamed) {
               stopSpinner();
@@ -675,6 +675,9 @@ async function completeStream(flags, config, messages) {
           if (parsed.promptimizer) result.promptimizer = parsed.promptimizer;
           if (parsed.usage) result.usage = parsed.usage;
           if (parsed.model) result.model = parsed.model;
+          if (parsed.choices?.[0]?.message?.content && !text) {
+            text = parsed.choices[0].message.content;
+          }
         } catch (err) {
           if (err instanceof Error && err.message && !err.message.includes("JSON")) throw err;
         }
@@ -685,6 +688,9 @@ async function completeStream(flags, config, messages) {
   }
 
   if (streamed) process.stdout.write("\n");
+  if (!text && result.choices?.[0]?.message?.content) {
+    text = result.choices[0].message.content;
+  }
   result.choices = [{ message: { role: "assistant", content: text } }];
   return { text, result, elapsedMs: Date.now() - started, streamed };
 }

@@ -1038,11 +1038,13 @@ export function routeChatStream(
         typeof body.model === "string" && body.model !== "auto" && body.model !== "promptimizer"
           ? body.model
           : "";
+      let streamedAny = false;
       try {
         const final = await routeChat(session, body, {
           ...opts,
           onDelta: (delta, modelId) => {
             if (modelId) model = modelId;
+            if (delta) streamedAny = true;
             push({
               id,
               object: "chat.completion.chunk",
@@ -1067,6 +1069,20 @@ export function routeChatStream(
         });
         if (hooks?.onComplete) await hooks.onComplete(final);
         const finalModel = String(final.model ?? model);
+
+        // If no tokens were streamed (e.g. cache hit / semantic cache replay),
+        // emit the cached response so streaming consumers receive the content!
+        const cachedAnswer = final.choices?.[0]?.message?.content;
+        if (!streamedAny && cachedAnswer) {
+          push({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model: finalModel,
+            choices: [{ index: 0, delta: { content: cachedAnswer }, finish_reason: null }],
+          });
+        }
+
         push({
           id,
           object: "chat.completion.chunk",
