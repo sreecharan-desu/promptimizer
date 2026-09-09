@@ -4,8 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { DOCS_HOME, GITHUB_URL } from "@/lib/site";
-import { GitHubLink } from "./github-link";
+import { DOCS_HOME } from "@/lib/site";
 
 const COLUMNS = [
   {
@@ -20,7 +19,6 @@ const COLUMNS = [
     title: "Developers",
     links: [
       { href: DOCS_HOME, label: "Docs" },
-      { href: GITHUB_URL, label: "GitHub" },
     ],
   },
   {
@@ -68,7 +66,6 @@ export function Footer() {
           <p className="font-display text-base font-semibold tracking-tight text-primary">Promptimizer</p>
           <p className="mt-2 max-w-xs text-sm leading-6 text-secondary">The adaptive routing layer for production AI.</p>
           <div className="mt-4 flex items-center gap-3">
-            <GitHubLink className="inline-flex size-8 items-center justify-center rounded-lg text-primary/40 transition-colors hover:bg-primary/[0.05] hover:text-primary" />
             <p className="text-xs text-secondary">© {new Date().getFullYear()} Promptimizer</p>
           </div>
         </div>
