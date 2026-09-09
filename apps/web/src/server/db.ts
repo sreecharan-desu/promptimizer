@@ -3,7 +3,7 @@ import postgres from "postgres";
 let sql: postgres.Sql | null = null;
 let ready: Promise<void> | null = null;
 
-const SCHEMA_VERSION = "schema_v6_usage_detail";
+const SCHEMA_VERSION = "schema_v7_commercial_keys";
 
 export function authConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.ENCRYPTION_KEY);
@@ -96,6 +96,12 @@ ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS detail_json TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS monthly_budget_usd DOUBLE PRECISION;
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS current_spend_usd DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS spend_reset_at TIMESTAMPTZ;
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'production';
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
 CREATE TABLE IF NOT EXISTS email_tokens (
   id TEXT PRIMARY KEY,

@@ -17,6 +17,10 @@ export default async function AccountPage() {
         id: String(k.id),
         name: String(k.name),
         prefix: String(k.prefix),
+        monthly_budget_usd: k.monthly_budget_usd != null ? Number(k.monthly_budget_usd) : null,
+        current_spend_usd: Number(k.current_spend_usd || 0),
+        environment: String(k.environment || "production"),
+        is_active: k.is_active ?? true,
         last_used_at: k.last_used_at ? String(k.last_used_at) : null,
         created_at: String(k.created_at),
       }))}

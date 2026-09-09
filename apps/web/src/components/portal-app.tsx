@@ -108,6 +108,27 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
         </MetricCard>
       </div>
 
+      {/* Commercial Upsell & Reliability Banner */}
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-accent/20 bg-accent/[0.04] p-4 sm:p-5">
+        <div className="flex items-center gap-3.5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 font-mono text-xs font-bold text-accent">
+            ROI
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-primary">Zero-downtime auto-failover & virtual budget keys</p>
+            <p className="text-xs text-secondary">
+              Protect your applications against provider outages (402/429/5xx) and set hard spend caps for your team.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/pricing"
+          className="inline-flex h-9 items-center rounded-xl bg-accent px-4 text-xs font-semibold text-white transition-colors hover:bg-accent-hover"
+        >
+          View Commercial Tiers →
+        </Link>
+      </div>
+
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="metric-surface rounded-2xl p-5 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">

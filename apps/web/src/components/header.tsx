@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { DOCS_HOME, GITHUB_URL, SITE_URL } from "@/lib/site";
+import { DOCS_HOME, SITE_URL } from "@/lib/site";
 import { AuthNav } from "./auth-nav";
-import { GitHubIcon, GitHubLink } from "./github-link";
 import { Mark } from "./mark";
 
 function docsActive(pathname: string) {
@@ -35,6 +34,16 @@ export function Header() {
           >
             Console
           </Link>
+          <Link
+            href="/pricing"
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors duration-150 ${
+              pathname === "/pricing"
+                ? "bg-slate-100 font-bold text-slate-950 dark:bg-slate-800 dark:text-white"
+                : "text-slate-700 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+            }`}
+          >
+            Pricing
+          </Link>
           <a
             href={DOCS_HOME}
             target="_blank"
@@ -47,7 +56,6 @@ export function Header() {
           >
             Docs
           </a>
-          <GitHubLink className="ml-1 inline-flex size-8 items-center justify-center rounded-lg text-slate-700 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" />
           <span className="mx-2 h-5 w-px bg-slate-200 dark:bg-slate-800" aria-hidden="true" />
           <AuthNav />
         </div>
@@ -71,6 +79,17 @@ export function Header() {
               >
                 Console
               </Link>
+              <Link
+                href="/pricing"
+                onClick={() => setOpen(false)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold hover:bg-slate-100 ${
+                  pathname === "/pricing"
+                    ? "bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white"
+                    : "text-slate-800 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white"
+                }`}
+              >
+                Pricing
+              </Link>
               <a
                 href={DOCS_HOME}
                 target="_blank"
@@ -83,16 +102,6 @@ export function Header() {
                 }`}
               >
                 Docs
-              </a>
-              <a
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setOpen(false)}
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-              >
-                <GitHubIcon className="size-4" />
-                GitHub
               </a>
               <div className="mt-2 flex items-center gap-3 border-t border-slate-200 px-2 pt-3 dark:border-slate-800">
                 <AuthNav />

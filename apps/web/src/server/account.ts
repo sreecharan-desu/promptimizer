@@ -203,21 +203,78 @@ export async function getCurrentUser(): Promise<User | null> {
 export async function listKeys(userId: string) {
   await ensureSchema();
   return getSql()`
-    SELECT id, name, prefix, last_used_at, created_at
+    SELECT id, name, prefix, monthly_budget_usd, current_spend_usd, environment, is_active, last_used_at, created_at
     FROM api_keys WHERE user_id = ${userId}
     ORDER BY created_at DESC
   `;
 }
 
-export async function createKey(userId: string, name: string) {
+export async function createKey(
+  userId: string,
+  name: string,
+  opts?: { monthly_budget_usd?: number | null; environment?: string },
+) {
   await ensureSchema();
   const { raw, hash, prefix } = newApiKey();
   const id = newId("key");
+  const budget =
+    typeof opts?.monthly_budget_usd === "number" && opts.monthly_budget_usd > 0
+      ? opts.monthly_budget_usd
+      : null;
+  const env = opts?.environment?.trim() || "production";
   await getSql()`
-    INSERT INTO api_keys (id, user_id, name, prefix, key_hash)
-    VALUES (${id}, ${userId}, ${name.trim() || "Default"}, ${prefix}, ${hash})
+    INSERT INTO api_keys (id, user_id, name, prefix, key_hash, monthly_budget_usd, environment)
+    VALUES (${id}, ${userId}, ${name.trim() || "Default"}, ${prefix}, ${hash}, ${budget}, ${env})
   `;
-  return { id, name: name.trim() || "Default", prefix, key: raw };
+  return {
+    id,
+    name: name.trim() || "Default",
+    prefix,
+    key: raw,
+    monthly_budget_usd: budget,
+    current_spend_usd: 0,
+    environment: env,
+    is_active: true,
+  };
+}
+
+export async function updateKey(
+  userId: string,
+  id: string,
+  patch: { name?: string; monthly_budget_usd?: number | null; environment?: string; is_active?: boolean; reset_spend?: boolean },
+) {
+  await ensureSchema();
+  const sql = getSql();
+  if (patch.reset_spend) {
+    await sql`UPDATE api_keys SET current_spend_usd = 0, spend_reset_at = now() WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (patch.name !== undefined) {
+    await sql`UPDATE api_keys SET name = ${patch.name.trim() || "Default"} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (patch.monthly_budget_usd !== undefined) {
+    const b = typeof patch.monthly_budget_usd === "number" && patch.monthly_budget_usd > 0 ? patch.monthly_budget_usd : null;
+    await sql`UPDATE api_keys SET monthly_budget_usd = ${b} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (patch.environment !== undefined) {
+    await sql`UPDATE api_keys SET environment = ${patch.environment.trim() || "production"} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (patch.is_active !== undefined) {
+    await sql`UPDATE api_keys SET is_active = ${patch.is_active} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+}
+
+export async function updateKeySpend(keyId: string, deltaUsd: number) {
+  if (!authConfigured() || deltaUsd <= 0) return;
+  try {
+    await ensureSchema();
+    await getSql()`
+      UPDATE api_keys
+      SET current_spend_usd = current_spend_usd + ${deltaUsd}
+      WHERE id = ${keyId}
+    `;
+  } catch {
+    /* best effort */
+  }
 }
 
 export async function revokeKey(userId: string, id: string) {
@@ -225,20 +282,51 @@ export async function revokeKey(userId: string, id: string) {
   await getSql()`DELETE FROM api_keys WHERE id = ${id} AND user_id = ${userId}`;
 }
 
-export async function userFromApiKey(raw: string) {
+export interface ApiKeyMeta {
+  keyId: string;
+  monthlyBudgetUsd: number | null;
+  currentSpendUsd: number;
+  environment: string;
+}
+
+export async function userFromApiKey(raw: string): Promise<(User & { apiKeyMeta?: ApiKeyMeta }) | null> {
   if (!raw.startsWith("pmz_")) return null;
   if (!authConfigured()) return null;
   await ensureSchema();
   const rows = await getSql()`
-    SELECT u.id, u.email, u.name, k.id AS key_id
+    SELECT u.id, u.email, u.name, u.avatar_url, u.email_verified_at,
+           k.id AS key_id, k.monthly_budget_usd, k.current_spend_usd, k.is_active, k.environment
     FROM api_keys k
     JOIN users u ON u.id = k.user_id
     WHERE k.key_hash = ${hashToken(raw)}
   `;
   const row = rows[0];
   if (!row) return null;
-  await getSql()`UPDATE api_keys SET last_used_at = now() WHERE id = ${String(asRecord(row).key_id)}`;
-  return publicUser(row);
+  const r = asRecord(row);
+  if (r.is_active === false) {
+    throw Object.assign(new Error("This API key has been paused or deactivated. Reactivate in /account."), {
+      status: 403,
+      code: "key_deactivated",
+    });
+  }
+  const budget = r.monthly_budget_usd != null ? Number(r.monthly_budget_usd) : null;
+  const spend = Number(r.current_spend_usd || 0);
+  if (budget !== null && spend >= budget) {
+    throw Object.assign(
+      new Error(`Monthly budget exceeded for this key ($${spend.toFixed(2)} / $${budget.toFixed(2)}). Adjust limit in /account.`),
+      { status: 429, code: "budget_exceeded" },
+    );
+  }
+  await getSql()`UPDATE api_keys SET last_used_at = now() WHERE id = ${String(r.key_id)}`;
+  return {
+    ...publicUser(row),
+    apiKeyMeta: {
+      keyId: String(r.key_id),
+      monthlyBudgetUsd: budget,
+      currentSpendUsd: spend,
+      environment: String(r.environment || "production"),
+    },
+  };
 }
 
 export async function saveProvider(userId: string, session: PersistableSession) {

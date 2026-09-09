@@ -8,9 +8,11 @@ import {
   recordUsage,
   saveQualityProfiles,
   savingsForUser,
+  updateKeySpend,
   usageDetailFromMeta,
   userFromApiKey,
 } from "@/server/account";
+import { maskMessages, unmaskText } from "@/server/guardrails/pii-guard";
 import { authConfigured } from "@/server/db";
 import { classifyText, publicCatalog, resolveBaseURL } from "promptimizer";
 import {
@@ -106,11 +108,23 @@ function promptFromBody(body: { messages?: Array<{ role?: string; content?: unkn
 async function resolve(request: NextRequest) {
   const token = bearer(request) || request.headers.get("x-promptimizer-session")?.trim();
   if (token?.startsWith("pmz_")) {
-    const user = await userFromApiKey(token);
-    if (!user) {
-      return { error: NextResponse.json({ detail: "Invalid API key." }, { status: 401 }) };
+    try {
+      const user = await userFromApiKey(token);
+      if (!user) {
+        return { error: NextResponse.json({ detail: "Invalid API key." }, { status: 401 }) };
+      }
+      return { user, session: await sessionForUser(user.id), apiKeyMeta: user.apiKeyMeta };
+    } catch (err: unknown) {
+      const status = typeof err === "object" && err && "status" in err ? Number((err as { status: number }).status) : 401;
+      const message = err instanceof Error ? err.message : "Invalid API key.";
+      const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : "invalid_api_key";
+      return {
+        error: NextResponse.json(
+          { error: { message, type: code, code } },
+          { status, headers: { "x-promptimizer-error": code } },
+        ),
+      };
     }
-    return { user, session: await sessionForUser(user.id) };
   }
   if (authConfigured()) {
     const user = await getCurrentUser();
@@ -269,6 +283,20 @@ async function handle(request: NextRequest, path: string[]) {
       if (limited) return limited;
       const profiles = actor.user ? await loadQualityProfiles(actor.user.id) : [];
       const body = await request.json();
+
+      // Inline PII Guardrail Check
+      const piiRequested =
+        request.headers.get("x-promptimizer-guardrails")?.includes("pii") ||
+        Boolean(body.pii_guard);
+      let piiEntityMap: Map<string, string> | undefined;
+      let piiRedactedCount = 0;
+      if (piiRequested && Array.isArray(body.messages)) {
+        const pii = maskMessages(body.messages);
+        body.messages = pii.maskedMessages;
+        piiEntityMap = pii.entityMap;
+        piiRedactedCount = pii.redactedCount;
+      }
+
       // Cache keys must be stable per account regardless of cookie state —
       // otherwise disconnect's invalidation misses the real (user-id-scoped) caches.
       const cacheOwner = actor.user?.id ?? userIdFromSessionId(session.id) ?? session.id;
@@ -279,6 +307,9 @@ async function handle(request: NextRequest, path: string[]) {
           const meta = result.promptimizer;
           if (!cost || !meta) return;
           try {
+            if (actor.apiKeyMeta?.keyId && cost.actual_usd > 0) {
+              await updateKeySpend(actor.apiKeyMeta.keyId, cost.actual_usd);
+            }
             const metaRec = meta as unknown as Record<string, unknown>;
             await recordUsage(actor.user.id, {
               model: String(meta.model ?? result.model),
@@ -334,15 +365,22 @@ async function handle(request: NextRequest, path: string[]) {
             "Cache-Control": "no-cache, no-transform",
             Connection: "keep-alive",
             "X-Accel-Buffering": "no",
+            ...(piiRedactedCount > 0 ? { "x-promptimizer-pii-redacted": String(piiRedactedCount) } : {}),
           },
         });
       }
       const result = await routeChat(session, body, { qualityProfiles: profiles, cacheOwner });
+      if (piiEntityMap && piiEntityMap.size > 0 && result.choices?.[0]?.message?.content) {
+        result.choices[0].message.content = unmaskText(result.choices[0].message.content, piiEntityMap);
+      }
       if (actor.user) {
         const cost = result.usage.cost;
         const meta = result.promptimizer;
         if (cost && meta) {
           try {
+            if (actor.apiKeyMeta?.keyId && cost.actual_usd > 0) {
+              await updateKeySpend(actor.apiKeyMeta.keyId, cost.actual_usd);
+            }
             await recordUsage(actor.user.id, {
               model: String(meta.model ?? result.model),
               tier: String(meta.tier ?? ""),

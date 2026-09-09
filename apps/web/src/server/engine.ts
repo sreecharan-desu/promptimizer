@@ -736,14 +736,14 @@ function isModelUnavailableError(err: unknown) {
   );
 }
 
-/** True when a failed provider call should be retried on another model. */
 function isRetryableProviderError(err: unknown) {
   if (typeof err !== "object" || err === null) return false;
-  const rec = err as { model_unavailable?: boolean; retryable_404?: boolean; status?: number };
+  const rec = err as { model_unavailable?: boolean; retryable_404?: boolean; status?: number; message?: string };
   return (
     Boolean(rec.model_unavailable) ||
     Boolean(rec.retryable_404) ||
-    [402, 408, 429, 500, 502, 503, 504].includes(Number(rec.status))
+    [401, 402, 403, 408, 429, 500, 502, 503, 504].includes(Number(rec.status)) ||
+    /payment status|insufficient_quota|billing|credit/i.test(String(rec.message || ""))
   );
 }
 
@@ -833,11 +833,17 @@ async function completeOrFailover(
       if (!isRetryableProviderError(err)) throw err;
       // Skip this model for this request only — do NOT permanently deselect
       // (that left sessions stuck on frontier after one 404/timeout).
+      const shouldAvoidProvider =
+        isModelUnavailableError(err) ||
+        (typeof err === "object" &&
+          err !== null &&
+          "status" in err &&
+          [401, 402, 403, 429].includes(Number((err as { status?: number }).status)));
       const next = nextFailoverModel(
         session,
         current,
         tried,
-        isModelUnavailableError(err) ? current.provider_id : undefined,
+        shouldAvoidProvider ? current.provider_id : undefined,
       );
       if (!next) throw err;
       tried.add(`${next.provider_id}::${next.id}`);
@@ -1007,13 +1013,19 @@ async function completeStreamOrFailover(
       void stream.return?.(undefined as never);
       // Deltas already reached the client — failover would corrupt the visible answer.
       if (streamedAny) throw err;
-      const retryable =
-        typeof err === "object" &&
-        err &&
-        (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
-          ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
-      if (!retryable) throw err;
-      const next = nextFailoverModel(session, current, tried);
+      if (!isRetryableProviderError(err)) throw err;
+      const shouldAvoidProvider =
+        isModelUnavailableError(err) ||
+        (typeof err === "object" &&
+          err !== null &&
+          "status" in err &&
+          [401, 402, 403, 429].includes(Number((err as { status?: number }).status)));
+      const next = nextFailoverModel(
+        session,
+        current,
+        tried,
+        shouldAvoidProvider ? current.provider_id : undefined,
+      );
       if (!next) throw err;
       tried.add(`${next.provider_id}::${next.id}`);
       current = next;
