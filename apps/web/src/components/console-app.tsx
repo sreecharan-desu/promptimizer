@@ -273,7 +273,7 @@ export function ConsoleApp({ initialTab }: { initialTab?: string }) {
       <AppDock activeTab={tab} onTabChange={handleTabChange} />
 
       {/* Main stage — offset for the floating dock */}
-      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[calc(var(--rail-w)+1.25rem)] lg:pr-8 lg:pb-10">
         <header className="console-rise mb-7 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1489,7 +1489,7 @@ function PlayPane({
 
 function NeedSession({ onConnect }: { onConnect: () => void }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-primary/[0.06] bg-card">
+    <div className="overflow-hidden rounded-2xl border border-primary/[0.08] bg-card/55 shadow-[var(--shadow-soft)] backdrop-blur-xl">
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="p-8">
           <h2 className="font-display text-2xl font-medium tracking-tight text-primary">No fleet yet</h2>
@@ -1504,7 +1504,7 @@ function NeedSession({ onConnect }: { onConnect: () => void }) {
             </button>
           </div>
         </div>
-        <div className="border-t border-primary/[0.06] bg-codeblock p-5 lg:border-l lg:border-t-0">
+        <div className="border-t border-primary/[0.06] bg-primary/[0.02] p-5 lg:border-l lg:border-t-0">
           <EmptyFleetSpot />
         </div>
       </div>

@@ -72,7 +72,7 @@ export function DocsSidebar() {
 
   return (
     <aside className="hidden w-[248px] shrink-0 lg:block">
-      <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pr-3">
+      <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-primary/[0.08] bg-card/50 p-3 shadow-[var(--shadow-soft-sm)] backdrop-blur-xl backdrop-saturate-150">
         <DocsSearch />
         <div className="mt-5">
           <TabBar pathname={pathname} />

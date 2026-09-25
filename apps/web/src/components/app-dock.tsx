@@ -19,99 +19,135 @@ export interface AppDockProps {
 const CONSOLE_TABS = [
   { id: "connect", label: "Connect", href: "/console?tab=connect" },
   { id: "fleet", label: "Fleet", href: "/console?tab=fleet" },
-  { id: "play", label: "Playground", href: "/console?tab=play" },
+  { id: "play", label: "Play", href: "/console?tab=play" },
 ] as const;
 
 const APP_LINKS = [
   { id: "savings", label: "Savings", href: "/portal" },
-  { id: "keys", label: "API keys", href: "/account" },
+  { id: "keys", label: "Keys", href: "/account" },
 ] as const;
 
 export function AppDock({ activeTab, onTabChange }: AppDockProps) {
   return (
-    <aside
-      className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 lg:bottom-auto lg:left-4 lg:top-[calc(50%+0.5rem)] lg:translate-x-0 lg:-translate-y-1/2"
-      aria-label="Console navigation"
-    >
-      <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-[1.15rem] border border-border bg-card/95 p-1.5 shadow-[var(--shadow-soft)] backdrop-blur-md lg:flex-col lg:gap-1 lg:p-1.5">
-        {CONSOLE_TABS.map(({ id, label, href }) => {
-          const active = activeTab === id;
-          const className = `group relative flex size-10 items-center justify-center rounded-[0.85rem] transition-colors duration-150 ${
-            active
-              ? "bg-primary text-background"
-              : "text-primary/45 hover:bg-background-hover hover:text-primary"
-          }`;
+    <>
+      {/* Desktop — abcchess-style left rail */}
+      <aside
+        className="app-rail pointer-events-none fixed inset-y-0 left-0 z-40 hidden w-[var(--rail-w)] flex-col pt-[calc(env(safe-area-inset-top,0px)+4.75rem)] pb-[env(safe-area-inset-bottom,0px)] lg:flex"
+        aria-label="Console navigation"
+      >
+        <nav className="pointer-events-auto mx-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto rounded-[1.25rem] border border-primary/[0.08] bg-card/55 p-1.5 shadow-[var(--shadow-soft)] backdrop-blur-xl backdrop-saturate-150">
+          {CONSOLE_TABS.map((item) => (
+            <RailItem
+              key={item.id}
+              {...item}
+              active={activeTab === item.id}
+              onTabChange={onTabChange}
+            />
+          ))}
+          <div className="mx-2 my-1.5 h-px bg-primary/10" aria-hidden="true" />
+          {APP_LINKS.map((item) => (
+            <RailItem key={item.id} {...item} active={activeTab === item.id} />
+          ))}
+        </nav>
+      </aside>
 
-          const inner = (
-            <>
-              <DockIcon tab={id} className="size-[18px]" />
-              <span className="sr-only">{label}</span>
-              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
-                {label}
-              </span>
-            </>
-          );
-
-          if (onTabChange) {
+      {/* Mobile — floating glass capsule */}
+      <aside
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"
+        aria-label="Console navigation"
+      >
+        <nav className="console-dock pointer-events-auto flex w-full max-w-md flex-row items-stretch gap-0.5 rounded-[1.35rem] border border-primary/[0.1] bg-card/60 p-1.5 shadow-[var(--shadow-soft-lg)] backdrop-blur-2xl backdrop-saturate-150">
+          {[...CONSOLE_TABS, ...APP_LINKS].map((item) => {
+            const active = activeTab === item.id;
+            const className = `flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[1rem] px-1 py-1.5 text-[10px] font-bold tracking-tight transition-colors duration-150 ${
+              active ? "bg-primary/90 text-background" : "text-primary/45 hover:bg-primary/[0.06] hover:text-primary"
+            }`;
+            const inner = (
+              <>
+                <DockIcon tab={item.id} className="size-[17px]" />
+                <span className="leading-none">{item.label}</span>
+              </>
+            );
+            if (onTabChange && (item.id === "connect" || item.id === "fleet" || item.id === "play")) {
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={item.label}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onTabChange(item.id)}
+                  className={className}
+                >
+                  {inner}
+                </button>
+              );
+            }
             return (
-              <button
-                key={id}
-                type="button"
-                title={label}
-                aria-label={label}
+              <Link
+                key={item.id}
+                href={item.href}
+                aria-label={item.label}
                 aria-current={active ? "page" : undefined}
-                onClick={() => onTabChange(id)}
                 className={className}
               >
                 {inner}
-              </button>
+              </Link>
             );
-          }
+          })}
+        </nav>
+      </aside>
+    </>
+  );
+}
 
-          return (
-            <Link
-              key={id}
-              href={href}
-              title={label}
-              aria-label={label}
-              aria-current={active ? "page" : undefined}
-              className={className}
-            >
-              {inner}
-            </Link>
-          );
-        })}
+function RailItem({
+  id,
+  label,
+  href,
+  active,
+  onTabChange,
+}: {
+  id: DockTabId;
+  label: string;
+  href: string;
+  active: boolean;
+  onTabChange?: AppDockProps["onTabChange"];
+}) {
+  const className = `group flex flex-col items-center gap-0.5 rounded-[0.95rem] px-1 py-2 text-[10px] font-extrabold transition-colors duration-150 ${
+    active ? "text-primary" : "text-primary/40 hover:text-primary"
+  }`;
+  const inner = (
+    <>
+      <span
+        className={`flex size-9 items-center justify-center rounded-full transition-colors duration-150 ${
+          active ? "bg-accent/70 text-background" : "group-hover:bg-primary/[0.06]"
+        }`}
+      >
+        <DockIcon tab={id} className="size-[18px]" />
+      </span>
+      <span className="leading-none">{label}</span>
+    </>
+  );
 
-        <div className="mx-1 hidden h-px bg-primary/10 lg:block" aria-hidden="true" />
-        <div className="mx-0.5 w-px self-stretch bg-primary/10 lg:hidden" aria-hidden="true" />
+  if (onTabChange && (id === "connect" || id === "fleet" || id === "play")) {
+    return (
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+        onClick={() => onTabChange(id)}
+        className={className}
+      >
+        {inner}
+      </button>
+    );
+  }
 
-        {APP_LINKS.map(({ id, label, href }) => {
-          const active = activeTab === id;
-          const className = `group relative flex size-10 items-center justify-center rounded-[0.85rem] transition-colors duration-150 ${
-            active
-              ? "bg-primary text-background"
-              : "text-primary/45 hover:bg-background-hover hover:text-primary"
-          }`;
-
-          return (
-            <Link
-              key={id}
-              href={href}
-              title={label}
-              aria-label={label}
-              aria-current={active ? "page" : undefined}
-              className={className}
-            >
-              <DockIcon tab={id} className="size-[18px]" />
-              <span className="sr-only">{label}</span>
-              <span className="pointer-events-none absolute left-full top-1/2 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 lg:block">
-                {label}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+  return (
+    <Link href={href} title={label} aria-label={label} aria-current={active ? "page" : undefined} className={className}>
+      {inner}
+    </Link>
   );
 }
 

@@ -42,7 +42,7 @@ export function HomeFeatures() {
             href={feature.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex min-h-[17.5rem] flex-col rounded-[1.35rem] border border-border/90 bg-card p-6 shadow-[var(--shadow-soft-sm)] transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[var(--shadow-soft)] sm:p-7"
+            className="group flex min-h-[17.5rem] flex-col rounded-[1.35rem] border border-primary/[0.08] bg-card/55 p-6 shadow-[var(--shadow-soft-sm)] backdrop-blur-xl backdrop-saturate-150 transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-accent/30 hover:shadow-[var(--shadow-soft)] sm:p-7"
           >
             <div className="flex items-start justify-between gap-4">
               <span className="flex size-10 items-center justify-center rounded-[0.9rem] border border-border bg-background text-accent">

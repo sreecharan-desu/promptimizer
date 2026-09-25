@@ -56,7 +56,7 @@ export function AccountApp({
   return (
     <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
       <AppDock activeTab="keys" />
-      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[calc(var(--rail-w)+1.25rem)] lg:pr-8 lg:pb-10">
         <div className="mx-auto max-w-4xl">
       <section className="metric-surface relative overflow-hidden rounded-[1.35rem] p-6 sm:p-8">
         <div className="pointer-events-none absolute -right-16 -top-20 size-64 rounded-full bg-accent/[0.08] blur-3xl" aria-hidden="true" />

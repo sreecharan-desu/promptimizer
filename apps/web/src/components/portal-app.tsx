@@ -35,7 +35,7 @@ export function PortalApp({ user, savings }: { user: { email: string; name: stri
   return (
     <div className="console-shell relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl">
       <AppDock activeTab="savings" />
-      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[5.75rem] lg:pr-8 lg:pb-10">
+      <div className="min-w-0 px-4 pb-28 pt-6 sm:px-6 lg:py-8 lg:pl-[calc(var(--rail-w)+1.25rem)] lg:pr-8 lg:pb-10">
         <div className="mx-auto max-w-6xl">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
