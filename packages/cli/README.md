@@ -26,7 +26,7 @@ Requires **≥ 0.1.23** for `/hosts`, `/connect`, `/disconnect`.
 | `promptimizer` | Interactive multi-turn session |
 | `promptimizer login --key pmz_live_…` | Save API key |
 | `promptimizer logout` / REPL `/logout` | Remove `~/.promptimizer/config.json` |
-| `promptimizer connect baseten --key $BASETEN_API_KEY` | **Add** a host (keeps existing) |
+| `promptimizer connect baseten --key $BASETEN_API_KEY` | **Add** a host (keeps existing). `--key` is the **vendor** key; auth uses the saved `pmz_live_` key |
 | `promptimizer connect nvidia --key $NVIDIA_API_KEY` | Add another host |
 | `promptimizer disconnect nvidia` | **Remove** a host |
 | `promptimizer hosts` | List connected hosts |

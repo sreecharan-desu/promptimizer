@@ -449,6 +449,11 @@ function help() {
   out("  promptimizer disconnect nvidia");
   out('  promptimizer chat "What is 17 * 24?"');
   out();
+  out("Notes");
+  out("  login --key          Promptimizer API key (pmz_live_…)");
+  out("  connect … --key      Vendor BYOK key (uses saved pmz key for auth)");
+  out("  connect … --pmz …    Override Promptimizer key for one connect");
+  out();
 }
 
 function commandHelp(name) {
@@ -761,36 +766,40 @@ async function cmdConnect(flags, positional) {
   if (mock) {
     die("Simulator mode was removed. Connect a real provider, e.g. promptimizer connect baseten --key …");
   }
+
+  // Platform auth must NOT use --key (that's the vendor BYOK key).
+  const apiKey = String(flags.pmz || config.apiKey || process.env.PROMPTIMIZER_API_KEY || "").trim();
+  if (!apiKey) die("Not signed in. Run promptimizer login --key pmz_live_…");
+
   let vendorKey = flags.key || flags.k;
   let label = flags.label;
+  let foundEnv = "";
   if (!baseURL && provider && provider !== "custom") {
     const catalog = await request("/v1/providers", { gatewayURL });
     const found = (catalog.data ?? []).find(
       (row) => row.id === provider || String(row.label).toLowerCase() === provider.toLowerCase(),
     );
     if (!found) die(`Unknown provider "${provider}". Run promptimizer providers, or pass --base-url.`);
-    if (!vendorKey && found.env && process.env[found.env]) vendorKey = process.env[found.env];
-    if (!vendorKey) {
-      die(`Missing API key for ${found.label}. Pass --key or set ${found.env}.`);
-    }
+    foundEnv = found.env || "";
+    if (!vendorKey && foundEnv && process.env[foundEnv]) vendorKey = process.env[foundEnv];
     label = label || found.label;
-  } else if (!vendorKey) {
-    die("Missing provider key. Pass --key.");
+  }
+  if (!vendorKey) {
+    const envHint = foundEnv ? ` or set ${foundEnv}` : "";
+    die(`Missing API key for ${label || provider || "provider"}. Pass --key${envHint}.`);
   }
 
-  const apiKey = resolveApiKey(flags, config);
-  if (!apiKey) die("Not signed in. Run promptimizer login --key pmz_live_…");
   const session = await request("/v1/providers/connect", {
     method: "POST",
     gatewayURL,
     apiKey,
     body: {
-          mode: "byok",
-          label,
-          provider: provider && provider !== "custom" ? provider : undefined,
-          base_url: baseURL,
-          api_key: vendorKey,
-        },
+      mode: "byok",
+      label,
+      provider: provider && provider !== "custom" ? provider : undefined,
+      base_url: baseURL,
+      api_key: vendorKey,
+    },
   });
 
   writeConfig({ ...config, gatewayURL, apiKey, sessionId: session.session_id });
