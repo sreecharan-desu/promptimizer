@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useAuthMe } from "@/lib/auth-me";
 import { DOCS_HOME, SITE_URL } from "@/lib/site";
 import { AuthNav } from "./auth-nav";
 import { Mark } from "./mark";
@@ -13,6 +14,8 @@ function docsActive(pathname: string) {
 
 export function Header() {
   const pathname = usePathname();
+  const me = useAuthMe();
+  const loggedIn = Boolean(me?.user);
   const [open, setOpen] = useState(false);
   const docs = docsActive(pathname);
   const homeHref = docs ? SITE_URL : "/";
@@ -28,9 +31,11 @@ export function Header() {
         </Link>
 
         <div className="hidden items-center gap-1 lg:flex">
-          <Link href="/console" className="nav-link">
-            Console
-          </Link>
+          {loggedIn ? (
+            <Link href="/console" className="nav-link">
+              Console
+            </Link>
+          ) : null}
           <a
             href={DOCS_HOME}
             target="_blank"
@@ -56,13 +61,11 @@ export function Header() {
         {open ? (
           <div className="site-nav absolute left-0 right-0 top-[calc(100%+0.5rem)] rounded-[1.15rem] p-2.5 lg:hidden">
             <div className="flex flex-col gap-0.5">
-              <Link
-                href="/console"
-                onClick={() => setOpen(false)}
-                className="nav-link"
-              >
-                Console
-              </Link>
+              {loggedIn ? (
+                <Link href="/console" onClick={() => setOpen(false)} className="nav-link">
+                  Console
+                </Link>
+              ) : null}
               <a
                 href={DOCS_HOME}
                 target="_blank"

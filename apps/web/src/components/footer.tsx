@@ -2,62 +2,36 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-
+import { useAuthMe } from "@/lib/auth-me";
 import { DOCS_HOME } from "@/lib/site";
-
-const COLUMNS = [
-  {
-    title: "Product",
-    links: [
-      { href: "/console", label: "Console" },
-      { href: "/account", label: "API keys" },
-      { href: "/portal", label: "Savings" },
-    ],
-  },
-  {
-    title: "Developers",
-    links: [
-      { href: DOCS_HOME, label: "Docs" },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
-      { href: "/privacy", label: "Privacy" },
-      { href: "/terms", label: "Terms" },
-    ],
-  },
-];
-
-type Theme = "dark" | "light" | "system";
 
 export function Footer() {
   const pathname = usePathname();
-  const [theme, setTheme] = useState<Theme>("light");
+  const me = useAuthMe();
+  const loggedIn = Boolean(me?.user);
   const compact = pathname.startsWith("/docs");
 
-  useEffect(() => {
-    const stored = (localStorage.getItem("promptimizer-theme") as Theme | null) ?? "light";
-    setTheme(stored);
-  }, []);
-
-  function cycle() {
-    const next: Theme = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
-    setTheme(next);
-    localStorage.setItem("promptimizer-theme", next);
-    const applied =
-      next === "system"
-        ? window.matchMedia("(prefers-color-scheme: light)").matches
-          ? "light"
-          : "dark"
-        : next;
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(applied);
-  }
-
-  const label =
-    theme === "light" ? "Switch to dark mode" : theme === "dark" ? "Switch to system theme" : "Switch to light mode";
+  const columns = [
+    {
+      title: "Product",
+      links: [
+        ...(loggedIn ? [{ href: "/console", label: "Console" }] : []),
+        { href: "/account", label: "API keys" },
+        { href: "/portal", label: "Savings" },
+      ],
+    },
+    {
+      title: "Developers",
+      links: [{ href: DOCS_HOME, label: "Docs" }],
+    },
+    {
+      title: "Legal",
+      links: [
+        { href: "/privacy", label: "Privacy" },
+        { href: "/terms", label: "Terms" },
+      ],
+    },
+  ];
 
   return (
     <footer className="border-t border-primary/[0.07] px-4 py-12 sm:px-6 sm:py-14">
@@ -71,7 +45,7 @@ export function Footer() {
         </div>
         {compact ? null : (
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <div key={column.title}>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-secondary">{column.title}</p>
                 <ul className="mt-3 space-y-2">
@@ -98,14 +72,6 @@ export function Footer() {
             ))}
           </div>
         )}
-        <button
-          type="button"
-          onClick={cycle}
-          aria-label={label}
-          className="size-8 rounded-lg border border-primary/[0.08] text-primary/35 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary/65"
-        >
-          {theme === "light" ? "○" : theme === "system" ? "◐" : "●"}
-        </button>
       </div>
     </footer>
   );

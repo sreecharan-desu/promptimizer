@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { DOC_GROUPS, DOC_TABS, tabForPath, type DocTab } from "@/lib/docs/nav";
+import { useAuthMe } from "@/lib/auth-me";
+import { DOC_GROUPS, DOC_TABS, tabForPath, type DocGroup, type DocTab } from "@/lib/docs/nav";
 import { DocsSearch } from "./search";
 
 function TabBar({ pathname }: { pathname: string }) {
@@ -24,8 +25,17 @@ function TabBar({ pathname }: { pathname: string }) {
   );
 }
 
-function GroupNav({ pathname, tab }: { pathname: string; tab: DocTab }) {
-  const groups = DOC_GROUPS.filter((g) => g.tab === tab);
+function visibleGroups(tab: DocTab, loggedIn: boolean): DocGroup[] {
+  return DOC_GROUPS.filter((g) => g.tab === tab)
+    .map((group) => ({
+      ...group,
+      pages: group.pages.filter((page) => loggedIn || page.href !== "/docs/console"),
+    }))
+    .filter((group) => group.pages.length > 0);
+}
+
+function GroupNav({ pathname, tab, loggedIn }: { pathname: string; tab: DocTab; loggedIn: boolean }) {
+  const groups = visibleGroups(tab, loggedIn);
   return (
     <nav className="space-y-7">
       {groups.map((group) => (
@@ -57,6 +67,8 @@ function GroupNav({ pathname, tab }: { pathname: string; tab: DocTab }) {
 export function DocsSidebar() {
   const pathname = usePathname();
   const tab = tabForPath(pathname);
+  const me = useAuthMe();
+  const loggedIn = Boolean(me?.user);
 
   return (
     <aside className="hidden w-[248px] shrink-0 lg:block">
@@ -66,7 +78,7 @@ export function DocsSidebar() {
           <TabBar pathname={pathname} />
         </div>
         <div className="mt-7">
-          <GroupNav pathname={pathname} tab={tab} />
+          <GroupNav pathname={pathname} tab={tab} loggedIn={loggedIn} />
         </div>
       </div>
     </aside>
@@ -76,6 +88,8 @@ export function DocsSidebar() {
 export function DocsMobileNav() {
   const pathname = usePathname();
   const tab = tabForPath(pathname);
+  const me = useAuthMe();
+  const loggedIn = Boolean(me?.user);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -93,7 +107,7 @@ export function DocsMobileNav() {
         <TabBar pathname={pathname} />
       </div>
       <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-primary/[0.06] bg-card px-2 py-3">
-        <GroupNav pathname={pathname} tab={tab} />
+        <GroupNav pathname={pathname} tab={tab} loggedIn={loggedIn} />
       </div>
     </div>
   );

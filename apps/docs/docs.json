@@ -9,8 +9,8 @@
     "dark": "#E4B35A"
   },
   "appearance": {
-    "default": "light",
-    "strict": false
+    "default": "dark",
+    "strict": true
   },
   "favicon": "/favicon.svg",
   "logo": {
@@ -24,14 +24,14 @@
         "href": "https://github.com/sreecharan-desu/promptimizer"
       },
       {
-        "label": "Console",
-        "href": "https://www.promptimizer.site/console"
+        "label": "Sign in",
+        "href": "https://www.promptimizer.site/login"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Open console",
-      "href": "https://www.promptimizer.site/console"
+      "label": "Get started",
+      "href": "https://www.promptimizer.site/signup"
     }
   },
   "footer": {
