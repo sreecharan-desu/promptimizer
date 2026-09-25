@@ -26,6 +26,7 @@ import {
 } from "./optimizer";
 import { apgr, bucketStats, buildFrontierCurve, cpt, pgr, breakEvenEscalationRate } from "./routing-metrics";
 import { fetchWithTimeout } from "./fetch-timeout";
+import { sseComment, sseData, ssePad } from "./sse";
 import { deletePersistedSession, loadPersistedSession, persistSession } from "./session-store";
 export { breakEvenEscalationRate } from "./routing-metrics";
 
@@ -1210,19 +1211,21 @@ async function completeStreamOrFailover(
 }
 
 function sseEncode(data: unknown) {
-  return `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
+  return sseData(data);
 }
 
 /**
  * OpenAI-compatible SSE stream with true token streaming.
  *
- * The first completion (and any quality-gate escalations) streams provider deltas
- * to the client as they arrive. Pipeline events ride along as chunks carrying
- * `promptimizer_event`:
- *   - `{ type: "routing", model, tier, routing_policy, … }` — before first delta
- *   - `{ type: "escalation", from_model, to_model, reason }` — client should clear
- *     the partial answer; the stronger model's deltas follow immediately.
- * The final chunk carries `finish_reason: "stop"` plus `usage` and `promptimizer`.
+ * Pattern matches Next.js + Vercel AI SDK guidance:
+ * return `new Response(ReadableStream)` with text/event-stream and
+ * Content-Encoding: none so proxies/browsers do not buffer.
+ *
+ * Pipeline events ride along as chunks carrying `promptimizer_event`:
+ *   - `{ type: "stream_open" }` — immediate flush
+ *   - `{ type: "routing", … }` — before first delta
+ *   - `{ type: "escalation", … }` — client clears partial; stronger model follows
+ * Final chunk carries `finish_reason: "stop"` plus `usage` and `promptimizer`.
  */
 export function routeChatStream(
   session: Session,
@@ -1236,8 +1239,7 @@ export function routeChatStream(
       const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
       const id = `chatcmpl-stream-${Date.now()}`;
       const created = Math.floor(Date.now() / 1000);
-      // Open the SSE pipe with a real data event (not only a comment) so
-      // browsers/DevTools EventStream populate immediately and proxies flush.
+      // Flush immediately — DevTools EventStream + proxies need early bytes.
       push({
         id,
         object: "chat.completion.chunk",
@@ -1246,8 +1248,7 @@ export function routeChatStream(
         choices: [{ index: 0, delta: {}, finish_reason: null }],
         promptimizer_event: { type: "stream_open" },
       });
-      // ~2KB padding comment — defeats intermediary buffer thresholds.
-      controller.enqueue(encoder.encode(`: ${" ".repeat(2048)}\n\n`));
+      controller.enqueue(encoder.encode(ssePad()));
       let model =
         typeof body.model === "string" && body.model !== "auto" && body.model !== "promptimizer"
           ? body.model
@@ -1281,11 +1282,8 @@ export function routeChatStream(
             });
           },
         });
-        if (hooks?.onComplete) await hooks.onComplete(final);
+        // Emit final tokens/meta first; persist receipts after so DONE isn't gated on DB.
         const finalModel = String(final.model ?? model);
-
-        // If no tokens were streamed (e.g. cache hit / semantic cache replay),
-        // emit the cached response so streaming consumers receive the content!
         const cachedAnswer = final.choices?.[0]?.message?.content;
         if (!streamedAny && cachedAnswer) {
           push({
@@ -1307,12 +1305,25 @@ export function routeChatStream(
           promptimizer: final.promptimizer,
         });
         push("[DONE]");
+        controller.enqueue(encoder.encode(sseComment("done")));
+
+        if (hooks?.onComplete) {
+          try {
+            await hooks.onComplete(final);
+          } catch {
+            /* receipts must not fail the already-sent stream */
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "stream failed";
         push({ error: { message, type: "server_error" } });
         push("[DONE]");
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       }
     },
   });

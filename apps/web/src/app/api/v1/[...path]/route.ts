@@ -30,6 +30,7 @@ import {
 } from "@/server/engine";
 import { BENCHMARK } from "@/server/data";
 import { clientIp, rateLimit } from "@/server/rate-limit";
+import { sseResponse } from "@/server/sse";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -328,18 +329,8 @@ async function handle(request: NextRequest, path: string[]) {
           { qualityProfiles: profiles, cacheOwner },
           { onComplete: record },
         );
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
-            // Browsers send Accept-Encoding: gzip — compression buffers the
-            // whole SSE body so DevTools EventStream stays empty until end
-            // (or forever if the proxy never flushes). Disable it.
-            "Content-Encoding": "none",
-          },
-        });
+        // Canonical SSE headers (Vercel AI SDK + Next.js Route Handler pattern).
+        return sseResponse(stream);
       }
       const result = await routeChat(session, body, { qualityProfiles: profiles, cacheOwner });
       if (actor.user) {

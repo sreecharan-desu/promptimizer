@@ -239,6 +239,66 @@ async function main() {
     return `tier=${meta.tier} model=${meta.model} gate=${meta.quality_gate} escalated=${meta.escalated}`;
   });
 
+  await check("GET /api/v1/stream-ping (live SSE infra)", async () => {
+    const t0 = Date.now();
+    const res = await fetch(`${BASE}/api/v1/stream-ping`, {
+      headers: {
+        Accept: "text/event-stream",
+        // Browser-identical negotiation — this is what used to buffer SSE.
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+      },
+    });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const ce = (res.headers.get("content-encoding") || "").toLowerCase();
+    if (!ct.includes("text/event-stream")) throw new Error(`bad content-type: ${ct}`);
+    if (ce && ce !== "none" && ce !== "identity") {
+      throw new Error(`compressed SSE will buffer in Chrome: content-encoding=${ce}`);
+    }
+    if (!res.body) throw new Error("missing body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const eventTimes: number[] = [];
+    let buffer = "";
+    let pings = 0;
+    let sawOpen = false;
+    let sawDone = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") {
+          sawDone = true;
+          continue;
+        }
+        eventTimes.push(Date.now() - t0);
+        try {
+          const parsed = JSON.parse(data) as { type?: string };
+          if (parsed.type === "stream_open") sawOpen = true;
+          if (parsed.type === "ping") pings += 1;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (!sawOpen) throw new Error("missing stream_open");
+    if (pings < 5) throw new Error(`expected 5 pings, got ${pings}`);
+    if (!sawDone) throw new Error("missing [DONE]");
+    if (eventTimes.length < 3) throw new Error(`too few events: ${eventTimes.length}`);
+    const span = eventTimes[eventTimes.length - 1]! - eventTimes[0]!;
+    // 5 pings × 200ms = ~800ms; if fully buffered, span≈0.
+    if (span < 400) {
+      throw new Error(`events arrived buffered (span=${span}ms) — not live streaming`);
+    }
+    return `ce=${ce || "none"} first=${eventTimes[0]}ms span=${span}ms pings=${pings}`;
+  });
+
   await check("POST /api/v1/chat/completions (stream SSE)", async () => {
     const res = await fetch(`${BASE}/api/v1/chat/completions`, {
       method: "POST",
@@ -246,6 +306,7 @@ async function main() {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Accept: "text/event-stream",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
       },
       body: JSON.stringify({
         model: "auto",
@@ -260,8 +321,12 @@ async function main() {
     });
     if (!res.ok) throw new Error(`status ${res.status} ${(await res.text()).slice(0, 200)}`);
     const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const ce = (res.headers.get("content-encoding") || "").toLowerCase();
     if (!ct.includes("text/event-stream") && !ct.includes("application/json")) {
       throw new Error(`unexpected content-type: ${ct}`);
+    }
+    if (ct.includes("text/event-stream") && ce && ce !== "none" && ce !== "identity") {
+      throw new Error(`compressed SSE will buffer in Chrome: content-encoding=${ce}`);
     }
     if (!res.body) throw new Error("missing body");
     const reader = res.body.getReader();
@@ -270,11 +335,14 @@ async function main() {
     let text = "";
     let chunks = 0;
     let sawDone = false;
+    let sawOpen = false;
     const t0 = Date.now();
     let firstDeltaMs: number | null = null;
+    const readTimes: number[] = [];
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      readTimes.push(Date.now() - t0);
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split("\n");
       buffer = parts.pop() ?? "";
@@ -290,9 +358,11 @@ async function main() {
         try {
           const parsed = JSON.parse(data) as {
             error?: { message?: string };
+            promptimizer_event?: { type?: string };
             choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
           };
           if (parsed.error?.message) throw new Error(parsed.error.message);
+          if (parsed.promptimizer_event?.type === "stream_open") sawOpen = true;
           const delta =
             parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
           if (delta) {
@@ -315,7 +385,13 @@ async function main() {
     }
     if (!text.trim()) throw new Error("empty streamed answer");
     if (!/[1-8]/.test(text)) throw new Error(`unexpected stream text: ${text.slice(0, 120)}`);
-    return `ct=${ct.includes("event-stream") ? "sse" : "json"} chunks=${chunks} firstDeltaMs=${firstDeltaMs ?? "n/a"} done=${sawDone} chars=${text.length}`;
+    if (ct.includes("event-stream") && !sawOpen) throw new Error("missing stream_open event");
+    if (ct.includes("event-stream") && !sawDone) throw new Error("missing [DONE]");
+    if (firstDeltaMs != null && firstDeltaMs > 15_000) {
+      throw new Error(`first content delta too slow: ${firstDeltaMs}ms`);
+    }
+    const readSpan = readTimes.length > 1 ? readTimes[readTimes.length - 1]! - readTimes[0]! : 0;
+    return `ct=${ct.includes("event-stream") ? "sse" : "json"} ce=${ce || "none"} chunks=${chunks} firstDeltaMs=${firstDeltaMs ?? "n/a"} readSpan=${readSpan}ms done=${sawDone} chars=${text.length}`;
   });
 
   await check("POST /api/v1/chat/completions (hard routing)", async () => {
