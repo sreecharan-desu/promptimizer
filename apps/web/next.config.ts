@@ -25,6 +25,8 @@ if (existsSync(envFile)) {
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Avoid gzip buffering SSE / streaming API responses in local + some proxies.
+  compress: false,
   transpilePackages: ["promptimizer"],
   serverExternalPackages: ["nodemailer", "@qdrant/js-client-rest"],
   outputFileTracingRoot: root,

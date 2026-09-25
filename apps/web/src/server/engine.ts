@@ -1234,10 +1234,20 @@ export function routeChatStream(
   return new ReadableStream({
     async start(controller) {
       const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
-      // Open the SSE pipe immediately so proxies/browsers don't buffer the whole response.
-      controller.enqueue(encoder.encode(": promptimizer-stream\n\n"));
       const id = `chatcmpl-stream-${Date.now()}`;
       const created = Math.floor(Date.now() / 1000);
+      // Open the SSE pipe with a real data event (not only a comment) so
+      // browsers/DevTools EventStream populate immediately and proxies flush.
+      push({
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model: "",
+        choices: [{ index: 0, delta: {}, finish_reason: null }],
+        promptimizer_event: { type: "stream_open" },
+      });
+      // ~2KB padding comment — defeats intermediary buffer thresholds.
+      controller.enqueue(encoder.encode(`: ${" ".repeat(2048)}\n\n`));
       let model =
         typeof body.model === "string" && body.model !== "auto" && body.model !== "promptimizer"
           ? body.model

@@ -334,6 +334,10 @@ async function handle(request: NextRequest, path: string[]) {
             "Cache-Control": "no-cache, no-transform",
             Connection: "keep-alive",
             "X-Accel-Buffering": "no",
+            // Browsers send Accept-Encoding: gzip — compression buffers the
+            // whole SSE body so DevTools EventStream stays empty until end
+            // (or forever if the proxy never flushes). Disable it.
+            "Content-Encoding": "none",
           },
         });
       }

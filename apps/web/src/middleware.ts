@@ -36,9 +36,8 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(url, 308);
     }
 
-    // App / API live on the main site
+    // App lives on the main site (/api redirects are in vercel.json)
     if (
-      pathname.startsWith("/api/") ||
       pathname === "/login" ||
       pathname === "/signup" ||
       pathname === "/console" ||
@@ -77,7 +76,8 @@ export const config = {
     "/",
     "/docs",
     "/docs/:path*",
-    "/api/:path*",
+    // Intentionally omit /api — middleware matching API routes can buffer SSE
+    // so Chrome DevTools EventStream stays empty. Docs /api redirects live in vercel.json.
     "/login",
     "/signup",
     "/console",
