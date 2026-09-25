@@ -289,7 +289,7 @@ export function pickJudgeModel(
       process.env.QUALITY_JUDGE_API_KEY?.trim(),
   );
   if (hasDedicatedBackend) {
-    return dedicatedModel || "llama-3.3-70b-versatile";
+    return dedicatedModel || "openai/gpt-oss-120b";
   }
   if (dedicatedModel) return dedicatedModel;
   const family = (id: string) => id.split("/")[0]?.toLowerCase() || id.split("-")[0]?.toLowerCase() || id;

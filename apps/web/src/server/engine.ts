@@ -733,7 +733,7 @@ function judgementBackend() {
   const model =
     process.env.QUALITY_JUDGE_MODEL?.trim() ||
     process.env.JUDGEMENT_BACKEND_MODEL?.trim() ||
-    "llama-3.3-70b-versatile";
+    "openai/gpt-oss-120b";
   return { apiKey, baseUrl, model };
 }
 
