@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuthMe } from "@/lib/auth-me";
 import { allDocLinks } from "@/lib/docs/nav";
 
 export function DocsSearch() {
   const router = useRouter();
+  const me = useAuthMe();
+  const loggedIn = Boolean(me?.user);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
 
@@ -23,10 +26,10 @@ export function DocsSearch() {
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = allDocLinks();
+    const all = allDocLinks().filter((p) => loggedIn || p.href !== "/docs/console");
     if (!needle) return all.slice(0, 8);
     return all.filter((p) => `${p.title} ${p.description}`.toLowerCase().includes(needle)).slice(0, 10);
-  }, [q]);
+  }, [q, loggedIn]);
 
   return (
     <>
