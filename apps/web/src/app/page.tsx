@@ -19,19 +19,16 @@ export default function HomePage() {
     <>
       <UnizHero />
 
-      <div className="relative mx-auto max-w-6xl px-4 py-9 sm:px-6 sm:py-11">
-        <p className="mb-5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">
-          Supports the providers you already use
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5" role="list" aria-label="Supported AI providers">
+      <div className="relative mx-auto max-w-6xl px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-2">
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3 sm:gap-x-7" role="list" aria-label="Supported AI providers">
           {PROVIDERS.map((provider) => (
             <div
               key={provider.name}
-              className="inline-flex items-center gap-2 rounded-full border border-border/90 bg-card px-3.5 py-1.5 text-xs font-semibold text-primary shadow-[var(--shadow-soft-sm)] transition-colors duration-150 hover:border-primary/20 hover:bg-background-hover"
+              className="inline-flex items-center gap-2 text-xs font-medium text-secondary transition-colors duration-150 hover:text-primary"
               role="listitem"
               title={provider.name}
             >
-              <ProviderIcon id={provider.id} className="size-3.5" />
+              <ProviderIcon id={provider.id} className="size-3.5 opacity-80" />
               <span>{provider.name}</span>
             </div>
           ))}
