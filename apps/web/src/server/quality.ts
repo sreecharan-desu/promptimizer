@@ -280,8 +280,18 @@ export function pickJudgeModel(
   fleet: Array<{ id: string; provider_id?: string; tier?: string }>,
   routedId: string,
 ): string | null {
-  const forced = process.env.QUALITY_JUDGE_MODEL?.trim();
-  if (forced) return forced;
+  const dedicatedModel =
+    process.env.QUALITY_JUDGE_MODEL?.trim() ||
+    process.env.JUDGEMENT_BACKEND_MODEL?.trim() ||
+    "";
+  const hasDedicatedBackend = Boolean(
+    process.env.JUDGEMENT_BACKEND_MODEL_API_KEY?.trim() ||
+      process.env.QUALITY_JUDGE_API_KEY?.trim(),
+  );
+  if (hasDedicatedBackend) {
+    return dedicatedModel || "llama-3.3-70b-versatile";
+  }
+  if (dedicatedModel) return dedicatedModel;
   const family = (id: string) => id.split("/")[0]?.toLowerCase() || id.split("-")[0]?.toLowerCase() || id;
   const routedFamily = family(routedId);
   const other = fleet.find((m) => family(m.id) !== routedFamily);

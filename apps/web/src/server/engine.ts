@@ -159,7 +159,13 @@ function enrichModel(model: ModelInfo, labelByProvider?: Map<string, string>): M
 }
 
 function cheapest(models: ModelInfo[], tier?: Tier) {
-  const pool = models.filter((m) => m.selected && (!tier || m.tier === tier));
+  const pool = models.filter(
+    (m) =>
+      m.selected &&
+      (!tier || m.tier === tier) &&
+      !isUuidModelId(m.id) &&
+      !isNonChatModelId(m.id),
+  );
   return pool.sort((a, b) => blend(a) - blend(b))[0];
 }
 
@@ -171,6 +177,22 @@ function isNonChatModelId(id: string) {
   return /(embed|whisper|tts|dall|image|moderation|reward|rerank|ranking|classifier|guardrail|\.guard\b|safety-model)/i.test(
     id,
   );
+}
+
+/** Drop deployment-UUID / non-chat rows that 404 when called as chat models. */
+function sanitizeFleetModels<T extends { id: string }>(models: T[]): T[] {
+  return models.filter((m) => m?.id && !isUuidModelId(m.id) && !isNonChatModelId(m.id));
+}
+
+function sanitizeSession(session: Session): Session {
+  const models = sanitizeFleetModels(session.models);
+  let baseline = session.baseline_model;
+  if (baseline && (isUuidModelId(baseline) || isNonChatModelId(baseline) || !models.some((m) => m.id === baseline))) {
+    baseline = models.find((m) => m.tier === "frontier")?.id ?? models[models.length - 1]?.id ?? null;
+  }
+  session.models = models;
+  session.baseline_model = baseline;
+  return session;
 }
 
 function fleetFrom(
@@ -362,16 +384,14 @@ function publicSession(session: Session) {
 export async function getSession(sessionId: string | null) {
   if (!sessionId) return null;
   const mem = store.get(sessionId);
-  if (mem) return mem;
+  if (mem) return sanitizeSession(mem);
   const remote = await loadPersistedSession(sessionId);
   if (remote) {
     // Sessions persisted before UUID filtering (or fed by a resurrected fleet)
     // can carry deployment-UUID / non-chat model ids. Calling them 404s
     // ("Function <uuid>: Not found for account") — drop them on load, the same
     // way fresh fleets and the sessionForUser rebuild path already do.
-    remote.models = remote.models.filter(
-      (m) => m?.id && !isUuidModelId(m.id) && !isNonChatModelId(m.id),
-    );
+    sanitizeSession(remote);
     store.set(remote.id, remote);
     return remote;
   }
@@ -678,7 +698,7 @@ function parseProviderError(status: number, body: string): string {
 }
 
 function pick(session: Session, classification: Classification, hint?: string) {
-  if (hint && hint !== "auto" && hint !== "promptimizer") {
+  if (hint && hint !== "auto" && hint !== "promptimizer" && !isUuidModelId(hint) && !isNonChatModelId(hint)) {
     const found = findModel(session, hint);
     if (found) return found;
   }
@@ -696,6 +716,59 @@ function pick(session: Session, classification: Classification, hint?: string) {
     if (model) return model;
   }
   return cheapest(session.models);
+}
+
+/** Optional dedicated LLM judge (Groq etc.) — separate from the user's BYOK fleet. */
+function judgementBackend() {
+  const apiKey =
+    process.env.JUDGEMENT_BACKEND_MODEL_API_KEY?.trim() ||
+    process.env.QUALITY_JUDGE_API_KEY?.trim() ||
+    "";
+  if (!apiKey) return null;
+  const baseUrl = (
+    process.env.JUDGEMENT_BACKEND_BASE_URL?.trim() ||
+    process.env.QUALITY_JUDGE_BASE_URL?.trim() ||
+    "https://api.groq.com/openai/v1"
+  ).replace(/\/$/, "");
+  const model =
+    process.env.QUALITY_JUDGE_MODEL?.trim() ||
+    process.env.JUDGEMENT_BACKEND_MODEL?.trim() ||
+    "llama-3.3-70b-versatile";
+  return { apiKey, baseUrl, model };
+}
+
+async function completeJudgementBackend(
+  messages: Array<{ role: string; content: string }>,
+  opts?: { max_tokens?: number; temperature?: number },
+) {
+  const backend = judgementBackend();
+  if (!backend) {
+    throw Object.assign(new Error("Judgement backend is not configured."), { status: 500 });
+  }
+  const response = await fetchWithTimeout(`${backend.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${backend.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: backend.model,
+      messages,
+      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(opts?.temperature != null ? { temperature: opts.temperature } : { temperature: 0 }),
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw Object.assign(new Error(parseProviderError(response.status, text)), {
+      status: response.status,
+      provider_error: true,
+    });
+  }
+  return response.json() as Promise<{
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  }>;
 }
 
 function nextFailoverModel(
@@ -762,6 +835,16 @@ async function complete(
 ) {
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
+  }
+  // Baseten /models historically leaked deployment UUIDs into fleets. Calling
+  // chat/completions with those ids returns "Function … Not found for account".
+  if (isUuidModelId(model) || isNonChatModelId(model)) {
+    throw Object.assign(
+      new Error(
+        `Model unavailable on this host (404): stale deployment id ${model}. Refresh models — stale Baseten deployment ids are skipped automatically.`,
+      ),
+      { status: 404, provider_error: true, retryable_404: true, model_unavailable: true },
+    );
   }
   const modelInfo = findModel(session, model, opts?.provider_id);
   // Never silently fall back to connections[0] — a stale model id sent to the
@@ -869,6 +952,14 @@ async function* completeStreaming(
 ): AsyncGenerator<string, { text: string; usage?: StreamUsage }, void> {
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
+  }
+  if (isUuidModelId(model) || isNonChatModelId(model)) {
+    throw Object.assign(
+      new Error(
+        `Model unavailable on this host (404): stale deployment id ${model}. Refresh models — stale Baseten deployment ids are skipped automatically.`,
+      ),
+      { status: 404, provider_error: true, retryable_404: true, model_unavailable: true },
+    );
   }
   const modelInfo = findModel(session, model, opts?.provider_id);
   // Never silently fall back to connections[0] — a stale model id sent to the
@@ -1412,21 +1503,30 @@ export async function routeChat(
   };
 
   const judgeFn: Parameters<typeof evaluateQualityGate>[0]["judge"] = async ({ prompt: q, answer, judgeModel }) => {
+    const judgeMessages = [
+      {
+        role: "system",
+        content:
+          "You are a blind answer grader. Score the answer only. Never guess which model wrote it. Respond with JSON only: {\"correctness\":0-5,\"completeness\":0-5,\"usefulness\":0-5}.",
+      },
+      {
+        role: "user",
+        content: `Question:\n${q}\n\nAnswer:\n${answer}\n\nJSON scores:`,
+      },
+    ];
+
+    const dedicated = judgementBackend();
+    if (dedicated) {
+      const judgePayload = await completeJudgementBackend(judgeMessages, { max_tokens: 120, temperature: 0 });
+      // Dedicated judge cost is platform-side — don't bill the user's BYOK ledger.
+      return String(judgePayload.choices?.[0]?.message?.content ?? "");
+    }
+
     const judgeInfo = session.models.find((m) => m.id === judgeModel);
     const judgePayload = await complete(
       session,
       judgeModel,
-      [
-        {
-          role: "system",
-          content:
-            "You are a blind answer grader. Score the answer only. Never guess which model wrote it. Respond with JSON only: {\"correctness\":0-5,\"completeness\":0-5,\"usefulness\":0-5}.",
-        },
-        {
-          role: "user",
-          content: `Question:\n${q}\n\nAnswer:\n${answer}\n\nJSON scores:`,
-        },
-      ],
+      judgeMessages,
       classification,
       { provider_id: judgeInfo?.provider_id, max_tokens: 120, temperature: 0 },
     );
