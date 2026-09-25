@@ -193,6 +193,26 @@ describe("fleet hygiene", () => {
     assert.ok(!/orpheus|guard/i.test(String(s.baseline_model || "")), "baseline must be a chat model");
   });
 
+  it("prefers Baseten slug over deployment UUID and drops diffusion/fuyu", async () => {
+    (globalThis as any).fetch = async () =>
+      jsonResponse({
+        object: "list",
+        data: [
+          { id: "e503b15c-62b0-4d69-b532-a88f0bfa2656", name: "z-ai/glm-5.3" },
+          { id: "google/diffusiongemma-26b-a4b-it" },
+          { id: "adept/fuyu-8b" },
+          { id: "openai/gpt-oss-120b" },
+        ],
+      });
+    const sid = `acct_baseten_slug_${Date.now()}`;
+    const s = await createByokSession(
+      { base_url: "https://inference.baseten.co/v1", api_key: "k", provider: "baseten" },
+      sid,
+    );
+    const ids = s.models.map((m: { id: string }) => m.id).sort();
+    assert.deepEqual(ids, ["openai/gpt-oss-120b", "z-ai/glm-5.3"]);
+  });
+
   it("fails over to another host when a provider rejects a model as not configured (400)", async () => {
     const sid = `acct_fail_${Date.now()}`;
     const chats: Array<{ host: string; model: string; status: number }> = [];

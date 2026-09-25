@@ -170,12 +170,13 @@ function cheapest(models: ModelInfo[], tier?: Tier) {
 }
 
 function isUuidModelId(id: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id.trim());
+  // Any UUID-shaped id — Baseten deployment ids are UUIDs (RFC variant bits vary).
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim());
 }
 
 function isNonChatModelId(id: string) {
-  // Prompt-guard / safeguard / Orpheus TTS / embeddings return scores or audio, not chat.
-  return /(embed|whisper|tts|dall-?e?|image|moderation|reward|rerank|ranking|classifier|guardrail|prompt-?guard|safe-?guard|\.guard\b|-guard-|safety-model|orpheus|vocod|speech-to|text-to-speech|\basr\b|\bstt\b)/i.test(
+  // Baseten /models also lists vision, diffusion, TTS, guards — they 404 or return junk on chat/completions.
+  return /(embed|whisper|tts|dall-?e?|image|imagen|moderation|reward|rerank|ranking|classifier|guardrail|prompt-?guard|safe-?guard|\.guard\b|-guard-|safety-model|orpheus|vocod|speech-to|text-to-speech|\basr\b|\bstt\b|diffusion|stable-?diff|sdxl|\bflux\b|fuyu|clip-vit|sam-vit|depth-|segment-|inpainting|upscal)/i.test(
     id,
   );
 }
@@ -196,6 +197,30 @@ function sanitizeSession(session: Session): Session {
   return session;
 }
 
+/**
+ * Permanently drop a model that the host rejected (stale Baseten deployment / unservable slug).
+ * Persists to Redis (+ DB when this is an account session) so the next request won't retry it.
+ */
+async function purgeUnservableModel(session: Session, model: ModelInfo) {
+  session.models = session.models.filter(
+    (m) => !(m.id === model.id && m.provider_id === model.provider_id),
+  );
+  if (session.baseline_model === model.id) {
+    session.baseline_model = pickBaseline(session.models)?.id ?? null;
+  }
+  putSession(session);
+  await persistSession(session);
+  const uid = userIdFromSessionId(session.id);
+  if (uid) {
+    try {
+      const { persistMultiProviderSession } = await import("./account");
+      await persistMultiProviderSession(uid, session);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 function fleetFrom(
   raw: Array<Record<string, unknown>>,
   providerId = "provider",
@@ -203,7 +228,16 @@ function fleetFrom(
 ): ModelInfo[] {
   const models: ModelInfo[] = [];
   for (const item of raw) {
-    const mid = String(item.id ?? item.name ?? "");
+    // Baseten often returns { id: "<deployment-uuid>", name: "org/model-slug" }.
+    // Prefer a non-UUID slug so we never route chat to a stale Function id.
+    const rawId = String(item.id ?? "").trim();
+    const rawSlug = String(item.model_id ?? item.model ?? item.name ?? "").trim();
+    const mid =
+      rawId && !isUuidModelId(rawId)
+        ? rawId
+        : rawSlug && !isUuidModelId(rawSlug)
+          ? rawSlug
+          : "";
     if (!mid) continue;
     // Baseten /models mixes Model API slugs with per-account deployment UUIDs.
     // Calling chat/completions with a stale UUID returns "Function … Not found".
@@ -686,7 +720,7 @@ function parseProviderError(status: number, body: string): string {
           ? JSON.stringify(j.detail)
           : errorMsg || j.message || "";
     if (/function ['"]?[0-9a-f-]{36}/i.test(detail) || /not found for account/i.test(detail)) {
-      return `Model unavailable on this host (${status}): ${detail}. Refresh models — stale Baseten deployment ids are skipped automatically.`;
+      return `Baseten rejected this model (${status}): ${detail}. Promptimizer will drop it and try another — if every model fails, disconnect Baseten and reconnect to refresh.`;
     }
     if (/payment status|insufficient_quota|billing|credit/i.test(detail)) {
       return `Upstream provider billing error (${status}): ${detail}. Please check your payment status or account credits on your provider dashboard (e.g. Baseten at baseten.co).`;
@@ -906,7 +940,8 @@ async function completeOrFailover(
   const tried = new Set<string>([`${start.provider_id}::${start.id}`]);
   let current = start;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = Math.max(3, session.models.filter((m) => m.selected).length);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const payload = await complete(session, current.id, messages, classification, {
         ...opts,
@@ -916,20 +951,30 @@ async function completeOrFailover(
     } catch (err) {
       lastError = err;
       if (!isRetryableProviderError(err)) throw err;
-      // Skip this model for this request only — do NOT permanently deselect
-      // (that left sessions stuck on frontier after one 404/timeout).
+      // Stale Baseten Function / unservable slug — drop it so we stop routing here.
+      if (isModelUnavailableError(err)) {
+        await purgeUnservableModel(session, current);
+      }
       const next = nextFailoverModel(
         session,
         current,
         tried,
         isModelUnavailableError(err) ? current.provider_id : undefined,
       );
-      if (!next) throw err;
+      if (!next) break;
       tried.add(`${next.provider_id}::${next.id}`);
       current = next;
     }
   }
-  throw lastError;
+  const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown");
+  throw Object.assign(
+    new Error(
+      session.models.filter((m) => m.selected).length === 0
+        ? `No chat models left on this host after provider 404s. Disconnect and reconnect ${start.provider_label || start.provider_id} to refresh the model list. (${detail})`
+        : detail,
+    ),
+    typeof lastError === "object" && lastError ? lastError : { status: 502 },
+  );
 }
 
 type StreamUsage = {
@@ -1075,7 +1120,8 @@ async function completeStreamOrFailover(
   const tried = new Set<string>([`${start.provider_id}::${start.id}`]);
   let current = start;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = Math.max(3, session.models.filter((m) => m.selected).length);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     let streamedAny = false;
     const stream = completeStreaming(session, current.id, messages, classification, {
       ...opts,
@@ -1100,19 +1146,30 @@ async function completeStreamOrFailover(
       void stream.return?.(undefined as never);
       // Deltas already reached the client — failover would corrupt the visible answer.
       if (streamedAny) throw err;
-      const retryable =
-        typeof err === "object" &&
-        err &&
-        (("retryable_404" in err && Boolean((err as { retryable_404?: boolean }).retryable_404)) ||
-          ("status" in err && [408, 429, 500, 502, 503, 504].includes(Number((err as { status?: number }).status))));
-      if (!retryable) throw err;
-      const next = nextFailoverModel(session, current, tried);
-      if (!next) throw err;
+      if (!isRetryableProviderError(err)) throw err;
+      if (isModelUnavailableError(err)) {
+        await purgeUnservableModel(session, current);
+      }
+      const next = nextFailoverModel(
+        session,
+        current,
+        tried,
+        isModelUnavailableError(err) ? current.provider_id : undefined,
+      );
+      if (!next) break;
       tried.add(`${next.provider_id}::${next.id}`);
       current = next;
     }
   }
-  throw lastError;
+  const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown");
+  throw Object.assign(
+    new Error(
+      session.models.filter((m) => m.selected).length === 0
+        ? `No chat models left on this host after provider 404s. Disconnect and reconnect ${start.provider_label || start.provider_id} to refresh the model list. (${detail})`
+        : detail,
+    ),
+    typeof lastError === "object" && lastError ? lastError : { status: 502 },
+  );
 }
 
 function sseEncode(data: unknown) {
