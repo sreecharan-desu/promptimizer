@@ -1,15 +1,48 @@
 "use client";
 
+import { Moon, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAuthMe } from "@/lib/auth-me";
 import { DOCS_HOME } from "@/lib/site";
+
+type Theme = "dark" | "light";
+
+function applyTheme(theme: Theme) {
+  document.documentElement.classList.remove("dark", "light");
+  document.documentElement.classList.add(theme);
+  try {
+    localStorage.setItem("promptimizer-theme", theme);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function Footer() {
   const pathname = usePathname();
   const me = useAuthMe();
   const loggedIn = Boolean(me?.user);
   const compact = pathname.startsWith("/docs");
+  const [theme, setTheme] = useState<Theme>("dark");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("promptimizer-theme");
+    const next: Theme =
+      stored === "light" || stored === "dark"
+        ? stored
+        : document.documentElement.classList.contains("light")
+          ? "light"
+          : "dark";
+    setTheme(next);
+    applyTheme(next);
+  }, []);
+
+  function toggleTheme() {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    applyTheme(next);
+  }
 
   const columns = [
     {
@@ -41,6 +74,14 @@ export function Footer() {
           <p className="mt-2 max-w-xs text-sm leading-6 text-secondary">The adaptive routing layer for production AI.</p>
           <div className="mt-4 flex items-center gap-3">
             <p className="text-xs text-secondary">© {new Date().getFullYear()} Promptimizer</p>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="inline-flex size-8 items-center justify-center rounded-lg border border-primary/[0.08] text-primary/45 transition-colors duration-150 hover:bg-primary/[0.04] hover:text-primary"
+            >
+              {theme === "dark" ? <Sun className="size-3.5" strokeWidth={1.75} /> : <Moon className="size-3.5" strokeWidth={1.75} />}
+            </button>
           </div>
         </div>
         {compact ? null : (
