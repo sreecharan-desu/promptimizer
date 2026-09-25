@@ -174,7 +174,8 @@ function isUuidModelId(id: string) {
 }
 
 function isNonChatModelId(id: string) {
-  return /(embed|whisper|tts|dall|image|moderation|reward|rerank|ranking|classifier|guardrail|\.guard\b|safety-model)/i.test(
+  // Prompt-guard / safeguard / Orpheus TTS / embeddings return scores or audio, not chat.
+  return /(embed|whisper|tts|dall-?e?|image|moderation|reward|rerank|ranking|classifier|guardrail|prompt-?guard|safe-?guard|\.guard\b|-guard-|safety-model|orpheus|vocod|speech-to|text-to-speech|\basr\b|\bstt\b)/i.test(
     id,
   );
 }

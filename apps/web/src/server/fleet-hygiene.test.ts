@@ -127,6 +127,36 @@ describe("fleet hygiene", () => {
           selected: true,
           provider_id: "baseten",
         },
+        {
+          id: "meta-llama/llama-prompt-guard-2-22m",
+          owned_by: "groq",
+          input_per_1m: 0.01,
+          output_per_1m: 0.01,
+          tier: "economy",
+          source: "catalog",
+          selected: true,
+          provider_id: "baseten",
+        },
+        {
+          id: "canopylabs/orpheus-arabic-saudi",
+          owned_by: "groq",
+          input_per_1m: 5,
+          output_per_1m: 10,
+          tier: "frontier",
+          source: "catalog",
+          selected: true,
+          provider_id: "baseten",
+        },
+        {
+          id: "openai/gpt-oss-20b",
+          owned_by: "groq",
+          input_per_1m: 0.1,
+          output_per_1m: 0.2,
+          tier: "standard",
+          source: "catalog",
+          selected: true,
+          provider_id: "baseten",
+        },
       ],
       baseline_model: "e598bfc1-b058-41af-869d-556d3c7e1b48",
       created_at: Date.now() / 1000,
@@ -141,9 +171,26 @@ describe("fleet hygiene", () => {
       "deployment UUIDs must be filtered on session load",
     );
     assert.ok(
-      !loaded.models.some((m: { id: string }) => /embed/i.test(m.id)),
+      !loaded.models.some((m: { id: string }) => /embed|prompt-guard|orpheus/i.test(m.id)),
       "non-chat models must be filtered on session load",
     );
+    assert.equal(loaded.models.length, 1);
+    assert.equal(loaded.models[0].id, "openai/gpt-oss-20b");
+  });
+
+  it("excludes prompt-guard / safeguard / orpheus from connect fleets", async () => {
+    mockModelsFetch([
+      "allam-2-7b",
+      "meta-llama/llama-prompt-guard-2-22m",
+      "openai/gpt-oss-safeguard-20b",
+      "openai/gpt-oss-120b",
+      "canopylabs/orpheus-v1-english",
+    ]);
+    const sid = `acct_guard_${Date.now()}`;
+    const s = await createByokSession({ base_url: "https://api.groq.com/openai/v1", api_key: "k", provider: "groq" }, sid);
+    const ids = s.models.map((m: { id: string }) => m.id).sort();
+    assert.deepEqual(ids, ["allam-2-7b", "openai/gpt-oss-120b"]);
+    assert.ok(!/orpheus|guard/i.test(String(s.baseline_model || "")), "baseline must be a chat model");
   });
 
   it("fails over to another host when a provider rejects a model as not configured (400)", async () => {

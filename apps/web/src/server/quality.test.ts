@@ -61,6 +61,20 @@ describe("quality gate stage 1", () => {
     assert.ok(verdict.reasons.includes("refusal"));
   });
 
+  it("fails thin classifier-style answers on hard prompts", () => {
+    const thin = stage1Deterministic({
+      answer: "0.000801991147454828",
+      prompt: "Design a distributed rate limiter for 1M QPS. Discuss Redis in 4 short bullets.",
+      complexity: 4,
+    });
+    assert.equal(thin.gate, "fail");
+    assert.equal(thin.confident, true);
+    assert.ok(
+      thin.reasons.includes("thin_answer") || thin.reasons.includes("expected_list"),
+      `reasons=${thin.reasons.join(",")}`,
+    );
+  });
+
   it("does not call stage 3 when stage 1 is confident", async () => {
     let judgeCalled = 0;
     const verdict = await evaluateQualityGate({

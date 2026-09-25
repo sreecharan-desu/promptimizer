@@ -84,7 +84,7 @@ function promptLooksNumeric(prompt: string) {
 }
 
 function promptLooksList(prompt: string) {
-  return /\b(list|bullet|numbered|enumerate|steps?:)\b/i.test(prompt);
+  return /\b(list|bullets?|numbered|enumerate|steps?:)\b/i.test(prompt);
 }
 
 function answerHasCode(text: string) {
@@ -197,9 +197,11 @@ export function stage1Deterministic(input: {
 
   const minLen = input.complexity >= 4 ? 80 : input.complexity >= 3 ? 36 : 1;
   const thin = text.length < minLen;
-  if (thin && coverage < 0.85) {
+  // High-complexity thin replies (e.g. a classifier probability) must fail even when
+  // there is no must_include list — default coverage=1 would otherwise greenlight them.
+  if (thin && (coverage < 0.85 || input.complexity >= 3)) {
     structure = Math.min(structure, 0.35);
-    reasons.push("thin_with_incomplete_coverage");
+    reasons.push(coverage < 0.85 ? "thin_with_incomplete_coverage" : "thin_answer");
   }
 
   let score = 0.55 * coverage + 0.45 * structure;
@@ -217,7 +219,10 @@ export function stage1Deterministic(input: {
     coverage < 0.5 ||
     score < thr ||
     reasons.includes("expected_code") ||
-    reasons.includes("expected_number");
+    reasons.includes("expected_number") ||
+    reasons.includes("expected_list") ||
+    reasons.includes("thin_answer") ||
+    reasons.includes("thin_with_incomplete_coverage");
   const gate: "pass" | "fail" = degraded ? "fail" : "pass";
 
   const confident =
@@ -226,6 +231,9 @@ export function stage1Deterministic(input: {
       (must.length > 0 && (coverage >= 0.99 || coverage < 0.34)) ||
       reasons.includes("expected_code") ||
       reasons.includes("expected_number") ||
+      reasons.includes("expected_list") ||
+      reasons.includes("thin_answer") ||
+      reasons.includes("thin_with_incomplete_coverage") ||
       (input.complexity <= 2 && gate === "pass" && !thin) ||
       (gate === "pass" && must.length > 0 && coverage >= 0.99) ||
       reasons.includes("refusal"));
