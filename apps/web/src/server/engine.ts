@@ -723,6 +723,7 @@ function judgementBackend() {
   const apiKey =
     process.env.JUDGEMENT_BACKEND_MODEL_API_KEY?.trim() ||
     process.env.QUALITY_JUDGE_API_KEY?.trim() ||
+    process.env.GROQ_API_KEY?.trim() ||
     "";
   if (!apiKey) return null;
   const baseUrl = (

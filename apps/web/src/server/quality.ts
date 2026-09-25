@@ -286,7 +286,8 @@ export function pickJudgeModel(
     "";
   const hasDedicatedBackend = Boolean(
     process.env.JUDGEMENT_BACKEND_MODEL_API_KEY?.trim() ||
-      process.env.QUALITY_JUDGE_API_KEY?.trim(),
+      process.env.QUALITY_JUDGE_API_KEY?.trim() ||
+      process.env.GROQ_API_KEY?.trim(),
   );
   if (hasDedicatedBackend) {
     return dedicatedModel || "openai/gpt-oss-120b";
