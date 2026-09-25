@@ -739,7 +739,7 @@ function ConnectPane({
                         onBaseUrl(customConnections[0].base_url);
                       }
                     }}
-                    className={`group relative flex flex-col items-start gap-2 rounded-[1.15rem] border px-3 py-3 text-left transition-all duration-150 ${
+                    className={`group relative flex flex-col items-start gap-2.5 rounded-[1.15rem] border px-3 py-3 text-left transition-all duration-150 ${
                       active
                         ? "border-primary bg-primary text-background shadow-[var(--shadow-soft)]"
                         : isLive
@@ -748,7 +748,13 @@ function ConnectPane({
                     }`}
                   >
                     <span className="flex w-full items-center justify-between gap-2">
-                      <ProviderIcon id={item.id} className="size-5" invert={active} />
+                      <span
+                        className={`flex size-8 items-center justify-center rounded-lg ${
+                          active ? "bg-background/15" : "bg-primary/[0.05] dark:bg-primary/[0.08]"
+                        }`}
+                      >
+                        <ProviderIcon id={item.id} className="size-4" invert={active} />
+                      </span>
                       {isLive ? (
                         <span
                           className={`text-[10px] font-medium uppercase tracking-wide ${

@@ -117,6 +117,12 @@ export function BrandIcon({ provider, model, className, invert, title }: IconPro
   if (!slug) {
     return <Monogram label={provider || model || "?"} className={sizeClass} />;
   }
+  // Brand SVGs paint black. Match the surface:
+  // - default: black in light, white in dark
+  // - invert (on primary/active chip): white on dark primary, black on light primary
+  const tone = invert
+    ? "brightness-0 invert dark:invert-0"
+    : "brightness-0 opacity-[0.9] dark:invert dark:opacity-95";
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -124,7 +130,7 @@ export function BrandIcon({ provider, model, className, invert, title }: IconPro
       alt=""
       title={title}
       aria-hidden
-      className={`shrink-0 object-contain ${sizeClass} ${invert ? "brightness-0 invert" : ""}`}
+      className={`shrink-0 object-contain ${sizeClass} ${tone}`}
       loading="lazy"
       decoding="async"
     />
