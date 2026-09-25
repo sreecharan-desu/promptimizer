@@ -239,6 +239,85 @@ async function main() {
     return `tier=${meta.tier} model=${meta.model} gate=${meta.quality_gate} escalated=${meta.escalated}`;
   });
 
+  await check("POST /api/v1/chat/completions (stream SSE)", async () => {
+    const res = await fetch(`${BASE}/api/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        model: "auto",
+        stream: true,
+        messages: [
+          {
+            role: "user",
+            content: `Count from 1 to 8, one number per line. Unique=${Date.now()}`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`status ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    if (!ct.includes("text/event-stream") && !ct.includes("application/json")) {
+      throw new Error(`unexpected content-type: ${ct}`);
+    }
+    if (!res.body) throw new Error("missing body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let chunks = 0;
+    let sawDone = false;
+    const t0 = Date.now();
+    let firstDeltaMs: number | null = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") {
+          sawDone = true;
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(data) as {
+            error?: { message?: string };
+            choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+          };
+          if (parsed.error?.message) throw new Error(parsed.error.message);
+          const delta =
+            parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
+          if (delta) {
+            if (firstDeltaMs == null) firstDeltaMs = Date.now() - t0;
+            text += delta;
+            chunks += 1;
+          }
+        } catch (e) {
+          if (e instanceof Error && !e.message.includes("JSON")) throw e;
+        }
+      }
+    }
+    // JSON-only fallback (provider ignored stream)
+    if (!text && buffer.trimStart().startsWith("{")) {
+      const parsed = JSON.parse(buffer) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      text = String(parsed.choices?.[0]?.message?.content || "");
+      chunks = text ? 1 : 0;
+    }
+    if (!text.trim()) throw new Error("empty streamed answer");
+    if (!/[1-8]/.test(text)) throw new Error(`unexpected stream text: ${text.slice(0, 120)}`);
+    return `ct=${ct.includes("event-stream") ? "sse" : "json"} chunks=${chunks} firstDeltaMs=${firstDeltaMs ?? "n/a"} done=${sawDone} chars=${text.length}`;
+  });
+
   await check("POST /api/v1/chat/completions (hard routing)", async () => {
     const { res, body } = await jsonFetch("/api/v1/chat/completions", {
       method: "POST",

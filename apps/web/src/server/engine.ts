@@ -1024,6 +1024,7 @@ async function* completeStreaming(
     headers: {
       Authorization: `Bearer ${conn.api_key}`,
       "Content-Type": "application/json",
+      Accept: "text/event-stream",
     },
     body: JSON.stringify({
       model,
@@ -1048,23 +1049,52 @@ async function* completeStreaming(
   if (!response.body) {
     const json = await response.json();
     const text = String(json.choices?.[0]?.message?.content ?? "");
-    yield text;
+    if (text) yield text;
     return { text, usage: json.usage as StreamUsage | undefined };
   }
+
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  // Some hosts ignore stream:true and return a normal JSON completion.
+  if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: StreamUsage;
+    };
+    const text = String(json.choices?.[0]?.message?.content ?? "");
+    if (text) yield text;
+    return { text, usage: json.usage };
+  }
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
   let usage: StreamUsage | undefined;
+  let sawSse = false;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
+    // Provider returned JSON body despite Accept: event-stream
+    if (!sawSse && !full && buffer.trimStart().startsWith("{") && !buffer.includes("data:")) {
+      try {
+        const json = JSON.parse(buffer) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: StreamUsage;
+        };
+        const text = String(json.choices?.[0]?.message?.content ?? "");
+        if (text) yield text;
+        return { text, usage: json.usage };
+      } catch {
+        /* keep buffering as SSE */
+      }
+    }
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed.startsWith("data:")) continue;
+      sawSse = true;
       const data = trimmed.slice(5).trim();
       if (data === "[DONE]") continue;
       try {
@@ -1082,6 +1112,13 @@ async function* completeStreaming(
         /* ignore partial JSON */
       }
     }
+  }
+  // Empty SSE → fall back to a non-stream completion so the user still gets an answer.
+  if (!full.trim()) {
+    const fallback = await complete(session, model, messages, _classification, opts);
+    const text = String(fallback.choices?.[0]?.message?.content ?? "");
+    if (text) yield text;
+    return { text, usage: (fallback.usage as StreamUsage | undefined) ?? usage };
   }
   return { text: full, usage };
 }
@@ -1197,6 +1234,8 @@ export function routeChatStream(
   return new ReadableStream({
     async start(controller) {
       const push = (payload: unknown) => controller.enqueue(encoder.encode(sseEncode(payload)));
+      // Open the SSE pipe immediately so proxies/browsers don't buffer the whole response.
+      controller.enqueue(encoder.encode(": promptimizer-stream\n\n"));
       const id = `chatcmpl-stream-${Date.now()}`;
       const created = Math.floor(Date.now() / 1000);
       let model =

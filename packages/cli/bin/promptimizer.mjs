@@ -575,7 +575,10 @@ async function complete(flags, config, messages) {
 async function completeStream(flags, config, messages) {
   const gatewayURL = gateway(flags, config);
   const { apiKey, sessionId } = authFromConfig(flags, config);
-  const headers = { "content-type": "application/json" };
+  const headers = {
+    "content-type": "application/json",
+    accept: "text/event-stream",
+  };
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
   else if (sessionId) {
     headers.authorization = `Bearer ${sessionId}`;
@@ -590,7 +593,7 @@ async function completeStream(flags, config, messages) {
     // Fall back to non-stream JSON when the gateway rejects SSE (or any stream error).
     const fallback = await fetch(`${gatewayURL}/v1/chat/completions`, {
       method: "POST",
-      headers,
+      headers: { ...headers, accept: "application/json" },
       body: JSON.stringify({ messages, stream: false }),
     });
     const data = await fallback.json().catch(() => ({}));
@@ -602,6 +605,12 @@ async function completeStream(flags, config, messages) {
     return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data, streamed: false };
   }
   if (!response.body) {
+    const data = await response.json();
+    return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data, streamed: false };
+  }
+
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
     const data = await response.json();
     return { text: data.choices?.[0]?.message?.content?.trim() ?? "", result: data, streamed: false };
   }
@@ -643,10 +652,23 @@ async function completeStream(flags, config, messages) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      if (!text && !streamed && buffer.trimStart().startsWith("{") && !buffer.includes("data:")) {
+        try {
+          const parsed = JSON.parse(buffer);
+          stopSpinner();
+          const answer = parsed.choices?.[0]?.message?.content?.trim() ?? "";
+          result = parsed;
+          result.choices = [{ message: { role: "assistant", content: answer } }];
+          return { text: answer, result, elapsedMs: Date.now() - started, streamed: false };
+        } catch {
+          /* keep reading SSE */
+        }
+      }
       const parts = buffer.split("\n");
       buffer = parts.pop() ?? "";
       for (const line of parts) {
         const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
         if (!trimmed.startsWith("data:")) continue;
         const data = trimmed.slice(5).trim();
         if (!data) continue;
@@ -695,6 +717,16 @@ async function completeStream(flags, config, messages) {
   if (streamed) process.stdout.write("\n");
   if (!text && result.choices?.[0]?.message?.content) {
     text = result.choices[0].message.content;
+  }
+  // Empty stream → one-shot fallback so CLI never returns a blank answer.
+  if (!text.trim()) {
+    const fallback = await complete(flags, config, messages);
+    return {
+      text: fallback.choices?.[0]?.message?.content?.trim() ?? "",
+      result: fallback,
+      elapsedMs: Date.now() - started,
+      streamed: false,
+    };
   }
   result.choices = [{ message: { role: "assistant", content: text } }];
   return { text, result, elapsedMs: Date.now() - started, streamed };

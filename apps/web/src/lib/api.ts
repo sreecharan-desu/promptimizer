@@ -173,7 +173,7 @@ export const api = {
       onEvent?: (event: Record<string, unknown>) => void;
     },
   ): Promise<Record<string, unknown>> => {
-    const headers = new Headers({ "Content-Type": "application/json" });
+    const headers = new Headers({ "Content-Type": "application/json", Accept: "text/event-stream" });
     const session = readSessionId();
     if (session) headers.set("X-Promptimizer-Session", session);
     const response = await fetch("/api/v1/chat/completions", {
@@ -191,6 +191,17 @@ export const api = {
       throw new Error("No response body from stream");
     }
 
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    // Gateway returned a normal JSON completion (stream unsupported / rejected).
+    if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
+      const data = (await response.json()) as Record<string, unknown>;
+      const text = String(
+        (data.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message?.content ?? "",
+      );
+      if (text) handlers?.onDelta?.(text, text);
+      return data;
+    }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -204,10 +215,25 @@ export const api = {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // Non-SSE JSON body slipped through
+      if (!text && buffer.trimStart().startsWith("{") && !buffer.includes("data:")) {
+        try {
+          const data = JSON.parse(buffer) as Record<string, unknown>;
+          const answer = String(
+            (data.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message
+              ?.content ?? "",
+          );
+          if (answer) handlers?.onDelta?.(answer, answer);
+          return data;
+        } catch {
+          /* keep reading as SSE */
+        }
+      }
       const parts = buffer.split("\n");
       buffer = parts.pop() ?? "";
       for (const line of parts) {
         const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue; // SSE comments / keepalives
         if (!trimmed.startsWith("data:")) continue;
         const data = trimmed.slice(5).trim();
         if (!data || data === "[DONE]") continue;
