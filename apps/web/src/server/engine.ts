@@ -30,6 +30,27 @@ import { sseComment, sseData, ssePad } from "./sse";
 import { deletePersistedSession, loadPersistedSession, persistSession } from "./session-store";
 export { breakEvenEscalationRate } from "./routing-metrics";
 
+/**
+ * Groq gpt-oss defaults to max_completion_tokens=1024 and spends that budget on
+ * reasoning first — long answers get finish_reason=length mid-sentence.
+ * Always send an explicit budget when the client omits one.
+ */
+function resolveMaxCompletionTokens(requested: number | undefined | null, complexity = 3): number {
+  if (requested != null && Number.isFinite(requested) && requested > 0) return Math.floor(requested);
+  if (complexity >= 4) return 8192;
+  if (complexity >= 3) return 4096;
+  return 2048;
+}
+
+/** Providers differ: send both max_tokens (legacy) and max_completion_tokens (Groq/OpenAI). */
+function tokenLimitFields(maxCompletionTokens: number | undefined) {
+  if (maxCompletionTokens == null || maxCompletionTokens <= 0) return {};
+  return {
+    max_tokens: maxCompletionTokens,
+    max_completion_tokens: maxCompletionTokens,
+  };
+}
+
 export type Tier = "economy" | "standard" | "frontier";
 
 export type ProviderConnection = {
@@ -791,7 +812,7 @@ async function completeJudgementBackend(
     body: JSON.stringify({
       model: backend.model,
       messages,
-      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(tokenLimitFields(opts?.max_tokens ?? 120)),
       ...(opts?.temperature != null ? { temperature: opts.temperature } : { temperature: 0 }),
     }),
   });
@@ -907,7 +928,7 @@ async function complete(
     body: JSON.stringify({
       model,
       messages,
-      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(tokenLimitFields(opts?.max_tokens)),
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
       ...(opts?.response_format ? { response_format: opts.response_format } : {}),
@@ -997,7 +1018,7 @@ async function* completeStreaming(
     tools?: unknown[];
     response_format?: { type?: string } | null;
   },
-): AsyncGenerator<string, { text: string; usage?: StreamUsage }, void> {
+): AsyncGenerator<string, { text: string; usage?: StreamUsage; finish_reason?: string }, void> {
   if (!session.connections.length) {
     throw Object.assign(new Error("Connect a provider before chatting."), { status: 400 });
   }
@@ -1031,7 +1052,7 @@ async function* completeStreaming(
       model,
       messages,
       stream: true,
-      ...(opts?.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+      ...(tokenLimitFields(opts?.max_tokens)),
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
       ...(opts?.response_format ? { response_format: opts.response_format } : {}),
@@ -1051,19 +1072,27 @@ async function* completeStreaming(
     const json = await response.json();
     const text = String(json.choices?.[0]?.message?.content ?? "");
     if (text) yield text;
-    return { text, usage: json.usage as StreamUsage | undefined };
+    return {
+      text,
+      usage: json.usage as StreamUsage | undefined,
+      finish_reason: String(json.choices?.[0]?.finish_reason ?? "stop"),
+    };
   }
 
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   // Some hosts ignore stream:true and return a normal JSON completion.
   if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
     const json = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       usage?: StreamUsage;
     };
     const text = String(json.choices?.[0]?.message?.content ?? "");
     if (text) yield text;
-    return { text, usage: json.usage };
+    return {
+      text,
+      usage: json.usage,
+      finish_reason: String(json.choices?.[0]?.finish_reason ?? "stop"),
+    };
   }
 
   const reader = response.body.getReader();
@@ -1071,6 +1100,7 @@ async function* completeStreaming(
   let buffer = "";
   let full = "";
   let usage: StreamUsage | undefined;
+  let finishReason = "stop";
   let sawSse = false;
   while (true) {
     const { done, value } = await reader.read();
@@ -1080,12 +1110,16 @@ async function* completeStreaming(
     if (!sawSse && !full && buffer.trimStart().startsWith("{") && !buffer.includes("data:")) {
       try {
         const json = JSON.parse(buffer) as {
-          choices?: Array<{ message?: { content?: string } }>;
+          choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
           usage?: StreamUsage;
         };
         const text = String(json.choices?.[0]?.message?.content ?? "");
         if (text) yield text;
-        return { text, usage: json.usage };
+        return {
+          text,
+          usage: json.usage,
+          finish_reason: String(json.choices?.[0]?.finish_reason ?? "stop"),
+        };
       } catch {
         /* keep buffering as SSE */
       }
@@ -1100,14 +1134,20 @@ async function* completeStreaming(
       if (data === "[DONE]") continue;
       try {
         const parsed = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+          choices?: Array<{
+            delta?: { content?: string };
+            message?: { content?: string };
+            finish_reason?: string | null;
+          }>;
           usage?: StreamUsage;
         };
-        const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
+        const choice = parsed.choices?.[0];
+        const delta = choice?.delta?.content ?? choice?.message?.content ?? "";
         if (delta) {
           full += delta;
           yield delta;
         }
+        if (choice?.finish_reason) finishReason = String(choice.finish_reason);
         if (parsed.usage) usage = parsed.usage;
       } catch {
         /* ignore partial JSON */
@@ -1119,12 +1159,16 @@ async function* completeStreaming(
     const fallback = await complete(session, model, messages, _classification, opts);
     const text = String(fallback.choices?.[0]?.message?.content ?? "");
     if (text) yield text;
-    return { text, usage: (fallback.usage as StreamUsage | undefined) ?? usage };
+    return {
+      text,
+      usage: (fallback.usage as StreamUsage | undefined) ?? usage,
+      finish_reason: String(fallback.choices?.[0]?.finish_reason ?? finishReason),
+    };
   }
-  return { text: full, usage };
+  return { text: full, usage, finish_reason: finishReason };
 }
 
-function streamPayload(routed: ModelInfo, text: string, usage?: StreamUsage) {
+function streamPayload(routed: ModelInfo, text: string, usage?: StreamUsage, finishReason = "stop") {
   return {
     id: `chatcmpl-stream-${Date.now()}`,
     object: "chat.completion",
@@ -1134,7 +1178,7 @@ function streamPayload(routed: ModelInfo, text: string, usage?: StreamUsage) {
       {
         index: 0,
         message: { role: "assistant", content: text },
-        finish_reason: "stop" as const,
+        finish_reason: finishReason,
       },
     ],
     ...(usage ? { usage } : {}),
@@ -1168,17 +1212,19 @@ async function completeStreamOrFailover(
     try {
       let full = "";
       let usage: StreamUsage | undefined;
+      let finishReason = "stop";
       while (true) {
         const next = await stream.next();
         if (next.done) {
           usage = next.value?.usage;
+          finishReason = next.value?.finish_reason ?? finishReason;
           break;
         }
         streamedAny = true;
         full += next.value;
         onDelta?.(next.value, current.id);
       }
-      return { payload: streamPayload(current, full, usage), routed: current };
+      return { payload: streamPayload(current, full, usage, finishReason), routed: current };
     } catch (err) {
       lastError = err;
       void stream.return?.(undefined as never);
@@ -1535,16 +1581,24 @@ export async function routeChat(
         }
 
         const hybridMessages = buildHybridMessages(textMessages, semantic);
+        const completionOpts = {
+          max_tokens: resolveMaxCompletionTokens(
+            body.max_tokens ?? body.max_completion_tokens,
+            classification.complexity,
+          ),
+          tools: body.tools ?? body.functions,
+          response_format: body.response_format,
+        };
         const hybrid = opts?.onDelta
           ? await completeStreamOrFailover(
               session,
               routed,
               hybridMessages,
               classification,
-              undefined,
+              completionOpts,
               opts.onDelta,
             )
-          : await completeOrFailover(session, routed, hybridMessages, classification);
+          : await completeOrFailover(session, routed, hybridMessages, classification, completionOpts);
         routed = hybrid.routed;
         payload = hybrid.payload;
       } else if (opts?.onDelta) {
@@ -1554,7 +1608,10 @@ export async function routeChat(
           textMessages,
           classification,
           {
-            max_tokens: body.max_tokens ?? body.max_completion_tokens,
+            max_tokens: resolveMaxCompletionTokens(
+              body.max_tokens ?? body.max_completion_tokens,
+              classification.complexity,
+            ),
             tools: body.tools ?? body.functions,
             response_format: body.response_format,
           },
@@ -1564,7 +1621,10 @@ export async function routeChat(
         payload = live.payload;
       } else {
         const live = await completeOrFailover(session, routed, textMessages, classification, {
-          max_tokens: body.max_tokens ?? body.max_completion_tokens,
+          max_tokens: resolveMaxCompletionTokens(
+            body.max_tokens ?? body.max_completion_tokens,
+            classification.complexity,
+          ),
           tools: body.tools ?? body.functions,
           response_format: body.response_format,
         });
@@ -1589,6 +1649,8 @@ export async function routeChat(
   let escalated = false;
   let escalationReason: string | null = null;
   let text = payload.choices?.[0]?.message?.content ?? "";
+  const finishReason = String(payload.choices?.[0]?.finish_reason ?? "stop");
+  const lengthTruncated = finishReason === "length";
   const structuredFail =
     requirements.requires_structured_output &&
     (() => {
@@ -1670,13 +1732,17 @@ export async function routeChat(
     judge: judgeFn,
   });
 
-  if (structuredFail) {
+  if (structuredFail || lengthTruncated) {
     qualityVerdict = {
       ...qualityVerdict,
       escalate: true,
       gate: "fail",
       degraded: true,
-      reasons: [...qualityVerdict.reasons, "structured_output_validation_failed"],
+      reasons: [
+        ...qualityVerdict.reasons,
+        ...(structuredFail ? ["structured_output_validation_failed"] : []),
+        ...(lengthTruncated ? ["output_token_limit"] : []),
+      ],
     };
   }
 
@@ -1705,7 +1771,9 @@ export async function routeChat(
       "quality_gate_failed";
     escalationReason = reason.includes("structured")
       ? "structured_output_validation_failed"
-      : reason;
+      : reason.includes("output_token_limit") || reason === "truncation"
+        ? "output_token_limit"
+        : reason;
     // Invalidate poisoned cache entries before regenerating.
     if (fromCacheReplay) {
       exactHit = false;
@@ -1713,6 +1781,70 @@ export async function routeChat(
       if (semanticMode === "full") semanticMode = "miss";
     }
     let tierIdx = TIER_ORDER.indexOf(routed!.tier);
+    const baseMax = resolveMaxCompletionTokens(
+      body.max_tokens ?? body.max_completion_tokens,
+      classification.complexity,
+    );
+    const escalateMaxTokens = Math.min(16_384, baseMax * 2);
+
+    // Token-limit cuts: retry same model with a larger budget first (frontier may be unavailable).
+    if (escalationReason === "output_token_limit" || escalationReason === "truncation") {
+      escalated = true;
+      opts?.onEvent?.({
+        type: "escalation",
+        from_model: routed.id,
+        to_model: routed.id,
+        reason: "output_token_limit",
+      });
+      if (opts?.onDelta) {
+        const retry = await completeStreamOrFailover(
+          session,
+          routed,
+          textMessages,
+          classification,
+          {
+            max_tokens: escalateMaxTokens,
+            tools: body.tools ?? body.functions,
+            response_format: body.response_format,
+          },
+          opts.onDelta,
+        );
+        routed = retry.routed;
+        payload = retry.payload;
+      } else {
+        const retry = await completeOrFailover(session, routed, textMessages, classification, {
+          max_tokens: escalateMaxTokens,
+          tools: body.tools ?? body.functions,
+          response_format: body.response_format,
+        });
+        routed = retry.routed;
+        payload = retry.payload;
+      }
+      text = payload.choices?.[0]?.message?.content ?? "";
+      qualityVerdict = await evaluateQualityGate({
+        answer: text,
+        prompt: userPrompt,
+        complexity: classification.complexity,
+        must_include: mustInclude,
+        must_not_include: mustNotInclude,
+        allow_expensive: true,
+        session_mode: session.mode,
+        routed_model: routed!.id,
+        fleet: session.models,
+        sample: sampleCheap,
+        judge: judgeFn,
+      });
+      if (String(payload.choices?.[0]?.finish_reason ?? "") === "length") {
+        qualityVerdict = {
+          ...qualityVerdict,
+          escalate: true,
+          gate: "fail",
+          degraded: true,
+          reasons: [...qualityVerdict.reasons, "output_token_limit"],
+        };
+      }
+    }
+
     while (tierIdx < TIER_ORDER.length - 1 && qualityVerdict.escalate) {
       tierIdx += 1;
       const upgrade = cheapest(session.models, TIER_ORDER[tierIdx]);
@@ -1731,7 +1863,7 @@ export async function routeChat(
           textMessages,
           classification,
           {
-            max_tokens: body.max_tokens ?? body.max_completion_tokens,
+            max_tokens: escalateMaxTokens,
             tools: body.tools ?? body.functions,
             response_format: body.response_format,
           },
@@ -1743,7 +1875,7 @@ export async function routeChat(
         // Escalations must fail over as well: an unservable upgrade model should
         // not fail the entire request.
         const retry = await completeOrFailover(session, upgrade, textMessages, classification, {
-          max_tokens: body.max_tokens ?? body.max_completion_tokens,
+          max_tokens: escalateMaxTokens,
           tools: body.tools ?? body.functions,
           response_format: body.response_format,
         });

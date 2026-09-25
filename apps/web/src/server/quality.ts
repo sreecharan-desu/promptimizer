@@ -190,8 +190,13 @@ export function stage1Deterministic(input: {
     reasons.push("hedging");
   }
 
-  if (/```[^`]*$/.test(text) || (/\b[a-z]{1,2}$/i.test(text) && text.length > 200 && !/[.!?)]$/.test(text))) {
-    structure = Math.min(structure, 0.45);
+  if (
+    /```[^`]*$/.test(text) ||
+    /(?:^|[^`])`[^`\n]*$/.test(text.trim()) || // dangling inline/code fence
+    /[-*•]\s+[A-Za-z][^.\n]{0,40}[-–—]\s*`?\s*$/.test(text) || // cut mid bullet ("Time Window – `")
+    (/\b[a-z]{1,2}$/i.test(text) && text.length > 200 && !/[.!?)]$/.test(text))
+  ) {
+    structure = Math.min(structure, 0.35);
     reasons.push("truncation");
   }
 
@@ -222,7 +227,8 @@ export function stage1Deterministic(input: {
     reasons.includes("expected_number") ||
     reasons.includes("expected_list") ||
     reasons.includes("thin_answer") ||
-    reasons.includes("thin_with_incomplete_coverage");
+    reasons.includes("thin_with_incomplete_coverage") ||
+    reasons.includes("truncation");
   const gate: "pass" | "fail" = degraded ? "fail" : "pass";
 
   const confident =
@@ -234,6 +240,7 @@ export function stage1Deterministic(input: {
       reasons.includes("expected_list") ||
       reasons.includes("thin_answer") ||
       reasons.includes("thin_with_incomplete_coverage") ||
+      reasons.includes("truncation") ||
       (input.complexity <= 2 && gate === "pass" && !thin) ||
       (gate === "pass" && must.length > 0 && coverage >= 0.99) ||
       reasons.includes("refusal"));
