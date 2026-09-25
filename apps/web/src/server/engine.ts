@@ -42,13 +42,10 @@ function resolveMaxCompletionTokens(requested: number | undefined | null, comple
   return 2048;
 }
 
-/** Providers differ: send both max_tokens (legacy) and max_completion_tokens (Groq/OpenAI). */
+/** OpenAI-compatible hosts vary: many (Baseten, etc.) reject max_completion_tokens as extra_forbidden. */
 function tokenLimitFields(maxCompletionTokens: number | undefined) {
   if (maxCompletionTokens == null || maxCompletionTokens <= 0) return {};
-  return {
-    max_tokens: maxCompletionTokens,
-    max_completion_tokens: maxCompletionTokens,
-  };
+  return { max_tokens: maxCompletionTokens };
 }
 
 export type Tier = "economy" | "standard" | "frontier";
