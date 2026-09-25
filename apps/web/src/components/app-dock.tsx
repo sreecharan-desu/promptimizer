@@ -33,13 +33,13 @@ export function AppDock({ activeTab, onTabChange }: AppDockProps) {
       className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 lg:bottom-auto lg:left-4 lg:top-[calc(50%+0.5rem)] lg:translate-x-0 lg:-translate-y-1/2"
       aria-label="Console navigation"
     >
-      <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-2xl border border-primary/[0.1] bg-card/95 p-1.5 shadow-[0_14px_36px_-24px_rgba(0,0,0,0.45)] backdrop-blur-md lg:flex-col lg:gap-1 lg:p-1.5">
+      <nav className="console-dock pointer-events-auto flex flex-row gap-1 rounded-[1.15rem] border border-border bg-card/95 p-1.5 shadow-[var(--shadow-soft)] backdrop-blur-md lg:flex-col lg:gap-1 lg:p-1.5">
         {CONSOLE_TABS.map(({ id, label, href }) => {
           const active = activeTab === id;
-          const className = `group relative flex size-10 items-center justify-center rounded-xl transition-colors duration-150 ${
+          const className = `group relative flex size-10 items-center justify-center rounded-[0.85rem] transition-colors duration-150 ${
             active
               ? "bg-primary text-background"
-              : "text-primary/45 hover:bg-primary/[0.05] hover:text-primary"
+              : "text-primary/45 hover:bg-background-hover hover:text-primary"
           }`;
 
           const inner = (
@@ -87,10 +87,10 @@ export function AppDock({ activeTab, onTabChange }: AppDockProps) {
 
         {APP_LINKS.map(({ id, label, href }) => {
           const active = activeTab === id;
-          const className = `group relative flex size-10 items-center justify-center rounded-xl transition-colors duration-150 ${
+          const className = `group relative flex size-10 items-center justify-center rounded-[0.85rem] transition-colors duration-150 ${
             active
               ? "bg-primary text-background"
-              : "text-primary/45 hover:bg-primary/[0.05] hover:text-primary"
+              : "text-primary/45 hover:bg-background-hover hover:text-primary"
           }`;
 
           return (

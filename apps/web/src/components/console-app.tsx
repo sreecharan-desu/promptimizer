@@ -39,7 +39,7 @@ const TABS = [
 ] as const;
 
 const FIELD =
-  "mt-2 h-11 w-full rounded-xl border border-primary/15 bg-background px-3 text-sm text-primary outline-none placeholder:text-secondary focus-visible:ring-2 focus-visible:ring-accent";
+  "mt-2 h-11 w-full rounded-[1.1rem] border border-border bg-background px-3.5 text-sm text-primary outline-none placeholder:text-secondary/70 transition-[border-color,box-shadow] duration-150 focus-visible:border-accent/55 focus-visible:ring-[3px] focus-visible:ring-accent/15";
 
 type Tab = (typeof TABS)[number][0];
 type Bench = Awaited<ReturnType<typeof api.benchmark>>;
@@ -693,7 +693,7 @@ function ConnectPane({
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)] lg:items-start">
-        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-4 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-5">
+        <section className="surface-panel p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Providers</p>
@@ -739,12 +739,12 @@ function ConnectPane({
                         onBaseUrl(customConnections[0].base_url);
                       }
                     }}
-                    className={`group relative flex flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
+                    className={`group relative flex flex-col items-start gap-2 rounded-[1.15rem] border px-3 py-3 text-left transition-all duration-150 ${
                       active
-                        ? "border-primary bg-primary text-background shadow-[0_10px_28px_-18px_rgba(0,0,0,0.55)]"
+                        ? "border-primary bg-primary text-background shadow-[var(--shadow-soft)]"
                         : isLive
-                          ? "border-accent/40 bg-background text-primary hover:border-accent/70"
-                          : "border-primary/[0.08] bg-background/70 text-primary hover:border-primary/20 hover:bg-background"
+                          ? "border-accent/35 bg-background text-primary hover:border-accent/60"
+                          : "border-border bg-background/70 text-primary hover:border-primary/20 hover:bg-background-hover"
                     }`}
                   >
                     <span className="flex w-full items-center justify-between gap-2">
@@ -774,7 +774,7 @@ function ConnectPane({
           </div>
         </section>
 
-        <section className="rounded-[1.35rem] border border-primary/[0.06] bg-card p-5 shadow-[0_16px_40px_-36px_rgba(0,0,0,0.35)] sm:p-6 lg:sticky lg:top-24">
+        <section className="surface-panel p-5 sm:p-6 lg:sticky lg:top-24">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Credentials</p>
@@ -816,7 +816,7 @@ function ConnectPane({
               />
             </label>
           ) : (
-            <div className="mt-5 rounded-xl border border-primary/[0.06] bg-background/80 px-3.5 py-3">
+            <div className="mt-5 rounded-[1.1rem] border border-border bg-background/80 px-3.5 py-3">
               <p className="text-[10px] font-medium uppercase tracking-wide text-secondary">Endpoint</p>
               <p className="mt-1 break-all font-mono text-[12.5px] leading-relaxed text-primary/80">{host.base_url}</p>
             </div>
@@ -842,7 +842,7 @@ function ConnectPane({
               type="button"
               onClick={onFetch}
               disabled={busy || !canFetch}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-background transition-opacity disabled:opacity-40"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-background transition-opacity duration-150 disabled:opacity-40"
             >
               {busy ? (
                 <>

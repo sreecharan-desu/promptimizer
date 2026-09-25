@@ -21,15 +21,15 @@ export default function HomePage() {
     <>
       <UnizHero />
 
-      <div className="relative mx-auto max-w-6xl border-t border-slate-200/80 dark:border-slate-800/80 px-4 py-10 sm:px-6">
-        <p className="mb-6 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+      <div className="relative mx-auto max-w-6xl border-t border-border px-4 py-10 sm:px-6">
+        <p className="mb-6 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">
           Supports the providers you already use
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4" role="list" aria-label="Supported AI providers">
+        <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3" role="list" aria-label="Supported AI providers">
           {PROVIDERS.map((provider) => (
             <div
               key={provider.name}
-              className="inline-flex items-center gap-2.5 rounded-full border border-slate-200/90 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-2xs backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:text-slate-900 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:text-white"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-xs font-semibold text-primary shadow-[var(--shadow-soft-sm)] transition-colors duration-150 hover:border-primary/20 hover:bg-background-hover"
               role="listitem"
               title={provider.name}
             >

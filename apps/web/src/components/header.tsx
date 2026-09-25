@@ -19,40 +19,34 @@ export function Header() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
-      <div className="site-nav relative mx-auto flex h-12 max-w-6xl items-center justify-between rounded-2xl border border-slate-200/90 bg-white/98 px-3 sm:px-4 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/98 dark:shadow-[0_10px_40px_rgb(0,0,0,0.6)]">
-        <Link href={homeHref} className="flex items-center gap-2.5 text-slate-950 dark:text-white">
+      <div className="site-nav relative mx-auto flex h-12 max-w-6xl items-center justify-between rounded-[1.15rem] px-3 sm:px-4">
+        <Link href={homeHref} className="flex items-center gap-2.5 text-primary">
           <Mark className="h-8 w-8" />
-          <span className="font-display text-[16px] font-bold tracking-tight text-slate-950 dark:text-white">
+          <span className="font-display text-[16px] font-bold tracking-tight text-primary">
             Promptimizer
           </span>
         </Link>
 
-        <div className="hidden items-center gap-1.5 lg:flex">
-          <Link
-            href="/console"
-            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-          >
+        <div className="hidden items-center gap-1 lg:flex">
+          <Link href="/console" className="nav-link">
             Console
           </Link>
           <a
             href={DOCS_HOME}
             target="_blank"
             rel="noopener noreferrer"
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors duration-150 ${
-              docs
-                ? "bg-slate-100 font-bold text-slate-950 dark:bg-slate-800 dark:text-white"
-                : "text-slate-700 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-            }`}
+            className={`nav-link ${docs ? "is-active" : ""}`}
+            aria-current={docs ? "page" : undefined}
           >
             Docs
           </a>
-          <span className="mx-2 h-5 w-px bg-slate-200 dark:bg-slate-800" aria-hidden="true" />
+          <span className="mx-2 h-5 w-px bg-border" aria-hidden="true" />
           <AuthNav />
         </div>
 
         <button
           type="button"
-          className="inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-bold text-slate-900 transition-colors hover:bg-slate-100 dark:text-white dark:hover:bg-slate-800 lg:hidden"
+          className="inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-bold text-primary transition-colors hover:bg-background-hover lg:hidden"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
         >
@@ -60,12 +54,12 @@ export function Header() {
         </button>
 
         {open ? (
-          <div className="site-nav absolute left-0 right-0 top-[calc(100%+0.5rem)] rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-2xl backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
-            <div className="flex flex-col gap-1">
+          <div className="site-nav absolute left-0 right-0 top-[calc(100%+0.5rem)] rounded-[1.15rem] p-2.5 lg:hidden">
+            <div className="flex flex-col gap-0.5">
               <Link
                 href="/console"
                 onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="nav-link"
               >
                 Console
               </Link>
@@ -74,15 +68,12 @@ export function Header() {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setOpen(false)}
-                className={`rounded-lg px-3 py-2 text-sm font-semibold hover:bg-slate-100 ${
-                  docs
-                    ? "bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white"
-                    : "text-slate-800 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white"
-                }`}
+                className={`nav-link ${docs ? "is-active" : ""}`}
+                aria-current={docs ? "page" : undefined}
               >
                 Docs
               </a>
-              <div className="mt-2 flex items-center gap-3 border-t border-slate-200 px-2 pt-3 dark:border-slate-800">
+              <div className="mt-2 flex items-center gap-3 border-t border-border px-2 pt-3">
                 <AuthNav />
               </div>
             </div>

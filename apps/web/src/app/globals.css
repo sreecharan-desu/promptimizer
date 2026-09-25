@@ -4,47 +4,58 @@
 
 :root,
 .light {
-  --background: 40 20% 98%;
-  --foreground: 220 10% 14%;
-  --primary: 220 10% 14%;
-  --primary-hover: 220 9% 23%;
-  --secondary: 220 7% 43%;
-  --secondary-hover: 220 8% 31%;
-  --accent: 150 40% 32%;
-  --accent-hover: 150 43% 26%;
+  /* Cool paper + ink. Soft elevation, quiet borders — abcchess discipline, Promptimizer palette. */
+  --background: 40 14% 97.5%;
+  --foreground: 220 12% 12%;
+  --primary: 220 12% 12%;
+  --primary-hover: 220 10% 22%;
+  --secondary: 220 7% 42%;
+  --secondary-hover: 220 8% 30%;
+  --accent: 150 38% 34%;
+  --accent-hover: 150 42% 28%;
   --card: 0 0% 100%;
-  --border: 40 12% 88%;
+  --border: 40 10% 90%;
   --input: 0 0% 100%;
   --background-hover: 40 12% 94%;
-  --site-header-bg: hsl(40 20% 98% / 0.88);
-  --site-header-blur: 14px;
+  --site-header-bg: hsl(40 14% 97.5% / 0.86);
+  --site-header-blur: 18px;
   --site-header-h: 4rem;
-  --radius: 0.5rem;
-  --codeblock: 0 0% 96%;
+  --radius: 0.75rem;
+  --radius-card: 1.5rem;
+  --radius-control: 1.1rem;
+  --codeblock: 40 10% 96%;
   --success: 142 71% 45%;
   --error: 0 84% 60%;
   --warning: 45 93% 47%;
+  --shadow-soft-sm: 0 2px 8px hsl(220 12% 12% / 0.04);
+  --shadow-soft: 0 10px 28px hsl(220 12% 12% / 0.06);
+  --shadow-soft-lg: 0 18px 48px hsl(220 12% 12% / 0.08);
+  --ease-snap: cubic-bezier(0.2, 0.9, 0.3, 1);
   color-scheme: light;
 }
 
 .dark {
-  --background: 220 9% 8%;
-  --foreground: 40 12% 93%;
+  /* Near-black stage, slightly lifted cards — same mint accent. */
+  --background: 220 10% 6%;
+  --foreground: 40 10% 94%;
   --primary: 0 0% 100%;
-  --primary-hover: 40 15% 88%;
-  --secondary: 40 7% 62%;
-  --secondary-hover: 40 8% 74%;
-  --accent: 150 46% 55%;
-  --accent-hover: 150 48% 64%;
-  --card: 220 8% 12%;
-  --border: 220 7% 20%;
-  --input: 220 8% 14%;
-  --background-hover: 220 8% 16%;
-  --site-header-bg: hsl(220 9% 8% / 0.88);
-  --codeblock: 220 9% 10%;
+  --primary-hover: 40 12% 90%;
+  --secondary: 40 6% 64%;
+  --secondary-hover: 40 8% 76%;
+  --accent: 150 44% 58%;
+  --accent-hover: 150 48% 66%;
+  --card: 220 9% 9.5%;
+  --border: 220 8% 15%;
+  --input: 220 9% 11%;
+  --background-hover: 220 8% 13%;
+  --site-header-bg: hsl(220 10% 6% / 0.86);
+  --codeblock: 220 10% 8%;
   --success: 154 72% 52%;
   --error: 0 86% 69%;
   --warning: 45 93% 58%;
+  --shadow-soft-sm: 0 2px 8px hsl(0 0% 0% / 0.32);
+  --shadow-soft: 0 10px 28px hsl(0 0% 0% / 0.42);
+  --shadow-soft-lg: 0 18px 48px hsl(0 0% 0% / 0.5);
   color-scheme: dark;
 }
 
@@ -526,8 +537,26 @@ body {
 /* Console floating dock + stage */
 .console-shell {
   background:
-    radial-gradient(ellipse 55% 40% at 0% 35%, hsl(var(--accent) / 0.07), transparent 55%),
-    radial-gradient(ellipse 45% 35% at 100% 0%, hsl(var(--primary) / 0.04), transparent 50%);
+    radial-gradient(ellipse 50% 36% at 0% 30%, hsl(var(--accent) / 0.045), transparent 58%),
+    radial-gradient(ellipse 40% 30% at 100% 0%, hsl(var(--primary) / 0.03), transparent 52%);
+}
+.surface-panel {
+  border: 1px solid hsl(var(--border) / 0.85);
+  border-radius: var(--radius-card);
+  background: hsl(var(--card));
+  box-shadow: var(--shadow-soft);
+}
+.surface-control {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--input));
+  transition: border-color 150ms var(--ease-snap), box-shadow 150ms var(--ease-snap), background-color 150ms var(--ease-snap);
+}
+.surface-control:focus,
+.surface-control:focus-visible {
+  border-color: hsl(var(--accent) / 0.55);
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.14);
 }
 .console-dock {
   animation: console-dock-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -844,14 +873,34 @@ body {
 
 /* Product surface — shared elevation, focus, and landing treatments. */
 .site-nav {
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  border: 1px solid hsl(var(--border) / 0.95);
+  background: hsl(var(--card) / 0.94);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(var(--site-header-blur));
+  -webkit-backdrop-filter: blur(var(--site-header-blur));
 }
 .dark .site-nav {
-  border: 1px solid rgba(30, 41, 59, 0.9);
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid hsl(var(--border) / 0.9);
+  background: hsl(var(--card) / 0.92);
+  box-shadow: var(--shadow-soft-lg), inset 0 1px 0 hsl(0 0% 100% / 0.04);
+}
+.nav-link {
+  border-radius: 0.65rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: hsl(var(--secondary));
+  transition: color 150ms var(--ease-snap), background-color 150ms var(--ease-snap);
+}
+.nav-link:hover {
+  background: hsl(var(--background-hover));
+  color: hsl(var(--primary));
+}
+.nav-link[aria-current="page"],
+.nav-link.is-active {
+  background: hsl(var(--background-hover));
+  color: hsl(var(--primary));
+  font-weight: 700;
 }
 .landing-hero {
   isolation: isolate;
@@ -869,11 +918,11 @@ body {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: hsl(var(--accent-hover));
+  color: hsl(var(--secondary));
   padding: 0;
-  font-size: 0.7rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .eyebrow-dot {
@@ -924,14 +973,14 @@ body {
 .feature-card {
   position: relative;
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid hsl(var(--border) / 0.9);
   background: hsl(var(--card));
-  box-shadow: none;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  box-shadow: var(--shadow-soft-sm);
+  transition: transform 180ms var(--ease-snap), border-color 180ms var(--ease-snap), box-shadow 180ms var(--ease-snap);
 }
 .dark .feature-card,
 .dark .metric-surface {
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
+  box-shadow: var(--shadow-soft-sm), inset 0 1px 0 hsl(0 0% 100% / 0.03);
 }
 .feature-card::after {
   display: none;
@@ -948,10 +997,10 @@ body {
   color: hsl(var(--accent));
 }
 .metric-surface {
-  border: 1px solid hsl(var(--border));
+  border: 1px solid hsl(var(--border) / 0.9);
   background: hsl(var(--card));
-  box-shadow: none;
-  transition: transform 180ms ease, border-color 180ms ease;
+  box-shadow: var(--shadow-soft-sm);
+  transition: transform 180ms var(--ease-snap), border-color 180ms var(--ease-snap);
 }
 .auth-shell {
   min-height: calc(100vh - 4rem);
@@ -964,22 +1013,24 @@ body {
   box-shadow: none;
 }
 .auth-card {
-  border: 1px solid hsl(var(--border));
+  border: 1px solid hsl(var(--border) / 0.9);
   background: hsl(var(--card));
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-card);
 }
 .dark .auth-card {
-  box-shadow: 0 24px 56px -40px hsl(0 0% 0% / 0.76), inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  box-shadow: var(--shadow-soft-lg), inset 0 1px 0 hsl(0 0% 100% / 0.04);
 }
 .auth-field {
   border-color: hsl(var(--border));
   background: hsl(var(--input));
-  box-shadow: inset 0 1px 2px hsl(var(--primary) / 0.03);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  transition: border-color 150ms var(--ease-snap), box-shadow 150ms var(--ease-snap);
 }
 .auth-field:focus {
-  border-color: hsl(var(--accent) / 0.7);
-  box-shadow: 0 0 0 4px hsl(var(--accent) / 0.12);
+  border-color: hsl(var(--accent) / 0.55);
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.14);
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-primary-action,
