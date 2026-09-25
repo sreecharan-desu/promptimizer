@@ -35,19 +35,11 @@ export function AuthNav() {
   if (me?.user) return <UserMenu user={me.user} onLogout={logout} />;
 
   return (
-    <>
-      <Link
-        href="/login"
-        className="inline-flex h-9 items-center rounded-full px-4 text-sm font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] transition-colors duration-150 hover:bg-primary/[0.04]"
-      >
-        Sign in
-      </Link>
-      <Link
-        href="/signup"
-        className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
-      >
-        Get started
-      </Link>
-    </>
+    <Link
+      href="/signup"
+      className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-sm font-medium text-background transition-colors duration-150 hover:bg-primary-hover"
+    >
+      Get started
+    </Link>
   );
 }

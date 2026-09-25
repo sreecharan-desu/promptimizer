@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { DOCS_HOME } from "@/lib/site";
+import { ChevronRight } from "lucide-react";
 import { useAuthMe } from "@/lib/auth-me";
 
 export function UnizHero() {
@@ -37,22 +36,14 @@ export function UnizHero() {
           Route each request to the cheapest model that still gets it right.
         </p>
 
-        <div className="mt-8 flex w-full max-w-[14.5rem] flex-col gap-2.5 sm:mt-9 sm:w-auto sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-3">
+        <div className="mt-8 flex w-full max-w-[14.5rem] justify-center sm:mt-9 sm:w-auto sm:max-w-none">
           <Link
             href={isLoggedIn ? "/console" : "/signup"}
-            className="group inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition-transform duration-150 hover:-translate-y-0.5 sm:h-12 sm:w-auto sm:px-7"
+            className="group inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition-transform duration-150 hover:-translate-y-0.5 sm:h-12 sm:w-auto sm:px-7"
           >
             <span>{isLoggedIn ? "Open console" : "Start routing"}</span>
-            <ArrowRight className="size-4 transition-transform duration-150 group-hover:translate-x-0.5" />
+            <ChevronRight className="size-4 transition-transform duration-150 group-hover:translate-x-0.5" strokeWidth={2.25} />
           </Link>
-          <a
-            href={DOCS_HOME}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-11 w-full items-center justify-center rounded-full border border-white/20 bg-transparent px-6 text-sm font-semibold text-white/90 transition-colors duration-150 hover:border-white/40 hover:bg-white/10 sm:h-12 sm:w-auto sm:px-7"
-          >
-            Docs
-          </a>
         </div>
 
         <p className="mt-8 hidden text-[12px] font-medium tracking-wide text-white/55 sm:block">
