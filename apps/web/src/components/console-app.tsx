@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PROVIDERS } from "promptimizer";
 import { api, clearSessionId, readSessionId, writeSessionId, type Session } from "@/lib/api";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/lib/console-cache";
 import { AppDock } from "./app-dock";
 import { EmptyFleetSpot, KeySpot } from "./console-spots";
-import { MarkdownContent } from "./markdown-content";
+import { MarkdownContent, prepareAnswerMarkdown } from "./markdown-content";
 import { Donut, Meter, Pill, usd } from "./metrics";
 import { ModelIcon, ProviderIcon } from "./provider-icon";
 
@@ -1250,6 +1250,25 @@ function PlayPane({
     meta && typeof meta.quality === "object" && meta.quality && "score" in (meta.quality as object)
       ? Number((meta.quality as { score: number }).score)
       : null;
+  const shown = prepareAnswerMarkdown(answer, busy);
+  const answerRef = useRef<HTMLDivElement>(null);
+  const answerFloor = useRef(0);
+  const [answerMin, setAnswerMin] = useState(0);
+
+  useEffect(() => {
+    const el = answerRef.current;
+    if (!shown) {
+      answerFloor.current = 0;
+      setAnswerMin(0);
+      return;
+    }
+    if (!busy || !el) return;
+    const next = el.scrollHeight;
+    if (next > answerFloor.current + 1) {
+      answerFloor.current = next;
+      setAnswerMin(next);
+    }
+  }, [shown, busy]);
 
   const rows = useMemo(() => {
     const chosenTier = String(meta?.tier ?? "");
@@ -1273,8 +1292,8 @@ function PlayPane({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
-        <div>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
+        <div className="min-w-0">
           <div className="flex flex-wrap gap-2">
             {EXAMPLES.map((item) => (
               <button
@@ -1315,30 +1334,28 @@ function PlayPane({
             </button>
           </div>
           {answer || busy ? (
-            <div className="mt-6 rounded-xl border border-primary/[0.06] bg-card p-5">
+            <div className="mt-6 min-w-0 overflow-hidden rounded-xl border border-primary/[0.06] bg-card p-5">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Answer</p>
                 {busy ? <Pill tone="warn">Streaming</Pill> : null}
               </div>
               {escalation ? <p className="mt-2 text-xs text-secondary">⚠ {escalation}</p> : null}
-              {answer ? (
-                <div className="mt-3">
-                  <MarkdownContent>{answer}</MarkdownContent>
-                  {busy ? (
-                    <span
-                      className="mt-1 inline-block h-3.5 w-[2px] animate-pulse bg-accent align-middle"
-                      aria-hidden
-                    />
-                  ) : null}
+              {shown ? (
+                <div
+                  ref={answerRef}
+                  className="relative mt-3 min-w-0 max-w-full"
+                  style={busy && answerMin ? { minHeight: answerMin } : undefined}
+                >
+                  <MarkdownContent streaming={busy}>{answer}</MarkdownContent>
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-secondary">Waiting for first tokens…</p>
+                <p className="mt-3 text-sm leading-relaxed text-secondary">Waiting for first tokens…</p>
               )}
             </div>
           ) : null}
         </div>
 
-        <aside className="rounded-2xl border border-primary/[0.06] bg-card p-5 text-sm">
+        <aside className="min-w-0 rounded-2xl border border-primary/[0.06] bg-card p-5 text-sm">
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] font-medium uppercase tracking-wide text-secondary">Incoming request</p>
             {busy ? <Pill tone="warn">Live</Pill> : meta ? <Pill tone="good">Routed</Pill> : <Pill>Idle</Pill>}
