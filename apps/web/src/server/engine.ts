@@ -12,16 +12,19 @@ import {
 } from "./semantic-cache";
 import { nextRequestOrdinal, shouldRunAccuracyAudit } from "./quality-gate";
 import { evaluateQualityGate, scoreAnswerLike, type QualityVerdict } from "./quality";
+import { classifyRequestWithJev, type JevDifficulty } from "./jev";
 import {
   aggregateQualityProfiles,
   buildPricing,
   chooseModel,
   estimateContextLength,
   estimatePricingPer1m,
-  extractRequirements,
+  finalizeRequirements,
+  minimumQualityForDifficulty,
   normalizeModel,
   type ModelProfile,
   type ModelQualityProfile,
+  type RequestUnderstanding,
   type RoutingDecision,
 } from "./optimizer";
 import { apgr, bucketStats, buildFrontierCurve, cpt, pgr, breakEvenEscalationRate } from "./routing-metrics";
@@ -751,6 +754,13 @@ function parseProviderError(status: number, body: string): string {
   return raw.slice(0, 600) || `Provider error ${status}`;
 }
 
+/** Bootstrap tier hint. Hard raises economy to standard; it does not force frontier. */
+function tierForJevDifficulty(difficulty: JevDifficulty, current: Tier): Tier {
+  if (difficulty === "easy") return "economy";
+  if (difficulty === "hard" && current === "economy") return "standard";
+  return current;
+}
+
 function pick(session: Session, classification: Classification, hint?: string) {
   if (hint && hint !== "auto" && hint !== "promptimizer" && !isUuidModelId(hint) && !isNonChatModelId(hint)) {
     const found = findModel(session, hint);
@@ -1421,55 +1431,65 @@ export async function routeChat(
     classification.p_small_quality = body.level_override <= 2 ? 0.94 : body.level_override === 3 ? 0.8 : 0.45;
   }
 
-  const requirements = extractRequirements(body);
+  let understanding: RequestUnderstanding = finalizeRequirements(body, null);
+  let requirements = understanding.requirements;
   const profiles = opts?.qualityProfiles ?? [];
   const profileMap = new Map(profiles.map((p) => [p.model_id, p]));
   const selectedModels = session.models.filter((m) => m.selected).map((m) => toProfile(m));
 
-  let decision: RoutingDecision | null = null;
+  const route: { decision: RoutingDecision | null } = { decision: null };
   let routed: ModelInfo | undefined;
   let routingPolicy: RoutingDecision["policy"] | "bootstrap_heuristic" = "bootstrap_heuristic";
+  let safetyFloor: Tier | null = null;
+  let jevInvoked = false;
 
-  if (body.model && body.model !== "auto" && body.model !== "promptimizer") {
-    routed = findModel(session, body.model);
-    routingPolicy = "bootstrap_heuristic";
-  } else {
-    decision = chooseModel({
-      models: selectedModels,
-      requirements,
-      qualityProfiles: profileMap,
-      expectedInputTokens: Math.max(64, Math.round(userPrompt.length / 4)),
-      expectedOutputTokens: Math.max(128, requirements.minimum_output_tokens || 256),
-    });
-    if (decision) {
-      routingPolicy = decision.policy;
-      routed = findModel(session, decision.selected_model_id, decision.selected_provider_id);
+  function selectModel(difficulty: JevDifficulty | null): ModelInfo {
+    const pinned = body.model && body.model !== "auto" && body.model !== "promptimizer" ? body.model : "";
+    let next: ModelInfo | undefined;
+    let nextDecision: RoutingDecision | null = null;
+    if (pinned) {
+      next = findModel(session, pinned);
+      routingPolicy = "bootstrap_heuristic";
+    } else {
+      nextDecision = chooseModel({
+        models: selectedModels,
+        requirements,
+        qualityProfiles: profileMap,
+        ...(difficulty ? { minimumQuality: minimumQualityForDifficulty(difficulty) } : {}),
+        expectedInputTokens: Math.max(64, Math.round(userPrompt.length / 4)),
+        expectedOutputTokens: Math.max(128, requirements.minimum_output_tokens || 256),
+      });
+      if (nextDecision) {
+        routingPolicy = nextDecision.policy;
+        next = findModel(session, nextDecision.selected_model_id, nextDecision.selected_provider_id);
+      }
     }
+    if (!next) {
+      const hinted = difficulty
+        ? tierForJevDifficulty(difficulty, classification.recommended_tier)
+        : classification.recommended_tier;
+      const floored =
+        safetyFloor && TIER_ORDER.indexOf(hinted) < TIER_ORDER.indexOf(safetyFloor) ? safetyFloor : hinted;
+      const bootstrap =
+        floored === classification.recommended_tier
+          ? classification
+          : { ...classification, recommended_tier: floored };
+      next = pick(session, bootstrap, body.model);
+      routingPolicy = "bootstrap_heuristic";
+    }
+    if (!next) throw Object.assign(new Error("No selected models."), { status: 400 });
+    route.decision = pinned ? null : nextDecision;
+    routed = next;
+    return next;
   }
 
-  if (!routed) {
-    routed = pick(session, classification, body.model);
-    routingPolicy = "bootstrap_heuristic";
-  }
-  if (!routed) throw Object.assign(new Error("No selected models."), { status: 400 });
-
-  const initialModel = routed;
+  // Local route first so existing cache keys stay stable. JEV runs only on a miss.
+  routed = selectModel(null);
+  let initialModel = routed;
   const baseline =
     findModel(session, session.baseline_model ?? "") ??
     session.models.find((m) => m.id === session.baseline_model) ??
     routed;
-
-  opts?.onEvent?.({
-    type: "routing",
-    session_id: session.id,
-    model: routed.id,
-    tier: routed.tier,
-    provider_id: routed.provider_id,
-    routing_policy: routingPolicy,
-    baseline_model: baseline?.id ?? null,
-    complexity: classification.complexity,
-    category: classification.category,
-  });
 
   const system = textMessages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const prefixKey = system.slice(0, 800);
@@ -1481,6 +1501,7 @@ export async function routeChat(
     /\b(hipaa|gdpr|lawsuit|malpractice|refund policy|medical advice|legal advice)\b/i.test(userPrompt) ||
     classification.category === "safety_sensitive"
   ) {
+    safetyFloor = "standard";
     const minIdx = TIER_ORDER.indexOf("standard");
     if (TIER_ORDER.indexOf(classification.recommended_tier) < minIdx) {
       classification.recommended_tier = "standard";
@@ -1510,12 +1531,81 @@ export async function routeChat(
     (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
   );
 
+  let routingEmitted = false;
+  function emitRouting() {
+    if (routingEmitted || !routed) return;
+    routingEmitted = true;
+    opts?.onEvent?.({
+      type: "routing",
+      session_id: session.id,
+      model: routed.id,
+      tier: routed.tier,
+      provider_id: routed.provider_id,
+      routing_policy: routingPolicy,
+      baseline_model: baseline?.id ?? null,
+      complexity: classification.complexity,
+      category: classification.category,
+      classification_source: understanding.classification_source,
+      jev_task_type: understanding.jev_task_type,
+      jev_task_type_confidence: understanding.jev_task_type_confidence,
+      jev_difficulty: understanding.jev_difficulty,
+      jev_difficulty_confidence: understanding.jev_difficulty_confidence,
+    });
+  }
+
+  function refreshCacheKeys() {
+    exactKey = userCacheKey(owner, "exact", JSON.stringify({ m: textMessages, model: routed!.id }));
+    promptKey = userCacheKey(
+      owner,
+      "prompt",
+      routed!.id,
+      conversationDigest,
+      (canonicalizeSemanticPrompt(userPrompt) || normalizeCachePrompt(userPrompt)).slice(0, 2000),
+    );
+  }
+
+  async function replayForCurrentModel() {
+    refreshCacheKeys();
+    const exact = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
+    if (exact) {
+      payload = exact;
+      exactHit = true;
+      promptHit = false;
+      semantic = null;
+      semanticMode = "off";
+      return;
+    }
+    const cachedPrompt = await cacheGet<Awaited<ReturnType<typeof complete>>>(promptKey);
+    if (cachedPrompt) {
+      payload = cachedPrompt;
+      exactHit = false;
+      promptHit = true;
+      semantic = null;
+      semanticMode = "full";
+    }
+  }
+
+  /** Cache miss only. One JEV call, then the existing router. Failures keep local requirements. */
+  async function applyJevOnMiss() {
+    if (jevInvoked) return;
+    jevInvoked = true;
+    const jev = await classifyRequestWithJev(userPrompt);
+    understanding = finalizeRequirements(body, jev);
+    requirements = understanding.requirements;
+    if (!jev) return;
+    const previousId = routed!.id;
+    selectModel(body.level_override ? null : jev.difficulty);
+    initialModel = routed!;
+    if (routed!.id !== previousId) await replayForCurrentModel();
+  }
+
   const seeded = opts?.seededCompletion;
   if (seeded?.payload) {
     payload = seeded.payload;
     exactHit = Boolean(seeded.exactHit);
     promptHit = Boolean(seeded.promptHit) && !exactHit;
     if (promptHit) semanticMode = "full";
+    emitRouting();
   } else {
     payload = await cacheGet<Awaited<ReturnType<typeof complete>>>(exactKey);
     exactHit = Boolean(payload);
@@ -1549,7 +1639,10 @@ export async function routeChat(
             total_tokens: tokens(prompt) + tokens(semantic.entry.answer),
           },
         };
-      } else if (semantic?.mode === "hybrid") {
+        emitRouting();
+      } else {
+        await applyJevOnMiss();
+        if (!payload && semantic?.mode === "hybrid") {
         // Score the novel fragment alone — do not inherit inflated thread complexity.
         const novelClass = classifyText(semantic.novel || userPrompt);
         const novelComplexity = novelClass.complexity;
@@ -1586,6 +1679,7 @@ export async function routeChat(
           tools: body.tools ?? body.functions,
           response_format: body.response_format,
         };
+        emitRouting();
         const hybrid = opts?.onDelta
           ? await completeStreamOrFailover(
               session,
@@ -1598,7 +1692,8 @@ export async function routeChat(
           : await completeOrFailover(session, routed, hybridMessages, classification, completionOpts);
         routed = hybrid.routed;
         payload = hybrid.payload;
-      } else if (opts?.onDelta) {
+      } else if (!payload && opts?.onDelta) {
+        emitRouting();
         const live = await completeStreamOrFailover(
           session,
           routed,
@@ -1616,7 +1711,8 @@ export async function routeChat(
         );
         routed = live.routed;
         payload = live.payload;
-      } else {
+      } else if (!payload) {
+        emitRouting();
         const live = await completeOrFailover(session, routed, textMessages, classification, {
           max_tokens: resolveMaxCompletionTokens(
             body.max_tokens ?? body.max_completion_tokens,
@@ -1627,9 +1723,13 @@ export async function routeChat(
         });
         routed = live.routed;
         payload = live.payload;
+      } else if (payload) {
+        emitRouting();
       }
-    } else if (promptHit && !exactHit) {
-      semanticMode = "full";
+      }
+    } else {
+      if (promptHit && !exactHit) semanticMode = "full";
+      emitRouting();
     }
   }
 
@@ -1987,15 +2087,27 @@ export async function routeChat(
     });
   }
 
+  const classificationNote =
+    understanding.classification_source === "jev"
+      ? ` Classified by JEV (task=${understanding.jev_task_type} ${understanding.jev_task_type_confidence?.toFixed(2)}, difficulty=${understanding.jev_difficulty} ${understanding.jev_difficulty_confidence?.toFixed(2)}).${
+          understanding.jev_task_type && understanding.requirements.task_type !== understanding.jev_task_type
+            ? ` Explicit signal kept task ${understanding.requirements.task_type}.`
+            : ""
+        }`
+      : !jevInvoked && (exactHit || promptHit || semanticMode === "full")
+        ? " Cache hit → local classifier."
+        : " JEV unavailable → local classifier.";
+
   const rationale =
-    decision?.rationale ??
-    `Bootstrap heuristic: complexity L${classification.complexity}, recommended ${classification.recommended_tier}, chose ${initialModel.id}` +
-      (semanticMode === "hybrid"
-        ? ` via semantic hybrid (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
-        : semanticMode === "full"
-          ? ` via semantic full hit (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
-          : "") +
-      (escalated ? ` then escalated to ${routed.id} (${escalationReason}).` : ".");
+    (route.decision?.rationale ??
+      `Bootstrap heuristic: complexity L${classification.complexity}, recommended ${classification.recommended_tier}, chose ${initialModel.id}` +
+        (semanticMode === "hybrid"
+          ? ` via semantic hybrid (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
+          : semanticMode === "full"
+            ? ` via semantic full hit (sim=${((semantic?.similarity ?? 0) * 100).toFixed(0)}%).`
+            : "") +
+        (escalated ? ` then escalated to ${routed.id} (${escalationReason}).` : ".")) +
+    classificationNote;
 
   return {
     ...payload,
@@ -2017,11 +2129,16 @@ export async function routeChat(
       baseline_model: baseline.id,
       routing_policy: routingPolicy,
       requirements,
-      rejected: decision?.rejected ?? [],
-      quality_ineligible: decision?.quality_ineligible ?? [],
-      pricing_unknown: decision?.pricing_unknown ?? [],
-      estimated_cost_usd: decision?.estimated_cost_usd ?? null,
-      estimated_quality: decision?.estimated_quality ?? null,
+      classification_source: understanding.classification_source,
+      jev_task_type: understanding.jev_task_type,
+      jev_task_type_confidence: understanding.jev_task_type_confidence,
+      jev_difficulty: understanding.jev_difficulty,
+      jev_difficulty_confidence: understanding.jev_difficulty_confidence,
+      rejected: route.decision?.rejected ?? [],
+      quality_ineligible: route.decision?.quality_ineligible ?? [],
+      pricing_unknown: route.decision?.pricing_unknown ?? [],
+      estimated_cost_usd: route.decision?.estimated_cost_usd ?? null,
+      estimated_quality: route.decision?.estimated_quality ?? null,
       cache_hit: anyCacheHit,
       cache_replay: Boolean((cost as { cache_replay?: boolean }).cache_replay),
       prefix_cache_hit: prefixHit,

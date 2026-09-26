@@ -1,3 +1,4 @@
+import type { JevRequestClassification } from "../jev";
 import type { RequestRequirements, TaskType } from "./types";
 
 type ChatMessage = {
@@ -73,5 +74,62 @@ export function extractRequirements(body: ChatBody): RequestRequirements {
     minimum_context_tokens: contextTokens,
     minimum_output_tokens: minOut,
     task_type: hasVision ? "vision" : taskType,
+  };
+}
+
+export type RequestUnderstanding = {
+  requirements: RequestRequirements;
+  classification_source: "jev" | "local";
+  jev_task_type: TaskType | null;
+  jev_task_type_confidence: number | null;
+  jev_difficulty: "easy" | "medium" | "hard" | null;
+  jev_difficulty_confidence: number | null;
+};
+
+/** Structural signals the local extractor can assert without a semantic model. */
+function unambiguousTaskType(blob: string, local: RequestRequirements): TaskType | null {
+  if (local.requires_vision) return "vision";
+  const debug = /\b(stack ?trace|traceback)\b/i.test(blob);
+  if (/```/.test(blob) && (debug || /\b(bug|exception|debug)\b/i.test(blob))) return "debugging";
+  if (debug) return "debugging";
+  if (/```/.test(blob) || /\b(def |function |class )\b/.test(blob)) return "coding";
+  if (blob.length > 12_000) return "long_context";
+  return null;
+}
+
+/**
+ * Keep deterministic capability requirements. JEV may replace task type only
+ * when no unambiguous local signal exists, and may supply difficulty.
+ */
+export function finalizeRequirements(body: ChatBody, jev: JevRequestClassification | null): RequestUnderstanding {
+  const local = extractRequirements(body);
+  if (!jev?.available) {
+    return {
+      requirements: local,
+      classification_source: "local",
+      jev_task_type: null,
+      jev_task_type_confidence: null,
+      jev_difficulty: null,
+      jev_difficulty_confidence: null,
+    };
+  }
+
+  const blob = (body.messages ?? []).map((m) => flattenContent(m.content)).join("\n");
+  const explicit = unambiguousTaskType(blob, local);
+  return {
+    requirements: {
+      requires_tools: local.requires_tools,
+      requires_reasoning: local.requires_reasoning,
+      requires_structured_output: local.requires_structured_output,
+      requires_vision: local.requires_vision,
+      minimum_context_tokens: local.minimum_context_tokens,
+      minimum_output_tokens: local.minimum_output_tokens,
+      task_type: explicit ?? jev.taskType,
+    },
+    classification_source: "jev",
+    jev_task_type: jev.taskType,
+    jev_task_type_confidence: jev.taskTypeConfidence,
+    jev_difficulty: jev.difficulty,
+    jev_difficulty_confidence: jev.difficultyConfidence,
   };
 }

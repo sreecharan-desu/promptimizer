@@ -22,6 +22,18 @@ export function defaultMinQuality(): number {
   return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0.72;
 }
 
+/**
+ * Semantic difficulty adjusts the existing quality floor.
+ * chooseModel still returns the cheapest model that clears it.
+ * Hard does not force a frontier model.
+ */
+export function minimumQualityForDifficulty(difficulty: "easy" | "medium" | "hard"): number {
+  const base = defaultMinQuality();
+  if (difficulty === "easy") return Math.max(0.5, Number((base - 0.12).toFixed(3)));
+  if (difficulty === "hard") return Math.min(0.9, Number((base + 0.1).toFixed(3)));
+  return base;
+}
+
 export function chooseModel(input: {
   models: ModelProfile[];
   requirements: RequestRequirements;

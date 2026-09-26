@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
   // Avoid gzip buffering SSE / streaming API responses in local + some proxies.
   compress: false,
   transpilePackages: ["promptimizer"],
-  serverExternalPackages: ["nodemailer", "@qdrant/js-client-rest"],
+  serverExternalPackages: ["nodemailer", "@qdrant/js-client-rest", "@typesafe-ai/sdk"],
   outputFileTracingRoot: root,
   experimental: {
     staleTimes: {
