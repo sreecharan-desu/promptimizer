@@ -12,7 +12,7 @@ import {
 } from "@/lib/console-cache";
 import { AppDock } from "./app-dock";
 import { EmptyFleetSpot, KeySpot } from "./console-spots";
-import { MarkdownContent, prepareAnswerMarkdown } from "./markdown-content";
+import { MarkdownContent, prepareAnswerMarkdown, splitReasoning, ThinkingTrace } from "./markdown-content";
 import { Donut, Meter, Pill, usd } from "./metrics";
 import { ModelIcon, ProviderIcon } from "./provider-icon";
 
@@ -1250,7 +1250,8 @@ function PlayPane({
     meta && typeof meta.quality === "object" && meta.quality && "score" in (meta.quality as object)
       ? Number((meta.quality as { score: number }).score)
       : null;
-  const shown = prepareAnswerMarkdown(answer, busy);
+  const parts = splitReasoning(answer, busy);
+  const shown = prepareAnswerMarkdown(parts.answer, busy && !parts.thinkingLive);
   const answerRef = useRef<HTMLDivElement>(null);
   const answerFloor = useRef(0);
   const [answerMin, setAnswerMin] = useState(0);
@@ -1340,15 +1341,22 @@ function PlayPane({
                 {busy ? <Pill tone="warn">Streaming</Pill> : null}
               </div>
               {escalation ? <p className="mt-2 text-xs text-secondary">⚠ {escalation}</p> : null}
+              {parts.thinking ? (
+                <ThinkingTrace
+                  text={parts.thinking}
+                  live={busy && parts.thinkingLive}
+                  collapseWhenDone={Boolean(shown)}
+                />
+              ) : null}
               {shown ? (
                 <div
                   ref={answerRef}
                   className="relative mt-3 min-w-0 max-w-full"
                   style={busy && answerMin ? { minHeight: answerMin } : undefined}
                 >
-                  <MarkdownContent streaming={busy}>{answer}</MarkdownContent>
+                  <MarkdownContent streaming={busy && !parts.thinkingLive}>{parts.answer}</MarkdownContent>
                 </div>
-              ) : (
+              ) : parts.thinking ? null : (
                 <p className="mt-3 text-sm leading-relaxed text-secondary">Waiting for first tokens…</p>
               )}
             </div>
