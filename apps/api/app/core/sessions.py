@@ -15,7 +15,6 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from app.core.config import get_settings
 from app.domain.catalog import Fleet, ModelInfo, apply_tier_overrides
 
-
 _DEFAULT_SECRET = "change-me-to-a-long-random-string"
 
 
