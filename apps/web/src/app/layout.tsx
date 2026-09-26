@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { ThemeScript } from "@/components/theme-script";
@@ -7,23 +7,28 @@ import { JsonLd } from "@/components/json-ld";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import "./tailwind.generated.css";
 
-const sans = Inter({
-  subsets: ["latin"],
+// Self-hosted so production builds do not download Google Fonts.
+// next/font crashes the Vercel build when a returned file URL has no extension.
+const sans = localFont({
+  src: "../fonts/Inter-latin.woff2",
   variable: "--font-sans",
   display: "swap",
+  weight: "100 900",
 });
 
-const display = Inter({
-  subsets: ["latin"],
+const display = localFont({
+  src: "../fonts/Inter-latin.woff2",
   variable: "--font-display",
   display: "swap",
-  weight: ["400", "500", "600"],
+  weight: "100 900",
 });
 
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
+const mono = localFont({
+  src: [
+    { path: "../fonts/IBMPlexMono-400-latin.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/IBMPlexMono-500-latin.woff2", weight: "500", style: "normal" },
+  ],
   variable: "--font-mono",
-  weight: ["400", "500"],
   display: "swap",
 });
 
