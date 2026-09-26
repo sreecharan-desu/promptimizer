@@ -4,13 +4,15 @@ type Bucket = { count: number; reset: number };
 
 const memory = new Map<string, Bucket>();
 
-function windowMs() {
+function windowMs(kind: "auth" | "chat" | "connect" | "judge") {
+  if (kind === "judge") return Number(process.env.RATE_LIMIT_JUDGE_WINDOW_MS ?? 3_600_000);
   return Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 }
 
-function limitFor(kind: "auth" | "chat" | "connect") {
+function limitFor(kind: "auth" | "chat" | "connect" | "judge") {
   if (kind === "auth") return Number(process.env.RATE_LIMIT_AUTH ?? 20);
   if (kind === "connect") return Number(process.env.RATE_LIMIT_CONNECT ?? 30);
+  if (kind === "judge") return Number(process.env.RATE_LIMIT_JUDGE ?? 30);
   return Number(process.env.RATE_LIMIT_CHAT ?? 120);
 }
 
@@ -28,12 +30,12 @@ function blocked(reset: number) {
  * Fixed-window rate limit. Uses atomic INCR when Upstash REST is configured.
  */
 export async function rateLimit(
-  kind: "auth" | "chat" | "connect",
+  kind: "auth" | "chat" | "connect" | "judge",
   identity: string,
 ): Promise<Response | null> {
   const id = cacheScope(identity || "anon");
   const limit = limitFor(kind);
-  const window = windowMs();
+  const window = windowMs(kind);
   const bucketKey = `pm:rl:${kind}:${id}`;
   const now = Date.now();
 
@@ -72,7 +74,15 @@ export async function rateLimit(
 }
 
 export function clientIp(request: Request): string {
-  const xf = request.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0]?.trim() || "anon";
-  return request.headers.get("x-real-ip") || "anon";
+  // Vercel overwrites this header, so a client cannot prepend a fake address.
+  const platform = request.headers.get("x-vercel-forwarded-for");
+  if (platform) {
+    const ip = platform.split(",").map((part) => part.trim()).find(Boolean);
+    if (ip) return ip;
+  }
+  if (process.env.VERCEL) {
+    const real = request.headers.get("x-real-ip")?.trim();
+    if (real) return real;
+  }
+  return "anon";
 }

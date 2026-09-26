@@ -18,11 +18,10 @@ _WINDOW_MS = 60_000
 
 
 def _client_ip(request: Request) -> str:
-    xf = request.headers.get("x-forwarded-for")
-    if xf:
-        return xf.split(",")[0].strip() or "anon"
-    if request.client:
-        return request.client.host or "anon"
+    # The socket peer is the only address this process can see. X-Forwarded-For
+    # is client-controlled unless a trusted proxy strips it, which this twin does not assume.
+    if request.client and request.client.host:
+        return request.client.host
     return "anon"
 
 

@@ -63,7 +63,9 @@ function includesNeedle(blob: string, needle: string) {
     try {
       const last = n.lastIndexOf("/");
       const body = n.slice(1, last);
-      if (body.length > 80) return blob.includes(n);
+      if (body.length > 80 || /([+*]|\{\d*,?\d*\})\s*[+*{]|\([^)]*[+*{][^)]*\)\s*[+*{]/.test(body)) {
+        return blob.includes(n);
+      }
       const re = new RegExp(body, (n.slice(last + 1) || "i").slice(0, 5));
       return re.test(blob);
     } catch {

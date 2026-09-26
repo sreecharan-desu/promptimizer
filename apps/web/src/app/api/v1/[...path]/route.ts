@@ -118,6 +118,13 @@ async function resolve(request: NextRequest) {
     if (user) return { user, session: await sessionForUser(user.id) };
   }
   if (token) {
+    const claimedUser = userIdFromSessionId(token);
+    if (claimedUser) {
+      // acct_<userId> is predictable. It is not a credential.
+      const user = authConfigured() ? await getCurrentUser() : null;
+      if (!user || user.id !== claimedUser) return { user: null, session: null };
+      return { user, session: await sessionForUser(user.id) };
+    }
     const session = await getSession(token);
     if (session) {
       const user = authConfigured() ? await getCurrentUser() : null;
@@ -155,12 +162,9 @@ async function handle(request: NextRequest, path: string[]) {
       if (limited) return limited;
       const body = await request.json();
       const user = await accountFromRequest(request);
-      // Account sessions stay account-scoped even when the auth cookie expired —
-      // otherwise a reconnect would fork into an anonymous session and later
-      // rebuilds would resurrect the account's old fleet.
-      const headerSessionId = request.headers.get("x-promptimizer-session");
-      const ownerId =
-        user?.id ?? (headerSessionId ? userIdFromSessionId(headerSessionId) : null);
+      // Identity comes only from the session cookie or a pmz_ API key.
+      // x-promptimizer-session: acct_<userId> is not proof of that account.
+      const ownerId = user?.id ?? null;
       const allowAnon = (process.env.ALLOW_ANON_CONNECT ?? "").trim() === "1";
       if (!ownerId && !allowAnon) {
         return NextResponse.json(

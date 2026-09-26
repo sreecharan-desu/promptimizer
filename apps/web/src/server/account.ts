@@ -96,7 +96,7 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
   const picture = input.picture?.trim() || null;
   const sql = getSql();
   const existing = await sql`
-    SELECT id, email, name, google_sub, avatar_url FROM users
+    SELECT id, email, name, google_sub, avatar_url, email_verified_at FROM users
     WHERE google_sub = ${input.sub} OR email = ${email}
     ORDER BY CASE WHEN google_sub = ${input.sub} THEN 0 ELSE 1 END
     LIMIT 1
@@ -105,12 +105,14 @@ export async function upsertGoogleUser(input: { email: string; name: string; sub
     const row = asRecord(existing[0]);
     const nextName = String(row.name || "") || name;
     const nextAvatar = picture ?? (row.avatar_url ? String(row.avatar_url) : null);
+    const wasVerified = Boolean(row.email_verified_at);
     await sql`
       UPDATE users
       SET google_sub = ${input.sub},
           name = CASE WHEN name = '' THEN ${name} ELSE name END,
           avatar_url = ${nextAvatar},
-          email_verified_at = COALESCE(email_verified_at, now())
+          email_verified_at = COALESCE(email_verified_at, now()),
+          password_hash = CASE WHEN ${wasVerified} THEN password_hash ELSE '' END
       WHERE id = ${String(row.id)}
     `;
     return publicUser({
@@ -154,12 +156,14 @@ export async function setPassword(userId: string, password: string) {
     throw Object.assign(new Error("Use a password of at least 8 characters."), { status: 400 });
   }
   await ensureSchema();
-  await getSql()`
+  const sql = getSql();
+  await sql`
     UPDATE users
     SET password_hash = ${hashPassword(password)},
         email_verified_at = COALESCE(email_verified_at, now())
     WHERE id = ${userId}
   `;
+  await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
 }
 
 export async function writeSessionCookie(userId: string) {

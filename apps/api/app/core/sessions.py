@@ -16,8 +16,13 @@ from app.core.config import get_settings
 from app.domain.catalog import Fleet, ModelInfo, apply_tier_overrides
 
 
+_DEFAULT_SECRET = "change-me-to-a-long-random-string"
+
+
 def _fernet() -> Fernet:
     settings = get_settings()
+    if settings.app_env == "production" and settings.session_secret == _DEFAULT_SECRET:
+        raise RuntimeError("SESSION_SECRET must be set to a unique value in production.")
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,

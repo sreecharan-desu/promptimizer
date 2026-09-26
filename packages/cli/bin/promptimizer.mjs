@@ -816,9 +816,12 @@ async function cmdConnect(flags, positional) {
     if (!vendorKey && foundEnv && process.env[foundEnv]) vendorKey = process.env[foundEnv];
     label = label || found.label;
   }
+  if (vendorKey === "-") {
+    vendorKey = readFileSync(0, "utf8").trim();
+  }
   if (!vendorKey) {
     const envHint = foundEnv ? ` or set ${foundEnv}` : "";
-    die(`Missing API key for ${label || provider || "provider"}. Pass --key${envHint}.`);
+    die(`Missing API key for ${label || provider || "provider"}. Pass --key${envHint}, or --key - to read stdin.`);
   }
 
   const session = await request("/v1/providers/connect", {

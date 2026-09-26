@@ -3,19 +3,10 @@ import { googleAuthConfigured } from "./db";
 
 export const OAUTH_COOKIE = "pmz_oauth";
 
-export function siteOrigin(request?: NextRequest) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+/** Canonical site origin. Never taken from Host or X-Forwarded-Host. */
+export function siteOrigin(_request?: NextRequest) {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.WEB_ORIGIN?.trim();
   if (configured) return configured.replace(/\/$/, "");
-
-  if (request) {
-    const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-    if (host) {
-      const proto =
-        request.headers.get("x-forwarded-proto") ||
-        (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
-      return `${proto}://${host}`.replace(/\/$/, "");
-    }
-  }
 
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
   if (vercel) return `https://${vercel.replace(/^https?:\/\//, "")}`.replace(/\/$/, "");
