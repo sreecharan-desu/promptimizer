@@ -1,0 +1,35 @@
+................                                                         [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.15-final-0 _______________
+
+Name                                   Stmts   Miss  Cover
+----------------------------------------------------------
+app/__init__.py                            0      0   100%
+app/api/__init__.py                        0      0   100%
+app/api/deps.py                           13     13     0%
+app/api/routes.py                        185    185     0%
+app/core/__init__.py                       0      0   100%
+app/core/config.py                        41      0   100%
+app/core/rate_limit.py                    28     28     0%
+app/core/sessions.py                     111     67    40%
+app/domain/__init__.py                     0      0   100%
+app/domain/cache.py                      115     88    23%
+app/domain/catalog.py                    110     32    71%
+app/domain/classifier.py                 166     37    78%
+app/domain/costing.py                     50     11    78%
+app/domain/embeddings.py                  37     24    35%
+app/domain/optimizer/__init__.py           4      0   100%
+app/domain/optimizer/cost.py              20      4    80%
+app/domain/optimizer/requirements.py      34     30    12%
+app/domain/optimizer/routing.py           64     36    44%
+app/domain/optimizer/schemas.py          117      1    99%
+app/domain/providers.py                   20     20     0%
+app/domain/quality.py                     88     16    82%
+app/domain/router.py                     173    140    19%
+app/domain/semantic_cache.py             206    157    24%
+app/main.py                               17     17     0%
+app/providers/__init__.py                  0      0   100%
+app/providers/openai_compat.py            55     42    24%
+----------------------------------------------------------
+TOTAL                                   1654    948    43%
+16 passed in 2.66s

@@ -21,6 +21,6 @@
     "promptimizer": "node packages/cli/bin/promptimizer.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.6"
   }
 }

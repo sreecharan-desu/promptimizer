@@ -134,6 +134,27 @@ npm test --workspace=@promptimizer/web
 
 ---
 
+## Performance (measured)
+
+Measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). These requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. Raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh).
+
+| Endpoint | Concurrent VUs | req/s | p50 | p95 | p99 | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| `POST /v1/classify` | 50 | 19,727 | 2.32 ms | 4.73 ms | 6.42 ms | 0% |
+| `POST /v1/classify` | 200 | 20,434 | 8.84 ms | 17.12 ms | 24.66 ms | 0% |
+| `GET /health` | 50 | 38,383 | 1.11 ms | 2.56 ms | 3.81 ms | 0% |
+
+Tests on the same run: API pytest 16 passed (43% line coverage, [`pytest-coverage.txt`](benchmarks/results-2026-10-19/pytest-coverage.txt)); SDK 11/11 and web 38/38 `node --test` cases passed; web typecheck and `next build` passed.
+
+## Known issues
+
+- JS tests use `node --experimental-strip-types`, which needs Node 22.6 or newer. On Node 20 they exit with code 9 before running. `engines` and `.nvmrc` now say so.
+- `npm audit` reports 10 high and 6 moderate advisories in the JS workspace (19 Oct 2026). Not auto-fixed here because the fixes need major-version bumps.
+- API line coverage is 43%; `router.py`, `semantic_cache.py` and the provider client are mostly untested.
+- Cost-saved and quality figures shown in the console depend on your provider and prompts; no fixed savings percentage is claimed here.
+
+---
+
 ## Documentation
 
 - Product docs: [docs.promptimizer.site/docs](https://docs.promptimizer.site/docs)
