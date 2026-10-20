@@ -74,7 +74,7 @@ copy `.env.example` to `.env`. auth needs `DATABASE_URL`, `AUTH_SECRET`, `ENCRYP
 
 measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). these requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh).
 
-| Endpoint | Concurrent VUs | req/s | p50 | p95 | p99 | Errors |
+| endpoint | concurrent VUs | req/s | p50 | p95 | p99 | errors |
 | --- | --- | --- | --- | --- | --- | --- |
 | `POST /v1/classify` | 50 | 19,727 | 2.32 ms | 4.73 ms | 6.42 ms | 0% |
 | `POST /v1/classify` | 200 | 20,434 | 8.84 ms | 17.12 ms | 24.66 ms | 0% |
