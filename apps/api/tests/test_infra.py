@@ -83,7 +83,9 @@ def test_rate_limit_window_and_retry_after():
 
 def test_client_ip_falls_back_to_anon():
     assert rate_limit._client_ip(SimpleNamespace(client=None)) == "anon"
-    assert rate_limit._client_ip(SimpleNamespace(client=SimpleNamespace(host="9.9.9.9"))) == "9.9.9.9"
+    assert (
+        rate_limit._client_ip(SimpleNamespace(client=SimpleNamespace(host="9.9.9.9"))) == "9.9.9.9"
+    )
 
 
 # ---- sessions ----

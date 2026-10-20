@@ -116,7 +116,9 @@ def test_connect_empty_model_list_falls_back_to_default(client, upstream):
 
 def test_session_lifecycle_and_auth(client, upstream):
     assert client.get("/v1/session").status_code == 401
-    assert client.get("/v1/session", headers={"X-Promptimizer-Session": "sess_x"}).status_code == 401
+    assert (
+        client.get("/v1/session", headers={"X-Promptimizer-Session": "sess_x"}).status_code == 401
+    )
     sid = _connect(client)
     # bearer form works too
     r = client.get("/v1/session", headers={"Authorization": f"Bearer {sid}"})
@@ -125,7 +127,9 @@ def test_session_lifecycle_and_auth(client, upstream):
     assert s["label"] == "test"
     assert "sk-test" not in json.dumps(s)  # key never echoed
     assert s["baseline_model"] == "promptimizer-frontier"
-    assert client.delete("/v1/session", headers={"X-Promptimizer-Session": sid}).json() == {"ok": True}
+    assert client.delete("/v1/session", headers={"X-Promptimizer-Session": sid}).json() == {
+        "ok": True
+    }
     assert client.get("/v1/session", headers={"X-Promptimizer-Session": sid}).status_code == 401
 
 
@@ -253,7 +257,10 @@ def test_chat_streaming_sse(client, upstream):
         "POST",
         "/v1/chat/completions",
         headers={"X-Promptimizer-Session": sid},
-        json={"messages": [{"role": "user", "content": "stream: capital of France?"}], "stream": True},
+        json={
+            "messages": [{"role": "user", "content": "stream: capital of France?"}],
+            "stream": True,
+        },
     ) as r:
         assert r.headers["content-type"].startswith("text/event-stream")
         lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
