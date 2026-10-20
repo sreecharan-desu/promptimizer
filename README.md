@@ -72,7 +72,7 @@ copy `.env.example` to `.env`. auth needs `DATABASE_URL`, `AUTH_SECRET`, `ENCRYP
 
 ## performance (measured)
 
-Measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). These requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. Raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh).
+measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). these requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh).
 
 | Endpoint | Concurrent VUs | req/s | p50 | p95 | p99 | Errors |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -80,7 +80,7 @@ Measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 runn
 | `POST /v1/classify` | 200 | 20,434 | 8.84 ms | 17.12 ms | 24.66 ms | 0% |
 | `GET /health` | 50 | 38,383 | 1.11 ms | 2.56 ms | 3.81 ms | 0% |
 
-Tests on the same run: API pytest 16 passed (43% line coverage, [`pytest-coverage.txt`](benchmarks/results-2026-10-19/pytest-coverage.txt)); SDK 11/11 and web 38/38 `node --test` cases passed; web typecheck and `next build` passed.
+tests on the same run: API pytest 16 passed (43% line coverage, [`pytest-coverage.txt`](benchmarks/results-2026-10-19/pytest-coverage.txt)); SDK 11/11 and web 38/38 `node --test` cases passed; web typecheck and `next build` passed.
 
 ## known issues
 
