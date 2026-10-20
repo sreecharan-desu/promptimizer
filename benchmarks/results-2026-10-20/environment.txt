@@ -1,0 +1,7 @@
+date: 2026-10-20T14:48:21+00:00
+cpu: 8 x Intel(R) Xeon(R) Processor
+ram_mb: 16002
+Linux 6.12.94+
+Python 3.12.15
+command: cd apps/api && pytest -q --cov=app --cov-report=term
+upstream llm, qdrant and embeddings are faked in tests; no network calls
