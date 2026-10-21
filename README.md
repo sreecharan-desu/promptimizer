@@ -92,3 +92,7 @@ tests on the same run: API pytest 16 passed (43% line coverage, [`pytest-coverag
 ## license
 
 [mit](LICENSE)
+
+---
+
+built by [sreecharan desu](https://www.sreecharandesu.in) · [more projects](https://www.sreecharandesu.in/work)
