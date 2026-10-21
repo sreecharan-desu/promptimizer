@@ -70,9 +70,9 @@ npm test --workspace=@promptimizer/web
 
 copy `.env.example` to `.env`. auth needs `DATABASE_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_MAIL_USER`, `GOOGLE_MAIL_PASSWORD`.
 
-## performance (measured)
+## local benchmark
 
-measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). these requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh).
+local benchmark, single run on one machine: 8 vCPU Intel Xeon, 16 GB RAM, Linux 6.12, Python 3.12.15, k6 v0.54.0. k6 running on the same box against the FastAPI gateway (`apps/api`, 4 uvicorn workers, in-memory cache). these requests never call an upstream LLM, so they measure router overhead only, not end-to-end chat latency. raw output: [`benchmarks/results-2026-10-19/`](benchmarks/results-2026-10-19/), environment in [`environment.txt`](benchmarks/results-2026-10-19/environment.txt), reproduce with [`benchmarks/run.sh`](benchmarks/run.sh). these numbers are from one local box, not a production deployment.
 
 | endpoint | concurrent VUs | req/s | p50 | p95 | p99 | errors |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -80,13 +80,13 @@ measured on a single machine (8 vCPU Intel Xeon, 16 GB RAM, Linux), with k6 runn
 | `POST /v1/classify` | 200 | 20,434 | 8.84 ms | 17.12 ms | 24.66 ms | 0% |
 | `GET /health` | 50 | 38,383 | 1.11 ms | 2.56 ms | 3.81 ms | 0% |
 
-tests on the same run: API pytest 16 passed (43% line coverage, [`pytest-coverage.txt`](benchmarks/results-2026-10-19/pytest-coverage.txt)); SDK 11/11 and web 38/38 `node --test` cases passed; web typecheck and `next build` passed.
+tests: API pytest 61 passed, 88% line coverage (20 oct 2026, same 8 vCPU Intel Xeon / 16 GB box, [`pytest-coverage.txt`](benchmarks/results-2026-10-20/pytest-coverage.txt), [`environment.txt`](benchmarks/results-2026-10-20/environment.txt)). on the 19 oct run: SDK 11/11 and web 38/38 `node --test` cases passed; web typecheck and `next build` passed.
 
 ## known issues
 
 - js tests use `node --experimental-strip-types`, which needs node 22.6+. on node 20 they exit with code 9.
 - `npm audit` reports 10 high and 6 moderate advisories in the js workspace (19 oct 2026).
-- api line coverage is 43%. `router.py`, `semantic_cache.py` and the provider client are mostly untested.
+- api line coverage is 88%. upstream llm, qdrant and embeddings are faked in tests; the live nvidia embedding client and the redis/upstash cache backends are not exercised.
 - cost-saved and quality figures depend on your provider and prompts. no fixed savings percentage is claimed.
 
 ## license
