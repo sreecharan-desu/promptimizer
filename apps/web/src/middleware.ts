@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DOCS_HOST, SITE_HOST, SITE_URL } from "@/lib/site";
+import { DOCS_HOST, DOCS_MIRROR_HOST, SITE_HOST, SITE_URL } from "@/lib/site";
 
 function hostname(request: NextRequest) {
   return (request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
@@ -10,7 +10,7 @@ function hostname(request: NextRequest) {
 }
 
 function isDocsHost(host: string) {
-  return host === DOCS_HOST || host === `docs.${SITE_HOST.replace(/^www\./, "")}`;
+  return host === DOCS_HOST || host === DOCS_MIRROR_HOST || host === `docs.${SITE_HOST.replace(/^www\./, "")}`;
 }
 
 function isMainHost(host: string) {

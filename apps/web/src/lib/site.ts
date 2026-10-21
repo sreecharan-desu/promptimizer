@@ -2,6 +2,8 @@
 export const SITE_HOST = "www.promptimizer.site";
 export const SITE_URL = `https://${SITE_HOST}`;
 export const DOCS_HOST = "docs.promptimizer.site";
+/** mirror docs host on sreecharandesu.in (serves the same docs). */
+export const DOCS_MIRROR_HOST = "docs-promptimizer.sreecharandesu.in";
 export const DOCS_URL = `https://${DOCS_HOST}`;
 export const DOCS_HOME = `${DOCS_URL}/docs`;
 export const API_URL = `${SITE_URL}/api`;
