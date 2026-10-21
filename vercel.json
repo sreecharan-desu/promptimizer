@@ -6,7 +6,23 @@
   "redirects": [
     {
       "source": "/api/:path*",
-      "has": [{ "type": "host", "value": "docs.promptimizer.site" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "docs.promptimizer.site"
+        }
+      ],
+      "destination": "https://www.promptimizer.site/api/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/api/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "docs-promptimizer.sreecharandesu.in"
+        }
+      ],
       "destination": "https://www.promptimizer.site/api/:path*",
       "permanent": true
     }
